@@ -149,7 +149,9 @@ export const adminUpsertPrize = createServerFn({ method: "POST" })
     await assertAdmin(context);
     const db = await admin();
     const { id, ...rest } = data;
-    const { error } = await db.from("prizes").upsert(id ? { id, ...rest } : rest);
+    const { error } = id
+      ? await db.from("prizes").update(rest).eq("id", id)
+      : await db.from("prizes").insert(rest);
     if (error) throw new Error(error.message);
     await audit(context.userId, "prize.upserted", data);
     return { ok: true };
