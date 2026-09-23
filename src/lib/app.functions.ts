@@ -148,7 +148,8 @@ export const adminUpsertPrize = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const db = await admin();
-    const { error } = await db.from("prizes").upsert(data);
+    const { id, ...rest } = data;
+    const { error } = await db.from("prizes").upsert(id ? { id, ...rest } : rest);
     if (error) throw new Error(error.message);
     await audit(context.userId, "prize.upserted", data);
     return { ok: true };

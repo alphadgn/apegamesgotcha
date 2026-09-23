@@ -201,7 +201,7 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
-function History({ title, rows }: { title: string; rows: { k: string; l: string; r: string; c?: string }[] }) {
+function History({ title, rows }: { title: string; rows: { k: string; l: string; r: string; c?: string | undefined }[] }) {
   return (
     <div className="rounded border border-border bg-card p-6">
       <h3 className="text-lg font-bold">{title}</h3>
