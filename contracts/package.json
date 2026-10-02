@@ -1,0 +1,12 @@
+{
+  "name": "apegames-gotcha-contracts",
+  "private": true,
+  "description": "GotchaVRF — Chainlink VRF v2.5 prize draws for ApeGames Gotcha",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vv"
+  },
+  "dependencies": {
+    "@chainlink/contracts": "1.5.0"
+  }
+}

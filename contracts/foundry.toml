@@ -1,0 +1,17 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["node_modules", "lib"]
+solc_version = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+remappings = ["@chainlink/contracts/=node_modules/@chainlink/contracts/", "forge-std/=lib/forge-std/src/", "@openzeppelin/contracts@4.9.6/=node_modules/@openzeppelin/contracts-4.9.6/", "@openzeppelin/contracts@5.0.2/=node_modules/@openzeppelin/contracts-5.0.2/"]
+
+[fuzz]
+runs = 512
+
+[rpc_endpoints]
+base = "${BASE_RPC_URL}"
+base_sepolia = "${BASE_SEPOLIA_RPC_URL}"

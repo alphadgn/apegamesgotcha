@@ -109,14 +109,126 @@ export const claimBurn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// ---------- Spin ----------
-export const spin = createServerFn({ method: "POST" })
+// ---------- Spins (Chainlink VRF) ----------
+// The prize is drawn on-chain by the GotchaVRF contract. The server reserves credits,
+// sends the request, and records whatever the contract drew. It never generates randomness.
+
+type SpinRow = { id: string; status: string; created_at: string; request_tx: string | null };
+
+async function settleSpins(cfg: import("./vrf.server").VrfConfig, rows: SpinRow[]) {
+  const pending = rows.filter((r) => r.status === "pending");
+  if (!pending.length) return;
+  const { readSpins, ChainStatus } = await import("./vrf.server");
+  const db = await admin();
+  const onchain = await readSpins(cfg, pending.map((r) => r.id));
+  const timeoutMs = (cfg.draw_timeout_sec ?? 900) * 1000;
+  for (const s of onchain) {
+    const row = pending.find((r) => r.id === s.id);
+    if (!row) continue;
+    if (s.status === ChainStatus.Fulfilled) {
+      const { error } = await db.rpc("finalize_spin", {
+        _spin_id: s.id,
+        _prize_index: s.prizeIndex,
+        _random_word: s.randomWord.toString(),
+        _request_id: s.requestId.toString(),
+      });
+      if (error) throw new Error(error.message);
+    } else if (s.status === ChainStatus.Cancelled) {
+      await db.rpc("refund_spins", { _ids: [s.id] });
+    } else if (s.status === ChainStatus.None && Date.now() - new Date(row.created_at).getTime() > timeoutMs) {
+      // The request never reached the contract — give the credit back.
+      await db.rpc("refund_spins", { _ids: [s.id] });
+    }
+  }
+}
+
+type SpinOutRow = {
+  id: string;
+  status: string;
+  prize_id: string | null;
+  prize_name: string | null;
+  rarity: string | null;
+  points: number | null;
+  random_word: string | null;
+  request_tx: string | null;
+};
+
+function publicSpin(r: SpinOutRow, verifyUrl: string | undefined) {
+  return {
+    id: r.id,
+    status: r.status as "pending" | "fulfilled" | "refunded",
+    prize_id: r.prize_id,
+    prize_name: r.prize_name,
+    rarity: r.rarity,
+    points: r.points,
+    random_word: r.random_word,
+    request_tx: r.request_tx,
+    verify_url: verifyUrl,
+  };
+}
+
+export const startDraw = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((d) => z.object({ count: z.number().int().min(1).max(10) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const vrf = await import("./vrf.server");
+    const cfg = vrf.requireVrf((await getConfig("vrf")) as import("./vrf.server").VrfConfig);
+    if (data.count > (cfg.max_batch ?? 5)) throw new Error(`Up to ${cfg.max_batch ?? 5} capsules per pull`);
     const db = await admin();
-    const { data, error } = await db.rpc("perform_spin", { _user_id: context.userId });
+
+    // Settle anything this user left in flight first.
+    const { data: open } = await db.from("spins").select("id, status, created_at, request_tx").eq("user_id", context.userId).eq("status", "pending");
+    if (open?.length) await settleSpins(cfg, open);
+
+    // The odds shown in the app must be the odds the contract will use.
+    const { data: prizes } = await db.from("prizes").select("id, weight, inventory, active, onchain_index");
+    const chain = await vrf.readPool(cfg);
+    if (!vrf.weightsMatch(vrf.poolArrays(prizes ?? []), chain.pool)) throw new Error("Prize odds are being updated on-chain. Try again in a minute.");
+
+    const { data: ids, error } = await db.rpc("begin_spins", { _user_id: context.userId, _count: data.count });
     if (error) throw new Error(error.message);
-    return data as { id: string; prize_name: string; rarity: string; points: number };
+    const spinIds = ids as string[];
+
+    let sent;
+    try {
+      sent = await vrf.requestSpinsOnChain(cfg, spinIds);
+    } catch (e) {
+      await db.rpc("refund_spins", { _ids: spinIds });
+      throw new Error(`Couldn't start the Chainlink draw: ${(e as Error).message}`);
+    }
+    await db.from("spins").update({
+      request_tx: sent.hash,
+      vrf_request_id: sent.requestId.toString(),
+      chain_id: cfg.chain_id,
+      contract_address: cfg.contract.toLowerCase(),
+    }).in("id", spinIds);
+    if (sent.reverted) {
+      await db.rpc("refund_spins", { _ids: spinIds });
+      throw new Error("The Chainlink draw request was rejected on-chain. Your spins were returned.");
+    }
+    await audit(context.userId, "spin.requested", { spinIds, tx: sent.hash, requestId: sent.requestId.toString() });
+    return { spinIds, txHash: sent.hash as string, txUrl: vrf.txUrl(cfg, sent.hash) };
+  });
+
+export const checkDraw = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ ids: z.array(z.string().uuid()).min(1).max(10) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { txUrl } = await import("./vrf.server");
+    const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
+    const db = await admin();
+    const cols = "id, status, created_at, request_tx, prize_id, prize_name, rarity, points, random_word";
+    const load = async () => {
+      const { data: rows } = await db.from("spins").select(cols).eq("user_id", context.userId).in("id", data.ids);
+      return rows ?? [];
+    };
+    let rows = await load();
+    if (rows.some((r) => r.status === "pending")) {
+      await settleSpins(cfg, rows);
+      rows = await load();
+    }
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return data.ids.filter((id) => byId.has(id)).map((id) => { const r = byId.get(id)!; return publicSpin(r, txUrl(cfg, r.request_tx)); });
   });
 
 // ---------- Admin ----------
@@ -189,4 +301,70 @@ export const adminSetLevel = createServerFn({ method: "POST" })
     await db.from("nft_holdings").update({ level_override: data.level }).eq("token_id", data.tokenId);
     await audit(context.userId, "nft.level_override", data);
     return { ok: true };
+  });
+
+// ---------- Admin: Chainlink VRF ----------
+export const adminVrfStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const vrf = await import("./vrf.server");
+    const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
+    const db = await admin();
+    const { data: prizes } = await db.from("prizes").select("id, weight, inventory, active, onchain_index");
+    const { count: pendingDb } = await db.from("spins").select("id", { count: "exact", head: true }).eq("status", "pending");
+    const local = vrf.poolArrays(prizes ?? []);
+    const unpublished = (prizes ?? []).filter((p) => p.onchain_index == null && p.active).length;
+    if (!/^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "")) return { configured: false as const, enabled: !!cfg?.enabled, pendingDb: pendingDb ?? 0, unpublished };
+    const chain = await vrf.readPool(cfg);
+    return {
+      configured: true as const,
+      enabled: !!cfg.enabled,
+      contract: cfg.contract,
+      contractUrl: cfg.explorer_url ? `${cfg.explorer_url.replace(/\/$/, "")}/address/${cfg.contract}` : undefined,
+      poolVersion: chain.version,
+      pendingOnChain: chain.pending,
+      pendingDb: pendingDb ?? 0,
+      oddsInSync: unpublished === 0 && vrf.weightsMatch(local, chain.pool),
+      unpublished,
+      chainPool: chain.pool,
+    };
+  });
+
+export const adminPublishPool = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const vrf = await import("./vrf.server");
+    const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
+    if (!/^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "")) throw new Error("Set vrf.contract in Configuration first");
+    const db = await admin();
+    const { data: all } = await db.from("prizes").select("id, weight, inventory, active, onchain_index, created_at").order("created_at").order("id");
+    let next = Math.max(-1, ...(all ?? []).map((p) => p.onchain_index ?? -1)) + 1;
+    for (const p of all ?? []) {
+      if (p.onchain_index == null && p.active) {
+        if (next >= 32) throw new Error("The contract holds at most 32 prizes");
+        await db.from("prizes").update({ onchain_index: next }).eq("id", p.id);
+        p.onchain_index = next++;
+      }
+    }
+    const { weights, remaining } = vrf.poolArrays(all ?? []);
+    if (!weights.length) throw new Error("No active prizes to publish");
+    const hash = await vrf.publishPoolOnChain(cfg, weights, remaining);
+    await audit(context.userId, "vrf.pool_published", { tx: hash, weights, remaining });
+    return { txHash: hash as string, txUrl: vrf.txUrl(cfg, hash) };
+  });
+
+export const adminSettleDraws = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
+    const db = await admin();
+    const { data: rows } = await db.from("spins").select("id, status, created_at, request_tx").eq("status", "pending").limit(200);
+    const before = rows?.length ?? 0;
+    for (let i = 0; i < before; i += 10) await settleSpins(cfg, rows!.slice(i, i + 10));
+    const { count } = await db.from("spins").select("id", { count: "exact", head: true }).eq("status", "pending");
+    await audit(context.userId, "vrf.settled", { before, after: count });
+    return { before, after: count ?? 0 };
   });

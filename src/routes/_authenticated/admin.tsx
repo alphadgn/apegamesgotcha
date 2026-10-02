@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminSetLevel } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminSettleDraws } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,11 +35,13 @@ function Admin() {
         <TabsList>
           <TabsTrigger value="config">Configuration</TabsTrigger>
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
+          <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>
           <TabsTrigger value="grants">Grants & levels</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="config"><ConfigPanel /></TabsContent>
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
+        <TabsContent value="vrf"><VrfPanel /></TabsContent>
         <TabsContent value="grants"><GrantsPanel /></TabsContent>
         <TabsContent value="audit"><AuditPanel /></TabsContent>
       </Tabs>
@@ -101,6 +103,57 @@ function PrizesPanel() {
         </div>
       ))}
       <Button variant="outline" size="sm" className="mt-4" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", weight: 1, points: 0, inventory: null, active: false }])}>Add prize</Button>
+    </div>
+  );
+}
+
+function VrfPanel() {
+  const status = useServerFn(adminVrfStatus);
+  const publish = useServerFn(adminPublishPool);
+  const settle = useServerFn(adminSettleDraws);
+  const qc = useQueryClient();
+  const { data, error, isFetching } = useQuery({ queryKey: ["vrf-status"], queryFn: () => status() });
+  const [busy, setBusy] = useState<string | null>(null);
+  const act = async (k: string, fn: () => Promise<string>) => {
+    setBusy(k);
+    try { toast.success(await fn()); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); qc.invalidateQueries({ queryKey: ["vrf-status"] }); }
+  };
+  const Row = ({ k, v, warn }: { k: string; v: ReactNode; warn?: boolean }) => (
+    <div className="flex justify-between border-b border-border py-2 text-sm"><span className="text-muted-foreground">{k}</span><span className={warn ? "text-destructive" : ""}>{v}</span></div>
+  );
+  return (
+    <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="rounded border border-border bg-card p-4">
+        <h3 className="font-bold">Draw contract</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Every capsule is drawn by the GotchaVRF contract using Chainlink VRF. Edit the <span className="font-mono">vrf</span> config to point at your deployment.</p>
+        {error && <p className="mt-3 text-sm text-destructive">{(error as Error).message}</p>}
+        {data && (
+          <div className="mt-3 font-mono">
+            <Row k="Spins enabled" v={data.enabled ? "yes" : "no"} warn={!data.enabled} />
+            <Row k="Contract" v={data.configured ? (data.contractUrl ? <a className="underline" href={data.contractUrl} target="_blank" rel="noreferrer">{data.contract.slice(0, 10)}…</a> : data.contract) : "not set"} warn={!data.configured} />
+            {data.configured && <>
+              <Row k="Odds in sync with contract" v={data.oddsInSync ? "yes" : "no — publish"} warn={!data.oddsInSync} />
+              <Row k="Pool version" v={data.poolVersion} />
+              <Row k="Draws pending on-chain" v={data.pendingOnChain} />
+            </>}
+            <Row k="Spins pending in app" v={data.pendingDb} />
+            {data.unpublished > 0 && <Row k="Prizes not yet on-chain" v={data.unpublished} warn />}
+          </div>
+        )}
+        <Button variant="outline" size="sm" className="mt-3" disabled={isFetching} onClick={() => qc.invalidateQueries({ queryKey: ["vrf-status"] })}>Refresh</Button>
+      </div>
+      <div className="space-y-4 rounded border border-border bg-card p-4">
+        <div>
+          <h3 className="font-bold">Publish odds on-chain</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Sends the current prize weights and stock to the contract. Spins stay blocked while the app's odds differ from the contract's. The contract refuses changes while a draw is pending.</p>
+          <Button className="mt-2" disabled={!!busy} onClick={() => act("publish", async () => { const r = await publish(); return `Published (${r.txHash.slice(0, 10)}…)`; })}>{busy === "publish" ? "Publishing…" : "Publish prize pool"}</Button>
+        </div>
+        <div>
+          <h3 className="font-bold">Settle pending draws</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Records results Chainlink has delivered for players who left mid-draw, and returns credits for requests that never reached the chain.</p>
+          <Button variant="secondary" className="mt-2" disabled={!!busy} onClick={() => act("settle", async () => { const r = await settle(); return `Settled ${r.before - r.after} of ${r.before}`; })}>{busy === "settle" ? "Settling…" : "Settle now"}</Button>
+        </div>
+      </div>
     </div>
   );
 }

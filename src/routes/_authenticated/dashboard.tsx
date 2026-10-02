@@ -4,9 +4,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getWalletNonce, linkWallet, syncNfts, claimBurn, spin } from "@/lib/app.functions";
+import { getWalletNonce, linkWallet, syncNfts, claimBurn, startDraw, checkDraw } from "@/lib/app.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GotchaMachine } from "@/components/gotcha/GotchaMachine";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -33,13 +34,14 @@ function useMyData() {
     queryFn: async () => {
       const { data: u } = await supabase.auth.getUser();
       const uid = u.user!.id;
-      const [wallets, holdings, ledger, credits, spins, nftCfg] = await Promise.all([
+      const [wallets, holdings, ledger, credits, spins, nftCfg, prizes] = await Promise.all([
         supabase.from("wallets").select("*").eq("user_id", uid),
         supabase.from("nft_holdings").select("*").eq("user_id", uid).order("token_id"),
         supabase.from("points_ledger").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
         supabase.from("spin_credits").select("*").eq("user_id", uid).is("used_spin_id", null),
         supabase.from("spins").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(20),
         supabase.from("app_config").select("value").eq("key", "nft").single(),
+        supabase.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at"),
       ]);
       return {
         wallets: wallets.data ?? [],
@@ -47,6 +49,7 @@ function useMyData() {
         ledger: ledger.data ?? [],
         credits: credits.data ?? [],
         spins: spins.data ?? [],
+        prizes: prizes.data ?? [],
         nft: (nftCfg.data?.value ?? {}) as { burn_min_level?: number; burn_address?: string; opensea_url?: string },
       };
     },
@@ -61,9 +64,9 @@ function Dashboard() {
   const linkFn = useServerFn(linkWallet);
   const syncFn = useServerFn(syncNfts);
   const burnFn = useServerFn(claimBurn);
-  const spinFn = useServerFn(spin);
+  const drawFn = useServerFn(startDraw);
+  const checkFn = useServerFn(checkDraw);
   const [busy, setBusy] = useState<string | null>(null);
-  const [result, setResult] = useState<{ prize_name: string; rarity: string; points: number } | null>(null);
   const [burnTx, setBurnTx] = useState("");
   const [burnToken, setBurnToken] = useState("");
 
@@ -89,13 +92,6 @@ function Dashboard() {
     refresh();
   });
 
-  const doSpin = () => run("spin", async () => {
-    setResult(null);
-    const [r] = await Promise.all([spinFn(), new Promise((res) => setTimeout(res, 1400))]);
-    setResult(r);
-    refresh();
-  });
-
   const doBurn = () => run("burn", async () => {
     await burnFn({ data: { txHash: burnTx.trim(), tokenId: burnToken.trim() } });
     toast.success("Burn verified — free spin added!");
@@ -105,6 +101,7 @@ function Dashboard() {
 
   if (!data) return <main className="mx-auto max-w-6xl px-4 py-12 font-mono text-muted-foreground">Loading…</main>;
   const total = data.ledger.reduce((s, l) => s + l.amount, 0);
+  const pendingIds = data.spins.filter((s) => s.status === "pending").map((s) => s.id);
   const minLevel = data.nft.burn_min_level ?? 4;
 
   return (
@@ -115,31 +112,23 @@ function Dashboard() {
         <Stat label="NFTs synced" value={String(data.holdings.filter((h) => !h.burned).length)} />
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.1fr]">
-        {/* Gacha machine */}
-        <section className="rounded border-2 border-primary bg-card p-6 text-center">
-          <h2 className="text-2xl font-bold">Gacha machine</h2>
-          <div className="mx-auto my-8 flex h-44 w-44 items-center justify-center rounded-full border-4 border-border bg-background">
-            {busy === "spin" ? (
-              <div className="animate-capsule h-20 w-20 rounded-full bg-gradient-to-b from-accent to-primary" />
-            ) : result ? (
-              <div className={`rounded border-2 px-3 py-4 ${rarityClass[result.rarity] ?? ""}`}>
-                <p className="font-mono text-xs uppercase">{result.rarity}</p>
-                <p className="font-display text-lg font-bold">{result.prize_name}</p>
-                <p className="font-mono text-sm">+{result.points} pts</p>
-              </div>
-            ) : (
-              <div className="h-20 w-20 rounded-full bg-gradient-to-b from-accent to-primary opacity-70" />
-            )}
-          </div>
-          <Button size="lg" className="w-full" disabled={!data.credits.length || !!busy} onClick={doSpin}>
-            {data.credits.length ? `Spin (${data.credits.length} left)` : "No spins available"}
-          </Button>
-          <p className="mt-3 text-xs text-muted-foreground">Paid spins open when checkout is enabled by the organizers.</p>
-        </section>
+      {/* Gotcha machine */}
+      <div className="mt-8">
+        <GotchaMachine
+          credits={data.credits.length}
+          prizes={data.prizes}
+          onDraw={(count) => drawFn({ data: { count } })}
+          onCheck={(ids) => checkFn({ data: { ids } })}
+          resumeIds={pendingIds}
+          onSessionEnd={refresh}
+          onError={(m) => toast.error(m)}
+          footnote="Paid spins open when checkout is enabled by the organizers."
+        />
+      </div>
 
+      <div className="mt-8 grid gap-6 lg:grid-cols-2">
         {/* Wallet & NFTs */}
-        <section className="space-y-6">
+        <section className="contents">
           <div className="rounded border border-border bg-card p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">Wallets</h2>
@@ -185,7 +174,7 @@ function Dashboard() {
       </div>
 
       <div className="mt-8 grid gap-6 md:grid-cols-2">
-        <History title="Recent spins" rows={data.spins.map((s) => ({ k: s.id, l: s.prize_name, r: `+${s.points}`, c: rarityClass[s.rarity]?.split(" ")[0] }))} />
+        <History title="Recent spins" rows={data.spins.filter((s) => s.status !== "refunded").map((s) => (s.status === "pending" ? { k: s.id, l: "Drawing on-chain…", r: "Chainlink VRF", c: "text-muted-foreground" } : { k: s.id, l: s.prize_name ?? "Prize", r: `+${s.points ?? 0}`, c: s.rarity ? rarityClass[s.rarity]?.split(" ")[0] : undefined }))} />
         <History title="Points history" rows={data.ledger.slice(0, 20).map((l) => ({ k: String(l.id), l: `${l.reason}${l.ref && l.reason === "holding" ? ` #${l.ref}` : ""}`, r: `${l.amount > 0 ? "+" : ""}${l.amount}` }))} />
       </div>
     </main>
