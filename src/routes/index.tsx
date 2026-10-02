@@ -1,6 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Leaderboard } from "@/components/Leaderboard";
+import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
+import type { GotchaPrize } from "@/components/gotcha/GotchaMachine";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -22,33 +26,31 @@ const steps = [
 ];
 
 function Index() {
+  const { data: prizes } = useQuery({
+    queryKey: ["public-prizes"],
+    queryFn: async () => {
+      const { data } = await supabase.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at");
+      return (data ?? []) as GotchaPrize[];
+    },
+  });
   return (
     <main className="mx-auto max-w-6xl px-4 pb-24">
-      <section className="grid gap-10 py-16 md:grid-cols-[1.3fr_1fr] md:items-center">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Go ApeGames 2026 · Pre-event</p>
-          <h1 className="mt-4 text-5xl font-bold leading-[0.95] md:text-7xl">
-            Pull the lever.<br /><span className="text-primary">Climb the board.</span>
-          </h1>
-          <p className="mt-6 max-w-lg text-lg text-muted-foreground">
-            The official gacha for the Go ApeGames 2026 launch. Hold, burn and spin to stack points before Charleston.
-          </p>
-          <div className="mt-8 flex gap-3">
-            <Button asChild size="lg"><Link to="/dashboard">Open my machine</Link></Button>
-            <Button asChild size="lg" variant="outline"><Link to="/leaderboard">View leaderboard</Link></Button>
-          </div>
+      <section className="py-12 md:py-16">
+        <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Go ApeGames 2026 · Pre-event</p>
+        <h1 className="mt-4 text-5xl font-bold leading-[0.95] md:text-7xl">
+          Pull the lever.<br /><span className="text-primary">Climb the board.</span>
+        </h1>
+        <p className="mt-6 max-w-lg text-lg text-muted-foreground">
+          The official gacha for the Go ApeGames 2026 launch. Hold, burn and spin to stack points before Charleston.
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Button asChild size="lg"><Link to="/dashboard">Open my machine</Link></Button>
+          <Button asChild size="lg" variant="outline"><Link to="/leaderboard">View leaderboard</Link></Button>
         </div>
-        <div className="relative mx-auto aspect-[3/4] w-full max-w-xs rounded-t-[8rem] border-4 border-primary bg-card p-6">
-          <div className="grid h-2/3 grid-cols-3 gap-3 rounded-t-[6rem] border border-border bg-background p-6 pt-12">
-            {["bg-rarity-common", "bg-rarity-rare", "bg-rarity-epic", "bg-rarity-legendary", "bg-accent", "bg-primary"].map((c, i) => (
-              <div key={i} className={`aspect-square rounded-full ${c} opacity-90`} />
-            ))}
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <div className="h-12 w-12 rounded-full border-4 border-accent" />
-            <div className="h-10 w-20 rounded bg-background" />
-          </div>
-        </div>
+      </section>
+
+      <section className="mb-16">
+        <DemoGotchaMachine prizes={prizes} />
       </section>
 
       <section className="grid gap-px overflow-hidden rounded border border-border bg-border md:grid-cols-4">

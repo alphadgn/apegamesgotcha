@@ -433,13 +433,14 @@ export function GotchaMachine({
   const sessionPts = results.slice(0, revealed).reduce((s, r) => s + r.points, 0);
   const rarityOf = (phase === "charging" || phase === "opening" || phase === "revealed") && active ? active.rarity : undefined;
   const sessionDone = drawn > 0 && remaining === 0 && !busy;
-  const link = (href: string | undefined, label: string) =>
+  /** Verification links only appear when there's a real transaction to point at. */
+  const link = (href: string | undefined, label: string, fallback: string = "Chainlink VRF draw") =>
     href ? (
       <a href={href} target="_blank" rel="noreferrer" className="gm-link">
         {label} ↗
       </a>
     ) : (
-      label
+      fallback
     );
 
   const status: { t: string; s: string; pill: ReactNode } = (() => {
@@ -455,7 +456,7 @@ export function GotchaMachine({
         return {
           t: "Drawing on-chain…",
           s: slowDraw ? "Waiting for block confirmations…" : `Chainlink VRF is generating ${plural(sessionSize, "random number")}`,
-          pill: link(requestUrl, "View the request"),
+          pill: link(requestUrl, "View the request", "Waiting on Chainlink VRF"),
         };
       case "rolling":
         return { t: "Prizes rotating…", s: `Capsule ${i} of ${drawn}`, pill: "Chainlink VRF draw" };

@@ -527,3 +527,14 @@
   transition-duration: 0.001ms !important;
 }
 .gm.is-reduced .gm-reveal { animation: none; }
+
+/* ---------- demo wrapper (home page) ---------- */
+.gm-demo-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  margin-bottom: 12px; font-size: 13px; color: var(--color-muted-foreground, #a3a39a);
+}
+.gm-demo-bar button {
+  flex: none; border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  background: #f6c343; color: #0c1b3d; font-weight: 600; font-size: 13px;
+}
+.gm-demo-bar button:focus-visible { outline: 3px solid #f6c343; outline-offset: 2px; }
