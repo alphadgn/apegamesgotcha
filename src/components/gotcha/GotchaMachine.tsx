@@ -125,6 +125,15 @@ export function GotchaMachine({
   const [results, setResults] = useState<GotchaResult[]>([]);
   const [cur, setCur] = useState(0);
   const [revealed, setRevealed] = useState(0);
+  /** Prizes from earlier spins, in spin order — slot 1 is spin 1, slot 2 is spin 2… */
+  const [history, setHistory] = useState<GotchaResult[]>([]);
+  /** Tray slot where this pull's first capsule goes. */
+  const [offset, setOffset] = useState(0);
+  /** How many of this pull's prizes have flown into their tray slot. */
+  const [landed, setLanded] = useState(0);
+  /** The prize has left the card for the tray; a fresh sealed capsule waits in the vault. */
+  const [parked, setParked] = useState(false);
+  const [flying, setFlying] = useState(false);
   const [winTile, setWinTile] = useState<number | null>(null);
   const [requestUrl, setRequestUrl] = useState<string | undefined>();
   const [soundOn, setSoundOn] = useState(true);
@@ -145,6 +154,9 @@ export function GotchaMachine({
   const sfx = useRef<Sfx | null>(null);
   const jukebox = useRef<Jukebox | null>(null);
   const resultsRef = useRef<GotchaResult[]>([]);
+  const historyRef = useRef<GotchaResult[]>([]);
+  const revealedRef = useRef(0);
+  const offsetRef = useRef(0);
   const modeRef = useRef(mode);
   const reduceRef = useRef(reduce);
   const ended = useRef(true);
@@ -295,15 +307,75 @@ export function GotchaMachine({
   const resetToIdle = useCallback(() => {
     drawToken.current++;
     clearTimers();
+    // Prizes already revealed stay in their tray slots (spin order).
+    const finished = resultsRef.current.slice(0, revealedRef.current);
+    if (finished.length) {
+      historyRef.current = [...historyRef.current, ...finished];
+      setHistory(historyRef.current);
+    }
     resultsRef.current = [];
     setResults([]);
+    revealedRef.current = 0;
     setRevealed(0);
+    setLanded(0);
+    setParked(false);
     setSessionSize(0);
     setWinTile(null);
     setRequestUrl(undefined);
     setPhase("idle");
     motion.current = { kind: "drift", speed: IDLE_SPEED };
     jukebox.current?.stop(0.8);
+  }, []);
+
+  /** Fly the revealed prize from the card into its numbered tray slot, then show it there. */
+  const flyToSlot = useCallback((k: number) => {
+    const land = () => {
+      setLanded((n) => Math.max(n, k + 1));
+      setParked(true);
+    };
+    const root = rootRef.current;
+    const art = root?.querySelector<SVGSVGElement>(".gm-reveal .gm-reveal-art");
+    const slot = root?.querySelector<HTMLElement>(`[data-slot="${offsetRef.current + k}"] .gm-slot-ball`);
+    if (!root || !art || !slot || reduceRef.current || !visible.current || typeof art.animate !== "function") return land();
+    const a = art.getBoundingClientRect();
+    const b = slot.getBoundingClientRect();
+    if (!a.width || !b.width) return land();
+    const ghost = art.cloneNode(true) as SVGSVGElement;
+    ghost.removeAttribute("class");
+    Object.assign(ghost.style, {
+      position: "fixed",
+      left: `${a.left}px`,
+      top: `${a.top}px`,
+      width: `${a.width}px`,
+      height: `${a.height}px`,
+      zIndex: "60",
+      pointerEvents: "none",
+      filter: "drop-shadow(0 6px 10px rgba(0,0,0,.5))",
+    });
+    document.body.appendChild(ghost);
+    art.style.visibility = "hidden";
+    setFlying(true);
+    const dx = b.left + b.width / 2 - (a.left + a.width / 2);
+    const dy = b.top + b.height / 2 - (a.top + a.height / 2);
+    const end = (b.width * 0.72) / a.width;
+    const anim = ghost.animate(
+      [
+        { transform: "translate(0, 0) scale(1)" },
+        { transform: `translate(${dx * 0.45}px, ${dy * 0.45 - 50}px) scale(${(1 + end) / 2 + 0.2})`, offset: 0.45 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${end})` },
+      ],
+      { duration: 720, easing: "cubic-bezier(.45, 0, .3, 1)", fill: "forwards" },
+    );
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      ghost.remove();
+      setFlying(false);
+      land();
+    };
+    anim.onfinish = finish;
+    window.setTimeout(finish, 1000); // never leave a prize mid-air
   }, []);
 
   const revealCapsule = useCallback(
@@ -315,6 +387,7 @@ export function GotchaMachine({
       const tile = pickTile(r);
       setCur(i);
       setWinTile(null);
+      setParked(false);
       setPhase("rolling");
       if (!jukebox.current?.playing) jukebox.current?.start();
 
@@ -329,15 +402,18 @@ export function GotchaMachine({
           sfx.current?.pop();
           after(rm ? 120 : 620, () => {
             setPhase("revealed");
+            revealedRef.current = i + 1;
             setRevealed(i + 1);
             sfx.current?.fanfare(r.rarity);
             if (!rm && (r.rarity === "epic" || r.rarity === "legendary")) setConfetti((k) => k + 1);
+            // Show the prize on the card for a moment, then send it to its tray slot.
+            after(rm ? 0 : 1300, () => flyToSlot(i));
             const total = resultsRef.current.length;
             if (i + 1 >= total) {
               endSession();
-              if (total > 1) after(rm ? 900 : 1900, () => setPhase("complete"));
+              if (total > 1) after(rm ? 900 : 2600, () => setPhase("complete"));
             } else if (modeRef.current === "all") {
-              after(rm ? 700 : 1250, () => revealCapsule(i + 1));
+              after(rm ? 700 : 2300, () => revealCapsule(i + 1));
             }
           });
         });
@@ -371,7 +447,7 @@ export function GotchaMachine({
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tiles, step],
+    [tiles, step, flyToSlot],
   );
 
   /** Keep the reel spinning until Chainlink has answered for every capsule. */
@@ -438,6 +514,12 @@ export function GotchaMachine({
     setLeverKey((k) => k + 1);
 
     const n = Math.min(count, credits, maxPerSession);
+    const before = historyRef.current;
+    const base = before.length + n > maxPerSession ? [] : before; // tray full → start a new round at slot 1
+    historyRef.current = base;
+    setHistory(base);
+    offsetRef.current = base.length;
+    setOffset(base.length);
     setSessionSize(n);
     setPhase("requesting");
     motion.current = { kind: "drift", speed: DRAW_SPEED };
@@ -447,6 +529,8 @@ export function GotchaMachine({
       handle = await onDraw(n);
     } catch (e) {
       onError?.((e as Error).message || "Couldn't start the draw");
+      historyRef.current = before; // nothing was drawn — keep the tray as it was
+      setHistory(before);
       if (mounted.current) resetToIdle();
       return;
     }
@@ -465,7 +549,10 @@ export function GotchaMachine({
     motion.current = { kind: "drift", speed: 0 };
     setCur(drawn - 1);
     setWinTile(tile);
+    revealedRef.current = drawn;
     setRevealed(drawn);
+    setLanded(drawn);
+    setParked(true);
     setPhase(drawn > 1 ? "complete" : "revealed");
     jukebox.current?.stop(0.8);
     endSession();
@@ -521,14 +608,37 @@ export function GotchaMachine({
     }
   })();
 
-  const slotState = (k: number) => {
-    if (phase === "idle") return k < count && k < maxLoad ? "loaded" : k < maxLoad ? "empty" : "off";
-    if (k >= sessionSize) return "off";
-    if (waiting) return "drawing";
-    if (k < revealed) return "revealed";
-    if (k === cur && busy) return "active";
-    return k < drawn ? "sealed" : "off";
+  // Tray slot j shows: earlier spins (history) → this pull's capsules → empty.
+  const trayFull = history.length >= maxPerSession;
+  const loadStart = trayFull ? 0 : history.length; // where the next pull's capsules will go
+  const slotInfo = (j: number): { st: string; r?: GotchaResult | undefined; pick?: number } => {
+    if (phase === "idle") {
+      const pick = j - loadStart + 1; // capsules to load if this slot is tapped
+      const selectable = j >= loadStart && pick <= maxLoad;
+      if (selectable && pick <= count) return { st: "loaded", pick };
+      if (j < history.length) return { st: trayFull ? "past" : "revealed", r: history[j], ...(selectable ? { pick } : {}) };
+      return selectable ? { st: "empty", pick } : { st: "off" };
+    }
+    if (j < offset) return { st: "revealed", r: history[j] };
+    const k = j - offset;
+    if (k >= sessionSize) return { st: "off" };
+    if (waiting) return { st: "drawing" };
+    if (k < landed) return { st: "revealed", r: results[k] };
+    if (k === cur && busy) return { st: "active" };
+    return { st: k < drawn ? "sealed" : "off" };
   };
+  /** Between spins, tapping a free slot sets how many capsules the next pull loads. */
+  const pickBetweenSpins = (j: number) => {
+    const h = history.length + drawn; // this pull's prizes join the record
+    const start = h >= maxPerSession ? 0 : h;
+    const p = j - start + 1;
+    return p >= 1 && p <= maxLoad && start + p <= maxPerSession ? p : null;
+  };
+  useEffect(() => {
+    // Don't ask for more capsules than there are free slots left in this round.
+    const free = maxPerSession - history.length;
+    if (phase === "idle" && free > 0 && count > free) setCount(free);
+  }, [phase, history.length, count, maxPerSession]);
 
   let cta: { label: string; sub?: string; onClick: () => void; disabled?: boolean };
   if (phase === "requesting") cta = { label: "Requesting…", onClick: () => {}, disabled: true };
@@ -545,7 +655,7 @@ export function GotchaMachine({
   const word = active && (phase === "revealed" || phase === "charging" || phase === "opening") ? shortWord(active.random_word) : null;
 
   return (
-    <div ref={rootRef} className={`gm${reduce ? " is-reduced" : ""} is-${phase}`}>
+    <div ref={rootRef} className={`gm${reduce ? " is-reduced" : ""} is-${phase}${parked ? " is-parked" : ""}${flying ? " is-flying" : ""}`}>
       <div className="gm-sky" aria-hidden>
         <div className="gm-stars" />
         <div className="gm-moon" />
@@ -618,7 +728,7 @@ export function GotchaMachine({
                 </div>
 
                 <div className="gm-core">
-                  {phase !== "revealed" && phase !== "complete" && (
+                  {((phase !== "revealed" && phase !== "complete") || (phase === "revealed" && parked)) && (
                     <div className="gm-capsule">
                       <div className="gm-cap-top" />
                       <div className="gm-cap-bot" />
@@ -626,10 +736,10 @@ export function GotchaMachine({
                       <div className="gm-cap-shine" />
                     </div>
                   )}
-                  {(phase === "opening" || phase === "revealed") && <div className="gm-burst" aria-hidden />}
+                  {(phase === "opening" || (phase === "revealed" && !parked)) && <div className="gm-burst" aria-hidden />}
                 </div>
 
-                {phase === "revealed" && active && (
+                {phase === "revealed" && !parked && active && (
                   <div key={active.id} className={`gm-reveal r-${active.rarity}`}>
                     {(() => {
                       const Art = prizeArt(active.prize_name, active.rarity);
@@ -695,19 +805,27 @@ export function GotchaMachine({
             </div>
 
             <div className="gm-body">
-              <div className="gm-tray" role="group" aria-label="Capsules this pull">
+              <div className="gm-tray" role="group" aria-label="Your spins">
                 {Array.from({ length: maxPerSession }, (_, k) => {
-                  const st = slotState(k);
-                  const r = results[k];
-                  const Art = r && st === "revealed" ? prizeArt(r.prize_name, r.rarity) : null;
+                  const info = slotInfo(k);
+                  const { st, r } = info;
+                  const between = sessionDone && credits > 0 ? pickBetweenSpins(k) : null;
+                  const pick = canPull ? info.pick : between ?? undefined;
+                  const shown = r && (st === "revealed" || st === "past");
+                  const Art = shown ? prizeArt(r.prize_name, r.rarity) : null;
                   return (
                     <button
                       key={k}
                       type="button"
-                      className={`gm-slot s-${st}${r && st === "revealed" ? ` r-${r.rarity}` : ""}`}
-                      disabled={!canPull || k >= maxLoad}
-                      onClick={() => setCount(k + 1)}
-                      aria-label={st === "revealed" && r ? `Capsule ${k + 1}: ${r.prize_name}` : `Load ${plural(k + 1, "capsule")}`}
+                      data-slot={k}
+                      className={`gm-slot s-${st}${shown ? ` r-${r.rarity}` : ""}`}
+                      disabled={pick == null}
+                      onClick={() => {
+                        if (pick == null) return;
+                        if (!canPull) resetToIdle(); // between spins: file this pull's prizes, then load the next
+                        setCount(pick);
+                      }}
+                      aria-label={shown ? `Spin ${k + 1}: ${r.prize_name}` : pick != null ? `Load ${plural(pick, "capsule")}` : `Slot ${k + 1}`}
                     >
                       <span className="gm-slot-ball">{Art ? <Art className="gm-slot-art" /> : null}</span>
                       <span className="gm-slot-n">{k + 1}</span>

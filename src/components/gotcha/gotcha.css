@@ -203,7 +203,7 @@
 .is-charging .gm-swirl { animation-duration: 0.5s; filter: blur(4px) saturate(1.6); }
 
 .gm-reel { position: absolute; inset: 0; will-change: transform; transition: opacity 0.4s; }
-.is-revealed .gm-reel, .is-complete .gm-reel { opacity: 0.28; }
+.is-revealed:not(.is-parked) .gm-reel, .is-complete .gm-reel { opacity: 0.28; }
 .gm-tile {
   --tile: calc(var(--vault) * 0.15);
   position: absolute; left: 50%; top: 50%;
@@ -286,6 +286,7 @@
   pointer-events: none;
 }
 
+.is-flying .gm-reveal { opacity: 0; transition: opacity 0.45s ease-in; }
 .gm-reveal {
   position: absolute; left: 50%; top: 50%; z-index: 5;
   width: max(168px, calc(var(--vault) * 0.54));
@@ -434,6 +435,9 @@
 .s-drawing:nth-child(3) .gm-slot-ball { animation-delay: -0.2s; }
 .s-drawing:nth-child(4) .gm-slot-ball { animation-delay: -0.3s; }
 .s-sealed .gm-slot-ball { filter: saturate(0.7) brightness(0.85); }
+.s-past .gm-slot-ball { background: radial-gradient(circle at 35% 30%, #22448e, #0c1b3d); box-shadow: 0 0 0 3px var(--gm-gold-deep); opacity: 0.45; }
+.s-revealed .gm-slot-art { animation: gm-slot-in 0.5s cubic-bezier(.2, 1.6, .4, 1) both; }
+.s-revealed .gm-slot-ball { animation: gm-slot-flash 0.6s ease-out; }
 .s-active .gm-slot-ball { transform: scale(1.14); animation: gm-pulse 0.5s ease-in-out infinite alternate; }
 .s-active .gm-slot-n { background: var(--gm-red); }
 .s-revealed .gm-slot-ball { background: radial-gradient(circle at 35% 30%, #22448e, #0c1b3d); box-shadow: 0 0 0 3px var(--c), 0 0 16px var(--c); }
@@ -511,6 +515,8 @@
 @keyframes gm-float { 0%, 100% { transform: translateY(-3px); } 50% { transform: translateY(3px); } }
 @keyframes gm-pulse { from { filter: brightness(1); } to { filter: brightness(1.35); } }
 @keyframes gm-pulse-soft { from { opacity: 0.45; } to { opacity: 1; } }
+@keyframes gm-slot-in { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes gm-slot-flash { 0% { filter: brightness(2.2); } 100% { filter: brightness(1); } }
 @keyframes gm-jiggle { from { transform: rotate(-12deg) translateY(1px); } to { transform: rotate(12deg) translateY(-2px); } }
 @keyframes gm-dot { 0% { opacity: 1; } 100% { opacity: 0.2; } }
 @keyframes gm-lever { 0% { transform: scaleY(1); } 45% { transform: scaleY(-0.85); } 60% { transform: scaleY(-0.85); } 100% { transform: scaleY(1); } }
