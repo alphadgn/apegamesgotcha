@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Leaderboard } from "@/components/Leaderboard";
 import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
 import type { GotchaPrize } from "@/components/gotcha/GotchaMachine";
+import { PageArtwork } from "@/components/PageArtwork";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -13,6 +14,8 @@ export const Route = createFileRoute("/")({
       { name: "description", content: "Hold ApeGames NFTs, burn Level 4+ for free spins, win prizes and climb the Go ApeGames 2026 leaderboard before Charleston." },
       { property: "og:title", content: "ApeGames Gotcha — Spin, Earn, Climb" },
       { property: "og:description", content: "Hold, burn, spin and climb the Go ApeGames 2026 leaderboard." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Index,
@@ -34,7 +37,9 @@ function Index() {
     },
   });
   return (
-    <main className="mx-auto max-w-6xl px-4 pb-24">
+    <main className="relative isolate min-h-screen overflow-hidden">
+      <PageArtwork />
+      <div className="mx-auto max-w-6xl px-4 pb-24">
       <section className="py-12 md:py-16">
         <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Go ApeGames 2026 · Pre-event</p>
         <h1 className="mt-4 text-5xl font-bold leading-[0.95] md:text-7xl">
@@ -70,6 +75,7 @@ function Index() {
         </div>
         <Leaderboard limit={10} />
       </section>
+      </div>
     </main>
   );
 }

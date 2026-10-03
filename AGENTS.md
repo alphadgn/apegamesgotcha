@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Shared page artwork belongs in `PageArtwork`; this keeps landing and authentication backgrounds visually consistent.
