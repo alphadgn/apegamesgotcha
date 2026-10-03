@@ -4,7 +4,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
+  // The generated database types can briefly lag behind applied migrations.
+  return supabaseAdmin as any;
 }
 
 async function getConfig(key: string) {
@@ -187,7 +188,7 @@ export const startDraw = createServerFn({ method: "POST" })
 
     const { data: ids, error } = await db.rpc("begin_spins", { _user_id: context.userId, _count: data.count });
     if (error) throw new Error(error.message);
-    const spinIds = ids as string[];
+    const spinIds = ids as unknown as string[];
 
     let sent;
     try {
@@ -228,7 +229,10 @@ export const checkDraw = createServerFn({ method: "POST" })
       rows = await load();
     }
     const byId = new Map(rows.map((r) => [r.id, r]));
-    return data.ids.filter((id) => byId.has(id)).map((id) => { const r = byId.get(id)!; return publicSpin(r, txUrl(cfg, r.request_tx)); });
+    return data.ids.flatMap((id) => {
+      const r = byId.get(id);
+      return r ? [publicSpin(r, txUrl(cfg, r.request_tx))] : [];
+    });
   });
 
 // ---------- Admin ----------
@@ -363,7 +367,7 @@ export const adminSettleDraws = createServerFn({ method: "POST" })
     const db = await admin();
     const { data: rows } = await db.from("spins").select("id, status, created_at, request_tx").eq("status", "pending").limit(200);
     const before = rows?.length ?? 0;
-    for (let i = 0; i < before; i += 10) await settleSpins(cfg, rows!.slice(i, i + 10));
+    for (let i = 0; i < before; i += 10) await settleSpins(cfg, (rows ?? []).slice(i, i + 10));
     const { count } = await db.from("spins").select("id", { count: "exact", head: true }).eq("status", "pending");
     await audit(context.userId, "vrf.settled", { before, after: count });
     return { before, after: count ?? 0 };
