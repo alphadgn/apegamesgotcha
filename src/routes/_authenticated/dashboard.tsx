@@ -28,6 +28,14 @@ const rarityClass: Record<string, string> = {
   legendary: "text-rarity-legendary border-rarity-legendary",
 };
 
+type DashboardSpin = {
+  id: string;
+  status: string;
+  prize_name: string | null;
+  points: number | null;
+  rarity: string | null;
+};
+
 function useMyData() {
   return useQuery({
     queryKey: ["me"],
@@ -48,7 +56,7 @@ function useMyData() {
         holdings: holdings.data ?? [],
         ledger: ledger.data ?? [],
         credits: credits.data ?? [],
-        spins: spins.data ?? [],
+        spins: (spins.data ?? []) as unknown as DashboardSpin[],
         prizes: prizes.data ?? [],
         nft: (nftCfg.data?.value ?? {}) as { burn_min_level?: number; burn_address?: string; opensea_url?: string },
       };

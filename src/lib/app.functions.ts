@@ -97,7 +97,7 @@ export const claimBurn = createServerFn({ method: "POST" })
     const cfg = await getConfig("nft");
     const { data: wallets } = await db.from("wallets").select("address").eq("user_id", context.userId);
     if (!wallets?.length) throw new Error("Link a wallet first");
-    await verifyBurnTx(cfg, data.txHash as `0x${string}`, BigInt(data.tokenId), wallets.map((w) => w.address));
+    await verifyBurnTx(cfg, data.txHash as `0x${string}`, BigInt(data.tokenId), wallets.map((w: { address: string }) => w.address));
     const { data: h } = await db.from("nft_holdings").select("level, level_override").eq("token_id", data.tokenId).maybeSingle();
     const level = h?.level_override ?? h?.level ?? (await fetchLevel(cfg, BigInt(data.tokenId)));
     if (level == null) throw new Error("Could not read this NFT's level. Ask an admin to verify it.");
@@ -115,6 +115,7 @@ export const claimBurn = createServerFn({ method: "POST" })
 // sends the request, and records whatever the contract drew. It never generates randomness.
 
 type SpinRow = { id: string; status: string; created_at: string; request_tx: string | null };
+type PrizeRow = { id: string; weight: number; inventory: number | null; active: boolean; onchain_index: number | null; created_at?: string };
 
 async function settleSpins(cfg: import("./vrf.server").VrfConfig, rows: SpinRow[]) {
   const pending = rows.filter((r) => r.status === "pending");
@@ -221,14 +222,14 @@ export const checkDraw = createServerFn({ method: "POST" })
     const cols = "id, status, created_at, request_tx, prize_id, prize_name, rarity, points, random_word";
     const load = async () => {
       const { data: rows } = await db.from("spins").select(cols).eq("user_id", context.userId).in("id", data.ids);
-      return rows ?? [];
+      return (rows ?? []) as SpinOutRow[];
     };
     let rows = await load();
-    if (rows.some((r) => r.status === "pending")) {
+    if (rows.some((r: SpinOutRow) => r.status === "pending")) {
       await settleSpins(cfg, rows);
       rows = await load();
     }
-    const byId = new Map(rows.map((r) => [r.id, r]));
+    const byId = new Map<string, SpinOutRow>(rows.map((r: SpinOutRow) => [r.id, r]));
     return data.ids.flatMap((id) => {
       const r = byId.get(id);
       return r ? [publicSpin(r, txUrl(cfg, r.request_tx))] : [];
@@ -282,7 +283,7 @@ export const adminGrant = createServerFn({ method: "POST" })
     await assertAdmin(context);
     const db = await admin();
     const { data: list } = await db.auth.admin.listUsers({ perPage: 1000 });
-    const user = list?.users.find((u) => u.email?.toLowerCase() === data.email.toLowerCase());
+    const user = list?.users.find((u: { email?: string; id: string }) => u.email?.toLowerCase() === data.email.toLowerCase());
     if (!user) throw new Error("No user with that email");
     if (data.spins > 0) {
       await db.from("spin_credits").insert(Array.from({ length: data.spins }, () => ({ user_id: user.id, source: "grant", created_by: context.userId })));
@@ -318,7 +319,7 @@ export const adminVrfStatus = createServerFn({ method: "POST" })
     const { data: prizes } = await db.from("prizes").select("id, weight, inventory, active, onchain_index");
     const { count: pendingDb } = await db.from("spins").select("id", { count: "exact", head: true }).eq("status", "pending");
     const local = vrf.poolArrays(prizes ?? []);
-    const unpublished = (prizes ?? []).filter((p) => p.onchain_index == null && p.active).length;
+    const unpublished = ((prizes ?? []) as PrizeRow[]).filter((p: PrizeRow) => p.onchain_index == null && p.active).length;
     if (!/^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "")) return { configured: false as const, enabled: !!cfg?.enabled, pendingDb: pendingDb ?? 0, unpublished };
     const chain = await vrf.readPool(cfg);
     return {
@@ -344,8 +345,9 @@ export const adminPublishPool = createServerFn({ method: "POST" })
     if (!/^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "")) throw new Error("Set vrf.contract in Configuration first");
     const db = await admin();
     const { data: all } = await db.from("prizes").select("id, weight, inventory, active, onchain_index, created_at").order("created_at").order("id");
-    let next = Math.max(-1, ...(all ?? []).map((p) => p.onchain_index ?? -1)) + 1;
-    for (const p of all ?? []) {
+    const prizeRows = (all ?? []) as PrizeRow[];
+    let next = Math.max(-1, ...prizeRows.map((p: PrizeRow) => p.onchain_index ?? -1)) + 1;
+    for (const p of prizeRows) {
       if (p.onchain_index == null && p.active) {
         if (next >= 32) throw new Error("The contract holds at most 32 prizes");
         await db.from("prizes").update({ onchain_index: next }).eq("id", p.id);
