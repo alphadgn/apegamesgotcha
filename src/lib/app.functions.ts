@@ -147,6 +147,7 @@ async function settleSpins(cfg: import("./vrf.server").VrfConfig, rows: SpinRow[
 type SpinOutRow = {
   id: string;
   status: string;
+  created_at: string;
   prize_id: string | null;
   prize_name: string | null;
   rarity: string | null;
