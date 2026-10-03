@@ -1,23 +1,27 @@
-// Tiny synthesized sound effects (WebAudio) — no audio files to ship.
+// Shared audio for the Gotcha machine: one AudioContext for music and reveal effects.
+
+let shared: AudioContext | null = null;
+
+/** One AudioContext for the whole page (iOS limits how many can exist). Call from a tap to unlock audio. */
+export function sharedAudio(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  if (!shared) {
+    const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!C) return null;
+    shared = new C();
+  }
+  if (shared.state === "suspended") void shared.resume();
+  return shared;
+}
+
 export type Sfx = ReturnType<typeof createSfx>;
 
+/** Short effects for the prize reveal. The spin itself is scored by the jukebox (music.ts). */
 export function createSfx() {
-  let ctx: AudioContext | null = null;
   let enabled = true;
 
-  const audio = () => {
-    if (!enabled || typeof window === "undefined") return null;
-    if (!ctx) {
-      const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!C) return null;
-      ctx = new C();
-    }
-    if (ctx.state === "suspended") void ctx.resume();
-    return ctx;
-  };
-
-  const tone = (freq: number, dur: number, type: OscillatorType = "square", vol = 0.04, delay = 0, slideTo?: number) => {
-    const a = audio();
+  const tone = (freq: number, dur: number, type: OscillatorType = "triangle", vol = 0.05, delay = 0, slideTo?: number) => {
+    const a = enabled ? sharedAudio() : null;
     if (!a) return;
     const t = a.currentTime + delay;
     const o = a.createOscillator();
@@ -25,11 +29,12 @@ export function createSfx() {
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-    g.gain.setValueAtTime(vol, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g).connect(a.destination);
     o.start(t);
-    o.stop(t + dur + 0.02);
+    o.stop(t + dur + 0.05);
   };
 
   const fanfares: Record<string, number[]> = {
@@ -43,24 +48,9 @@ export function createSfx() {
     setEnabled(v: boolean) {
       enabled = v;
     },
-    tick: () => tone(1500, 0.025, "square", 0.025),
-    lever: () => {
-      tone(180, 0.18, "sawtooth", 0.05, 0, 60);
-      tone(90, 0.12, "square", 0.05, 0.2);
-    },
-    secure: () => tone(880, 0.08, "triangle", 0.06),
-    lock: () => {
-      tone(220, 0.09, "square", 0.06);
-      tone(330, 0.12, "triangle", 0.05, 0.08);
-    },
-    charge: () => tone(200, 0.7, "sawtooth", 0.03, 0, 900),
-    pop: () => tone(1200, 0.12, "triangle", 0.08, 0, 300),
+    pop: () => tone(1200, 0.12, "triangle", 0.07, 0, 300),
     fanfare(rarity: string) {
-      (fanfares[rarity] ?? [523, 659]).forEach((f, i) => tone(f, 0.22, "triangle", 0.06, i * 0.09));
-    },
-    dispose() {
-      void ctx?.close();
-      ctx = null;
+      (fanfares[rarity] ?? [523, 659]).forEach((f, i) => tone(f, 0.22, "triangle", 0.05, 0.05 + i * 0.09));
     },
   };
 }

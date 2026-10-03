@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { MotionIcon, Palmetto, Skyline, SoundIcon, TorchEmblem, prizeArt } from "./icons";
 import { createSfx, type Sfx } from "./sound";
+import { createJukebox, type Jukebox } from "./music";
 
 export type GotchaPrize = {
   id: string;
@@ -126,19 +127,23 @@ export function GotchaMachine({
   const [revealed, setRevealed] = useState(0);
   const [winTile, setWinTile] = useState<number | null>(null);
   const [requestUrl, setRequestUrl] = useState<string | undefined>();
-  const [slowDraw, setSlowDraw] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [reduce, setReduce] = useState(false);
   const [leverKey, setLeverKey] = useState(0);
   const [confetti, setConfetti] = useState(0);
 
   const vaultRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const reelRef = useRef<HTMLDivElement>(null);
+  const faceRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const visible = useRef(true);
   const pointerRef = useRef<HTMLDivElement>(null);
   const angle = useRef(0);
   const velocity = useRef(IDLE_SPEED);
   const motion = useRef<Motion>({ kind: "drift", speed: IDLE_SPEED });
   const timers = useRef<number[]>([]);
   const sfx = useRef<Sfx | null>(null);
+  const jukebox = useRef<Jukebox | null>(null);
   const resultsRef = useRef<GotchaResult[]>([]);
   const modeRef = useRef(mode);
   const reduceRef = useRef(reduce);
@@ -157,13 +162,15 @@ export function GotchaMachine({
       const s = localStorage.getItem("gm-sound");
       if (s != null) setSoundOn(s === "1");
       const r = localStorage.getItem("gm-reduce");
-      setReduce(r != null ? r === "1" : window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      // Full motion by default (the spin is the experience); players can switch on "Reduce motion" themselves.
+      if (r != null) setReduce(r === "1");
     } catch {
       /* storage unavailable */
     }
   }, []);
   useEffect(() => {
     sfx.current?.setEnabled(soundOn);
+    jukebox.current?.setEnabled(soundOn);
     try { localStorage.setItem("gm-sound", soundOn ? "1" : "0"); } catch { /* ignore */ }
   }, [soundOn]);
   useEffect(() => {
@@ -185,13 +192,18 @@ export function GotchaMachine({
   }, []);
 
   useEffect(() => {
+    jukebox.current ??= createJukebox();
+    jukebox.current.preload();
+  }, []);
+
+  useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       drawToken.current++;
       clearTimers();
       if (!ended.current) onEndRef.current?.();
-      sfx.current?.dispose();
+      jukebox.current?.dispose();
     };
   }, []);
 
@@ -200,6 +212,7 @@ export function GotchaMachine({
     let raf = 0;
     let last = performance.now();
     let lastIdx = Math.round(angle.current / step);
+    let lastWritten = Number.NaN;
     const loop = (now: number) => {
       const dt = Math.min(0.064, (now - last) / 1000);
       last = now;
@@ -217,12 +230,21 @@ export function GotchaMachine({
           m.onDone();
         }
       }
-      vaultRef.current?.style.setProperty("--reel", `${angle.current}deg`);
+      // Only the reel and the 13 moving faces get new transforms — no style recalcs for the rest of the machine.
+      if (visible.current && angle.current !== lastWritten) {
+        lastWritten = angle.current;
+        const a = angle.current;
+        if (reelRef.current) reelRef.current.style.transform = `rotate(${a}deg)`;
+        const faces = faceRefs.current;
+        for (let i = 0; i < faces.length; i++) {
+          const f = faces[i];
+          if (f) f.style.transform = `rotate(${-(i * step + a)}deg)`;
+        }
+      }
       const idx = Math.round(angle.current / step);
       if (idx !== lastIdx) {
         lastIdx = idx;
-        if (m.kind === "roll") {
-          sfx.current?.tick();
+        if (m.kind === "roll" && visible.current) {
           pointerRef.current?.animate(
             [{ transform: "translateX(-50%) rotate(0)" }, { transform: "translateX(-50%) rotate(-14deg)" }, { transform: "translateX(-50%) rotate(0)" }],
             { duration: 120 },
@@ -232,7 +254,20 @@ export function GotchaMachine({
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+
+    // Stop painting the reel while the machine is off-screen (the spin logic keeps running).
+    let io: IntersectionObserver | undefined;
+    if (rootRef.current && "IntersectionObserver" in window) {
+      io = new IntersectionObserver(([e]) => {
+        visible.current = !!e?.isIntersecting;
+        if (visible.current) lastWritten = Number.NaN;
+      });
+      io.observe(rootRef.current);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      io?.disconnect();
+    };
   }, [step]);
 
   // ---- helpers ----
@@ -266,9 +301,9 @@ export function GotchaMachine({
     setSessionSize(0);
     setWinTile(null);
     setRequestUrl(undefined);
-    setSlowDraw(false);
     setPhase("idle");
     motion.current = { kind: "drift", speed: IDLE_SPEED };
+    jukebox.current?.stop(0.8);
   }, []);
 
   const revealCapsule = useCallback(
@@ -281,15 +316,16 @@ export function GotchaMachine({
       setCur(i);
       setWinTile(null);
       setPhase("rolling");
+      if (!jukebox.current?.playing) jukebox.current?.start();
 
       const afterRoll = () => {
         if (!mounted.current) return;
         setWinTile(tile);
-        sfx.current?.lock();
         setPhase("charging");
-        if (!rm) sfx.current?.charge();
         after(rm ? 150 : fast ? 520 : 820, () => {
           setPhase("opening");
+          // Music fades out as the capsule opens — on the last capsule, or between capsules when revealing one by one.
+          if (i + 1 >= resultsRef.current.length || modeRef.current === "one") jukebox.current?.stop(1.5);
           sfx.current?.pop();
           after(rm ? 120 : 620, () => {
             setPhase("revealed");
@@ -317,7 +353,22 @@ export function GotchaMachine({
       const to = targetAngle(tile, loops);
       const dur = fast ? 2000 : 3500;
       const s = clamp((velocity.current * (dur / 1000)) / Math.max(1, to - angle.current), 1.1, 2.4);
-      motion.current = { kind: "roll", from: angle.current, to, start: performance.now(), dur, s, onDone: afterRoll };
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        afterRoll();
+      };
+      const roll: Motion = { kind: "roll", from: angle.current, to, start: performance.now(), dur, s, onDone: finish };
+      motion.current = roll;
+      // If the browser pauses animation frames (hidden tab, low-power mode, embedded preview), finish on time anyway.
+      after(dur + 350, () => {
+        if (motion.current === roll) {
+          angle.current = to;
+          motion.current = { kind: "drift", speed: 0 };
+        }
+        finish();
+      });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tiles, step],
@@ -332,42 +383,36 @@ export function GotchaMachine({
       setPhase("drawing");
       motion.current = { kind: "drift", speed: DRAW_SPEED };
       const started = Date.now();
-      const slowTimer = window.setTimeout(() => token === drawToken.current && setSlowDraw(true), 20_000);
-      try {
-        while (mounted.current && token === drawToken.current) {
-          await sleep(pollMs);
-          if (!mounted.current || token !== drawToken.current) return;
-          let rows: DrawStatus[];
-          try {
-            rows = await onCheck(ids);
-          } catch {
-            rows = [];
-          }
-          if (rows.length === ids.length && rows.every((r) => r.status !== "pending")) {
-            const got = rows.filter((r) => r.status === "fulfilled").map(toResult);
-            const returned = rows.length - got.length;
-            if (returned) onError?.(`${plural(returned, "spin")} returned — that prize ran out on-chain.`);
-            if (!got.length) {
-              endSession();
-              resetToIdle();
-              return;
-            }
-            resultsRef.current = got;
-            setResults(got);
-            setSessionSize(got.length);
-            sfx.current?.secure();
-            revealCapsule(0);
-            return;
-          }
-          if (Date.now() - started > drawTimeoutMs) {
-            onError?.("Chainlink is taking longer than usual. Your capsules will appear in Recent spins as soon as they land.");
+      while (mounted.current && token === drawToken.current) {
+        await sleep(pollMs);
+        if (!mounted.current || token !== drawToken.current) return;
+        let rows: DrawStatus[];
+        try {
+          rows = await onCheck(ids);
+        } catch {
+          rows = [];
+        }
+        if (rows.length === ids.length && rows.every((r) => r.status !== "pending")) {
+          const got = rows.filter((r) => r.status === "fulfilled").map(toResult);
+          const returned = rows.length - got.length;
+          if (returned) onError?.(`${plural(returned, "spin")} returned — that prize ran out on-chain.`);
+          if (!got.length) {
             endSession();
             resetToIdle();
             return;
           }
+          resultsRef.current = got;
+          setResults(got);
+          setSessionSize(got.length);
+          revealCapsule(0);
+          return;
         }
-      } finally {
-        clearTimeout(slowTimer);
+        if (Date.now() - started > drawTimeoutMs) {
+          onError?.("Chainlink is taking longer than usual. Your capsules will appear in Recent spins as soon as they land.");
+          endSession();
+          resetToIdle();
+          return;
+        }
       }
     },
     [onCheck, onError, pollMs, drawTimeoutMs, endSession, resetToIdle, revealCapsule],
@@ -386,7 +431,10 @@ export function GotchaMachine({
     resetToIdle();
     sfx.current ??= createSfx();
     sfx.current.setEnabled(soundOn);
-    sfx.current.lever();
+    // Start the party music right inside the tap — mobile browsers only allow audio that begins from a gesture.
+    jukebox.current ??= createJukebox();
+    jukebox.current.setEnabled(soundOn);
+    jukebox.current.start();
     setLeverKey((k) => k + 1);
 
     const n = Math.min(count, credits, maxPerSession);
@@ -419,6 +467,7 @@ export function GotchaMachine({
     setWinTile(tile);
     setRevealed(drawn);
     setPhase(drawn > 1 ? "complete" : "revealed");
+    jukebox.current?.stop(0.8);
     endSession();
   };
 
@@ -453,11 +502,7 @@ export function GotchaMachine({
       case "requesting":
         return { t: "Requesting randomness…", s: `Sending ${plural(sessionSize, "capsule")} to Chainlink VRF`, pill: "Waiting for the request to confirm" };
       case "drawing":
-        return {
-          t: "Drawing on-chain…",
-          s: slowDraw ? "Waiting for block confirmations…" : `Chainlink VRF is generating ${plural(sessionSize, "random number")}`,
-          pill: link(requestUrl, "View the request", "Waiting on Chainlink VRF"),
-        };
+        return { t: "Drawing on-chain…", s: "", pill: link(requestUrl, "View the request", "Waiting on Chainlink VRF") };
       case "rolling":
         return { t: "Prizes rotating…", s: `Capsule ${i} of ${drawn}`, pill: "Chainlink VRF draw" };
       case "charging":
@@ -490,16 +535,17 @@ export function GotchaMachine({
   else if (phase === "drawing") cta = { label: "Drawing on-chain…", sub: "Chainlink VRF", onClick: () => {}, disabled: true };
   else if (busy) cta = { label: "Revealing…", onClick: () => {}, disabled: true };
   else if (phase === "revealed" && remaining > 0) cta = { label: `Reveal capsule ${revealed + 1}`, sub: `${remaining} sealed`, onClick: () => revealCapsule(revealed) };
-  else if (sessionDone) cta = credits > 0 ? { label: "Pull again", sub: `${plural(credits, "spin")} left`, onClick: resetToIdle } : { label: "Done", sub: "No spins left", onClick: resetToIdle };
+  else if (sessionDone) cta = credits > 0 ? { label: "Pull again", sub: `${plural(credits, "spin")} left`, onClick: pull } : { label: "Done", sub: "No spins left", onClick: resetToIdle };
   else cta = credits > 0 ? { label: "Pull the lever", sub: plural(count, "capsule"), onClick: pull } : { label: "No spins available", onClick: () => {}, disabled: true };
 
   const canPull = phase === "idle" && credits > 0;
+  const canLever = (phase === "idle" || sessionDone) && credits > 0;
   const rarityVar = rarityOf ? ({ "--rar": `var(--gm-${rarityOf})` } as CSSProperties) : undefined;
   const poolTotal = pool.reduce((s, p) => s + (p.inventory === 0 ? 0 : p.weight ?? 0), 0);
   const word = active && (phase === "revealed" || phase === "charging" || phase === "opening") ? shortWord(active.random_word) : null;
 
   return (
-    <div className={`gm${reduce ? " is-reduced" : ""} is-${phase}`}>
+    <div ref={rootRef} className={`gm${reduce ? " is-reduced" : ""} is-${phase}`}>
       <div className="gm-sky" aria-hidden>
         <div className="gm-stars" />
         <div className="gm-moon" />
@@ -548,7 +594,7 @@ export function GotchaMachine({
               </div>
               <div className="gm-well">
                 <div className="gm-swirl" />
-                <div className="gm-reel">
+                <div className="gm-reel" ref={reelRef}>
                   {tiles.map((t, i) => {
                     const Art = prizeArt(t.name, t.rarity);
                     return (
@@ -558,7 +604,12 @@ export function GotchaMachine({
                         style={{ "--a": `${i * step}deg` } as CSSProperties}
                         title={t.name}
                       >
-                        <div className="gm-tile-face">
+                        <div
+                          className="gm-tile-face"
+                          ref={(el) => {
+                            faceRefs.current[i] = el;
+                          }}
+                        >
                           <Art />
                         </div>
                       </div>
@@ -623,7 +674,7 @@ export function GotchaMachine({
               type="button"
               className={`gm-lever${leverKey ? " is-pulled" : ""}`}
               onClick={pull}
-              disabled={!canPull}
+              disabled={!canLever}
               aria-label="Pull the lever"
             >
               <span className="gm-lever-arm"><span className="gm-lever-knob" /></span>
@@ -637,7 +688,7 @@ export function GotchaMachine({
                 </span>
                 <div>
                   <p className="gm-plate-title">{status.t}</p>
-                  <p className="gm-plate-sub">{status.s}</p>
+                  {status.s && <p className="gm-plate-sub">{status.s}</p>}
                 </div>
               </div>
               <p className="gm-plate-pill">{status.pill}</p>

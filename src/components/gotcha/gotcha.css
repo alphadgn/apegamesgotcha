@@ -156,7 +156,6 @@
 .gm-mq-year { font-size: calc(var(--vault) * 0.06); color: var(--gm-navy); }
 
 .gm-vault {
-  --reel: 0deg;
   --rar: var(--gm-gold);
   position: relative; z-index: 2;
   width: var(--vault); aspect-ratio: 1; border-radius: 50%;
@@ -203,8 +202,8 @@
 .is-requesting .gm-swirl, .is-drawing .gm-swirl, .is-rolling .gm-swirl { animation-duration: 1.1s; }
 .is-charging .gm-swirl { animation-duration: 0.5s; filter: blur(4px) saturate(1.6); }
 
-.gm-reel { position: absolute; inset: 0; transform: rotate(var(--reel)); transition: opacity 0.4s, filter 0.4s; }
-.is-revealed .gm-reel, .is-complete .gm-reel { opacity: 0.28; filter: blur(1px); }
+.gm-reel { position: absolute; inset: 0; will-change: transform; transition: opacity 0.4s; }
+.is-revealed .gm-reel, .is-complete .gm-reel { opacity: 0.28; }
 .gm-tile {
   --tile: calc(var(--vault) * 0.15);
   position: absolute; left: 50%; top: 50%;
@@ -214,14 +213,15 @@
 .gm-tile-face {
   width: 100%; height: 100%; border-radius: 50%;
   display: grid; place-items: center;
-  transform: rotate(calc(-1 * (var(--a) + var(--reel))));
+  transform: rotate(calc(-1 * var(--a)));
+  will-change: transform;
   background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0.04) 45%, rgba(0, 0, 0, 0.25) 100%), var(--gm-navy-2);
   box-shadow: 0 0 0 2px var(--gm-gold), 0 0 0 4px rgba(0, 0, 0, 0.35), 0 0 14px color-mix(in srgb, var(--c) 55%, transparent);
-  transition: transform 0.3s cubic-bezier(.3, 1.6, .5, 1), box-shadow 0.3s;
+  transition: scale 0.3s cubic-bezier(.3, 1.6, .5, 1), box-shadow 0.3s;
 }
-.gm-tile-face svg { width: 72%; height: 72%; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5)); }
+.gm-tile-face svg { width: 72%; height: 72%; }
 .gm-tile.is-win .gm-tile-face {
-  transform: rotate(calc(-1 * (var(--a) + var(--reel)))) scale(1.28);
+  scale: 1.28;
   box-shadow: 0 0 0 3px var(--c), 0 0 0 6px rgba(255, 255, 255, 0.5), 0 0 30px 8px var(--c);
   animation: gm-pulse 0.7s ease-in-out infinite alternate;
 }
