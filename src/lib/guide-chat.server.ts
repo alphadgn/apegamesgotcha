@@ -67,13 +67,31 @@ export async function handleGuideChat(request: Request): Promise<Response> {
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return jsonError(400, "Last message must be from the user.");
 
-  // Live context for the guide: active prizes and the NFT settings players may read.
-  const [prizesRes, nftRes] = await Promise.all([
+  // Live context for the guide: prizes, NFT settings, and this player's real points.
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const [prizesRes, nftRes, ledgerRes, creditsRes, boardRes, cfgRes] = await Promise.all([
     supabase.from("prizes").select("name, rarity, points").eq("active", true),
     supabase.from("app_config").select("value").eq("key", "nft").maybeSingle(),
+    supabase.from("points_ledger").select("amount, reason").eq("user_id", userId),
+    supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", userId).is("used_spin_id", null),
+    supabase.rpc("get_leaderboard", { _limit: 500 }),
+    // Non-sensitive rule values only (scoring weights, spin limits, prices).
+    supabaseAdmin.from("app_config").select("key, value").in("key", ["scoring", "spins", "purchase"]),
   ]);
   const prizes = (prizesRes.data ?? []) as { name: string; rarity: string; points: number }[];
   const nft = (nftRes.data?.value ?? {}) as { burn_min_level?: number; opensea_url?: string };
+  const ledger = (ledgerRes.data ?? []) as { amount: number; reason: string }[];
+  const byReason: Record<string, number> = {};
+  for (const l of ledger) byReason[l.reason] = (byReason[l.reason] ?? 0) + l.amount;
+  const total = ledger.reduce((s, l) => s + l.amount, 0);
+  const rankRow = ((boardRes.data ?? []) as { rank: number; user_id: string }[]).find((r) => r.user_id === userId);
+  const cfg = Object.fromEntries(((cfgRes.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value])) as {
+    scoring?: { level_weights?: Record<string, number>; default_level_weight?: number };
+    spins?: { daily_limit?: number; campaign_limit?: number };
+    purchase?: { enabled?: boolean; price_ape_per_spin?: string; bundles?: number[] };
+  };
+  const weights = cfg.scoring?.level_weights ?? {};
+  const reasonLabel: Record<string, string> = { holding: "holding NFTs", spin: "gacha prizes", admin_adjustment: "organizer grants" };
 
   const system = [
     "You are the ApeGames Gotcha guide — a friendly, energetic arcade host for the Go ApeGames 2026 pre-event gacha.",
@@ -82,10 +100,24 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     prizes.length
       ? `Current prizes: ${prizes.map((p) => `${p.name} (${p.rarity}, ${p.points} pts)`).join("; ")}.`
       : "Prizes are being configured.",
+    "HOW POINTS WORK (real rules from the live settings):",
+    `- Holding: linking a wallet and syncing NFTs awards points once per NFT by level: ${Object.entries(weights).map(([lv, p]) => `Level ${lv} = ${p} pts`).join(", ") || "set by organizers"}${cfg.scoring?.default_level_weight != null ? ` (unknown level = ${cfg.scoring.default_level_weight} pts)` : ""}.`,
+    "- Spins: every prize won adds its point value instantly.",
+    "- Organizer grants: admins can add or adjust points.",
+    "- Spending: points are not spent or deducted; they only accumulate and decide leaderboard rank going into Charleston. Spins are bought with APE or earned by burning, never with points.",
+    cfg.spins ? `- Spin limits: ${cfg.spins.daily_limit ?? "no"} per day, ${cfg.spins.campaign_limit ?? "no"} per campaign.` : "",
+    cfg.purchase?.enabled
+      ? `- Refill: ${cfg.purchase.price_ape_per_spin} APE per spin, bundles of ${(cfg.purchase.bundles ?? [5, 10, 15, 20]).join("/")}.`
+      : "- Buying spins is not open yet.",
+    "THIS PLAYER RIGHT NOW:",
+    `- Total points: ${total}${rankRow ? `, leaderboard rank #${rankRow.rank}` : ", not ranked yet"}.`,
+    `- Breakdown: ${Object.entries(byReason).map(([r, a]) => `${reasonLabel[r] ?? r} ${a}`).join(", ") || "no points yet"}.`,
+    `- Spins ready: ${creditsRes.count ?? 0}.`,
+    "Use these real numbers when the player asks about their points; suggest concrete next steps to earn more.",
     "Spin outcomes are drawn on-chain by Chainlink VRF; you cannot predict or influence results.",
     "Never discuss token trading, prices, or investment — there is no public token trading before the Charleston event.",
     "Keep answers short (2-4 sentences), upbeat, and concrete. If you don't know something, say so and suggest the dashboard or admin.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const runIdFetch = createLovableAiGatewayRunIdFetch(getLovableAiGatewayRunId(request));
   const anthropic = createAnthropic({
