@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { GotchaMachine, type DrawStatus, type GotchaPrize } from "./GotchaMachine";
 
 /** Same prizes the app ships with — used if the live prize list hasn't loaded. */
@@ -35,7 +36,26 @@ function pick(prizes: GotchaPrize[], word: bigint) {
 export function DemoGotchaMachine({ prizes, credits: startCredits = 5 }: { prizes?: GotchaPrize[] | undefined; credits?: number }) {
   const pool = prizes?.length ? prizes : DEMO_PRIZES;
   const [credits, setCredits] = useState(startCredits);
+  const [refillAttention, setRefillAttention] = useState(false);
   const draws = useRef(new Map<string, { readyAt: number; word: bigint }>());
+  const refillRef = useRef<HTMLButtonElement>(null);
+  const attentionTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(attentionTimer.current), []);
+
+  const guideToRefill = useCallback(() => {
+    const button = refillRef.current;
+    if (!button) return;
+    window.clearTimeout(attentionTimer.current);
+    setRefillAttention(false);
+    requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      button.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+      button.focus({ preventScroll: true });
+      setRefillAttention(true);
+      attentionTimer.current = window.setTimeout(() => setRefillAttention(false), 1800);
+    });
+  }, []);
 
   const onDraw = useCallback(async (count: number) => {
     await new Promise((r) => setTimeout(r, 900));
@@ -61,9 +81,12 @@ export function DemoGotchaMachine({ prizes, credits: startCredits = 5 }: { prize
     <div className="gm-demo">
       <div className="gm-demo-bar">
         <span>Demo: draws are simulated here and award no points. Real spins are drawn on-chain by Chainlink VRF.</span>
-        <button type="button" onClick={() => setCredits(startCredits)}>
+        <Button ref={refillRef} type="button" size="sm" className={refillAttention ? "is-refill-attention" : ""} onClick={() => {
+          setCredits(startCredits);
+          setRefillAttention(false);
+        }}>
           Refill {startCredits} spins
-        </button>
+        </Button>
       </div>
       <GotchaMachine
         credits={credits}
@@ -72,6 +95,7 @@ export function DemoGotchaMachine({ prizes, credits: startCredits = 5 }: { prize
         onCheck={onCheck}
         pollMs={700}
         footnote="Sign in to spin for real points."
+        onNoSpins={guideToRefill}
       />
     </div>
   );
