@@ -582,3 +582,72 @@
   .gm-cta.is-ready { animation: none; box-shadow: 0 6px 0 var(--gm-gold-deep), 0 10px 20px rgba(0, 0, 0, 0.4), 0 0 18px rgba(246, 195, 67, 0.72); }
   .gm-demo-bar button.is-refill-attention { animation: none; outline: 4px solid #f6c343; outline-offset: 4px; }
 }
+
+/* ---------- action bar: Share + Refill ---------- */
+.gm-bar-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.gm-demo-bar .gm-refill-btn, .gm-demo-bar .gm-share-btn, .gm-refill-btn, .gm-share-btn {
+  flex: none; border: 0; border-radius: 999px; padding: 7px 16px; cursor: pointer;
+  font-weight: 700; font-size: 13px; letter-spacing: 0.02em;
+}
+.gm-demo-bar .gm-refill-btn, .gm-refill-btn { background: #f6c343; color: #0c1b3d; }
+.gm-demo-bar .gm-share-btn, .gm-share-btn { background: #d7262f; color: #fff6e3; box-shadow: 0 0 0 2px #f6c343 inset; }
+.gm-share-btn:disabled { opacity: 0.6; cursor: progress; }
+.gm-refill-btn:focus-visible, .gm-share-btn:focus-visible { outline: 3px solid #f6c343; outline-offset: 2px; }
+
+/* ---------- Refill + Share windows (outside the machine, so plain colors) ---------- */
+.gm-rf-overlay, .gm-rf-overlay * { box-sizing: border-box; }
+.gm-rf-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(3, 8, 22, 0.72); backdrop-filter: blur(3px);
+}
+.gm-rf-panel {
+  width: min(440px, 100%); max-height: calc(100vh - 32px); overflow: auto;
+  border-radius: 20px; padding: 20px;
+  background: linear-gradient(180deg, #13295a, #070f26);
+  color: #fff6e3;
+  box-shadow: 0 0 0 3px #f6c343, 0 0 0 6px #6d420b, 0 24px 60px rgba(0, 0, 0, 0.6);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+}
+.gm-rf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.gm-rf-head h2 { margin: 0; font-family: "Oswald", var(--font-display, sans-serif); font-weight: 700; text-transform: uppercase; color: #f6c343; font-size: 24px; letter-spacing: 0.03em; }
+.gm-rf-close { border: 0; background: rgba(255, 255, 255, 0.08); color: #fff6e3; width: 34px; height: 34px; border-radius: 50%; font-size: 22px; line-height: 1; cursor: pointer; }
+.gm-rf { display: grid; gap: 12px; }
+.gm-rf-label { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #c9d4ff; }
+.gm-rf-copy { margin: 0; font-size: 15px; line-height: 1.45; }
+.gm-rf-bundles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.gm-rf-bundle {
+  display: grid; gap: 2px; justify-items: center; padding: 12px 4px; cursor: pointer;
+  border-radius: 14px; border: 2px solid rgba(246, 195, 67, 0.4); background: rgba(7, 15, 38, 0.7); color: #fff6e3;
+}
+.gm-rf-bundle b { font-family: "Oswald", sans-serif; font-size: 26px; line-height: 1; }
+.gm-rf-bundle small { font-size: 11px; color: #c9d4ff; }
+.gm-rf-bundle.is-on { border-color: #f6c343; background: #f6c343; color: #0c1b3d; }
+.gm-rf-bundle.is-on small { color: #0c1b3d; }
+.gm-rf-bundle:disabled { cursor: not-allowed; opacity: 0.7; }
+.gm-rf-note { margin: 0; font-size: 12px; color: #c9d4ff; }
+.gm-rf-wallet { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); }
+.gm-rf-wallet em { font-style: normal; color: #c9d4ff; }
+.gm-rf-link { border: 0; background: none; color: #ffe28a; text-decoration: underline; cursor: pointer; font-size: 13px; }
+.gm-rf-warn { margin: 0; font-size: 13px; color: #ffe28a; }
+.gm-rf-error { margin: 0; font-size: 13px; color: #ff9aa0; }
+.gm-rf-status { margin: 0; font-size: 13px; }
+.gm-rf-status a { color: #ffe28a; }
+.gm-rf-cta {
+  display: block; width: 100%; text-align: center; text-decoration: none; cursor: pointer;
+  border: 0; border-radius: 14px; padding: 13px 16px;
+  font-family: "Oswald", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 18px;
+  color: #0c1b3d; background: linear-gradient(180deg, #ffe28a, #f6c343 50%, #d99a22);
+  box-shadow: 0 5px 0 #a8701a;
+}
+.gm-rf-cta:disabled { filter: grayscale(0.5) brightness(0.8); cursor: not-allowed; }
+.gm-rf-done { text-align: center; padding: 18px 0 8px; }
+.gm-rf-big { font-family: "Oswald", sans-serif; font-weight: 700; font-size: 72px; line-height: 1; color: #f6c343; }
+.gm-share-preview { width: 100%; border-radius: 12px; margin-bottom: 12px; }
+.gm-share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.gm-share-grid a, .gm-share-grid button {
+  display: block; text-align: center; padding: 11px 8px; border-radius: 12px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.08); color: #fff6e3; border: 1.5px solid rgba(246, 195, 67, 0.45);
+  font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.gm-share-grid a:last-child:nth-child(odd) { grid-column: 1 / -1; }

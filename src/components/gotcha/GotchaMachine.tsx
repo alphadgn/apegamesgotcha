@@ -52,6 +52,12 @@ type Props = {
   footnote?: string;
   /** Guide the player to an external refill control when the machine is empty. */
   onNoSpins?: () => void;
+  /** Called each time a prize is revealed (in spin order) — pages use it for sharing. */
+  onReveal?: (result: GotchaResult) => void;
+  /** Called when the machine starts or stops spinning/revealing. */
+  onBusyChange?: (busy: boolean) => void;
+  /** Demo mode: prizes are shown but never awarded, so no points are displayed. */
+  demo?: boolean;
 };
 
 type Phase = "idle" | "requesting" | "drawing" | "rolling" | "charging" | "opening" | "revealed" | "complete";
@@ -113,6 +119,9 @@ export function GotchaMachine({
   drawTimeoutMs = 240_000,
   footnote,
   onNoSpins,
+  onReveal,
+  onBusyChange,
+  demo = false,
 }: Props) {
   const pool = prizes.length ? prizes : FALLBACK_PRIZES;
   const tiles = useMemo(() => {
@@ -170,6 +179,8 @@ export function GotchaMachine({
   const drawToken = useRef(0);
   const resumed = useRef(false);
   const onEndRef = useRef(onSessionEnd);
+  const onRevealRef = useRef(onReveal);
+  onRevealRef.current = onReveal;
   modeRef.current = mode;
   const spinModeRef = useRef(spinMode);
   spinModeRef.current = spinMode;
@@ -314,6 +325,12 @@ export function GotchaMachine({
   const drawn = results.length;
   const remaining = drawn - revealed;
   const sessionDone = drawn > 0 && remaining === 0 && !busy;
+  const inPlay = busy || chaining || (phase === "revealed" && remaining > 0);
+  const onBusyRef = useRef(onBusyChange);
+  onBusyRef.current = onBusyChange;
+  useEffect(() => {
+    onBusyRef.current?.(inPlay);
+  }, [inPlay]);
   const maxLoad = clamp(Math.min(maxPerSession, credits), 0, maxPerSession);
   const usedThisCycle = history.length + (phase === "idle" ? 0 : drawn);
   const cycleCapacity = usedThisCycle >= maxPerSession ? maxPerSession : maxPerSession - usedThisCycle;
@@ -423,6 +440,7 @@ export function GotchaMachine({
             revealedRef.current = i + 1;
             setRevealed(i + 1);
             sfx.current?.fanfare(r.rarity);
+            onRevealRef.current?.(r);
             if (!rm && (r.rarity === "epic" || r.rarity === "legendary")) setConfetti((k) => k + 1);
             // Show the prize on the card for a moment, then send it to its tray slot.
             after(rm ? 0 : 1300, () => flyToSlot(i));
@@ -598,6 +616,10 @@ export function GotchaMachine({
     motion.current = { kind: "drift", speed: 0 };
     setCur(drawn - 1);
     setWinTile(tile);
+    for (let k = revealedRef.current; k < drawn; k++) {
+      const r = resultsRef.current[k];
+      if (r) onRevealRef.current?.(r); // skipped capsules still count as revealed
+    }
     revealedRef.current = drawn;
     setRevealed(drawn);
     setLanded(drawn);
@@ -634,7 +656,9 @@ export function GotchaMachine({
       case "idle":
         return credits > 0
           ? { t: "Ready to pull", s: `Load ${plural(count, "capsule")} · ${plural(credits, "spin")} available`, pill: "Every draw powered by Chainlink VRF" }
-          : { t: "Machine empty", s: "Burn a Level 4+ NFT to earn a free spin", pill: "Paid spins open when checkout is enabled." };
+          : demo
+            ? { t: "Demo spin used", s: "A free demo spin comes back every 30 minutes", pill: "Sign in and refill to play for real" }
+            : { t: "Out of spins", s: "Tap Refill to buy 5–20 more with APE", pill: "Or burn a Level 4+ NFT for a free spin" };
       case "requesting":
         return { t: "Requesting randomness…", s: `Sending ${plural(sessionSize, "capsule")} to Chainlink VRF`, pill: "Waiting for the request to confirm" };
       case "drawing":
@@ -648,12 +672,12 @@ export function GotchaMachine({
         return active
           ? {
               t: `${RARITY_LABEL[active.rarity] ?? active.rarity}!`,
-              s: `${active.prize_name} · +${active.points} pts`,
+              s: demo ? `${active.prize_name} · demo, no prize awarded` : `${active.prize_name} · +${active.points} pts`,
               pill: remaining > 0 ? `${plural(remaining, "sealed capsule")} left` : link(active.verify_url ?? requestUrl, "Verify this draw on-chain"),
             }
           : { t: "", s: "", pill: "" };
       case "complete":
-        return { t: "Session complete", s: `${plural(drawn, "capsule")} · +${sessionPts} pts`, pill: link(results[0]?.verify_url ?? requestUrl, "Verify these draws on-chain") };
+        return { t: "Session complete", s: demo ? `${plural(drawn, "capsule")} · demo` : `${plural(drawn, "capsule")} · +${sessionPts} pts`, pill: link(results[0]?.verify_url ?? requestUrl, "Verify these draws on-chain") };
     }
   })();
 
@@ -717,7 +741,7 @@ export function GotchaMachine({
           <div className="gm-big">{credits}</div>
           <p className="gm-card-label">spin{credits === 1 ? "" : "s"} available</p>
           <hr />
-          <div className="gm-kv"><span>This session</span><b>+{sessionPts} pts</b></div>
+          <div className="gm-kv"><span>This session</span><b>{demo ? "Demo" : `+${sessionPts} pts`}</b></div>
           <div className="gm-kv"><span>Capsules opened</span><b>{revealed}/{sessionSize || count}</b></div>
           <hr />
           <p className="gm-vrf-badge">Chainlink VRF</p>
@@ -789,14 +813,14 @@ export function GotchaMachine({
                     })()}
                     <span className="gm-reveal-rarity">{RARITY_LABEL[active.rarity] ?? active.rarity}</span>
                     <span className="gm-reveal-name">{active.prize_name}</span>
-                    <span className="gm-reveal-pts">+{active.points} pts</span>
+                    <span className="gm-reveal-pts">{demo ? "Demo · no prize" : `+${active.points} pts`}</span>
                     {word && <span className="gm-reveal-vrf">VRF {word}</span>}
                   </div>
                 )}
                 {phase === "complete" && (
                   <div className="gm-reveal gm-summary">
                     <span className="gm-reveal-rarity">Session total</span>
-                    <span className="gm-summary-pts">+{sessionPts}</span>
+                    <span className="gm-summary-pts">{demo ? drawn : `+${sessionPts}`}</span>
                     <span className="gm-reveal-name">{plural(drawn, "capsule")} opened</span>
                   </div>
                 )}

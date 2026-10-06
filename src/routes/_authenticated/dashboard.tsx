@@ -4,10 +4,11 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getWalletNonce, linkWallet, syncNfts, claimBurn, startDraw, checkDraw } from "@/lib/app.functions";
+import { getWalletNonce, linkWallet, syncNfts, claimBurn } from "@/lib/app.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { GotchaMachine } from "@/components/gotcha/GotchaMachine";
+import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
+import { useAuth } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -74,8 +75,7 @@ function Dashboard() {
   const linkFn = useServerFn(linkWallet);
   const syncFn = useServerFn(syncNfts);
   const burnFn = useServerFn(claimBurn);
-  const drawFn = useServerFn(startDraw);
-  const checkFn = useServerFn(checkDraw);
+  const { user } = useAuth();
   const [busy, setBusy] = useState<string | null>(null);
   const [burnTx, setBurnTx] = useState("");
   const [burnToken, setBurnToken] = useState("");
@@ -111,7 +111,6 @@ function Dashboard() {
 
   if (!data) return <main className="mx-auto max-w-6xl px-4 py-12 font-mono text-muted-foreground">Loading…</main>;
   const total = data.ledger.reduce((s, l) => s + l.amount, 0);
-  const pendingIds = data.spins.filter((s) => s.status === "pending").map((s) => s.id);
   const minLevel = data.nft.burn_min_level ?? 4;
 
   return (
@@ -124,16 +123,7 @@ function Dashboard() {
 
       {/* Gotcha machine */}
       <div className="mt-8">
-        <GotchaMachine
-          credits={data.credits.length}
-          prizes={data.prizes}
-          onDraw={(count) => drawFn({ data: { count } })}
-          onCheck={(ids) => checkFn({ data: { ids } })}
-          resumeIds={pendingIds}
-          onSessionEnd={refresh}
-          onError={(m) => toast.error(m)}
-          footnote="Paid spins open when checkout is enabled by the organizers."
-        />
+        {user && <PlayerGotchaMachine userId={user.id} footnote="Buy more spins with Refill, or burn a Level 4+ NFT for a free one." />}
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">

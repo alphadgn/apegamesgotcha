@@ -2,6 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Leaderboard } from "@/components/Leaderboard";
 import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
+import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
+import { useAuth } from "@/hooks/useAuth";
 import type { GotchaPrize } from "@/components/gotcha/GotchaMachine";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +30,7 @@ const steps = [
 ];
 
 function Index() {
+  const { user, loading: authLoading } = useAuth();
   const { data: prizes } = useQuery({
     queryKey: ["public-prizes"],
     queryFn: async () => {
@@ -53,7 +56,13 @@ function Index() {
       </section>
 
       <section className="mb-16">
-        <DemoGotchaMachine prizes={prizes} />
+        {authLoading ? (
+          <div className="min-h-[900px]" aria-busy="true" />
+        ) : user ? (
+          <PlayerGotchaMachine userId={user.id} />
+        ) : (
+          <DemoGotchaMachine prizes={prizes} />
+        )}
       </section>
 
       <section className="grid gap-px overflow-hidden rounded border border-border bg-border md:grid-cols-4">

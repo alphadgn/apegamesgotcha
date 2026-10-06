@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { GotchaMachine, type DrawStatus, type GotchaPrize } from "./GotchaMachine";
+import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
+import { RefillDialog } from "@/components/wallet/RefillDialog";
 
 /** Same prizes the app ships with — used if the live prize list hasn't loaded. */
 export const DEMO_PRIZES: GotchaPrize[] = [
@@ -29,19 +31,57 @@ function pick(prizes: GotchaPrize[], word: bigint) {
   return live[0]!;
 }
 
+const DEMO_COOLDOWN_MS = 30 * 60_000;
+const DEMO_KEY = "gm-demo-last-spin";
+const readLast = () => {
+  try {
+    return Number(localStorage.getItem(DEMO_KEY) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+};
+const DEMO_PULLS_KEY = "gm-demo-pulls";
+const readPulls = (): ShareSpin[] => {
+  try {
+    const x = JSON.parse(localStorage.getItem(DEMO_PULLS_KEY) ?? "[]");
+    return Array.isArray(x) ? (x as ShareSpin[]).slice(-5) : [];
+  } catch {
+    return [];
+  }
+};
+const fmt = (ms: number) => {
+  const t = Math.ceil(ms / 1000);
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+};
+
 /**
- * The real gotcha machine with simulated draws. Nothing is sent to the server
- * and no points are awarded — it's for showing the machine off.
+ * Demo machine for signed-out visitors: one free spin every 30 minutes, simulated draws,
+ * no prizes or points. Refill asks them to sign in to buy real spins.
  */
-export function DemoGotchaMachine({ prizes, credits: startCredits = 5 }: { prizes?: GotchaPrize[] | undefined; credits?: number }) {
+export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefined }) {
   const pool = prizes?.length ? prizes : DEMO_PRIZES;
-  const [credits, setCredits] = useState(startCredits);
+  const [lastSpin, setLastSpin] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const [refillOpen, setRefillOpen] = useState(false);
   const [refillAttention, setRefillAttention] = useState(false);
+  const [revealedSpins, setRevealedSpins] = useState<ShareSpin[]>([]);
+  const [inPlay, setInPlay] = useState(false);
   const draws = useRef(new Map<string, { readyAt: number; word: bigint }>());
   const refillRef = useRef<HTMLButtonElement>(null);
   const attentionTimer = useRef<number | undefined>(undefined);
 
-  useEffect(() => () => window.clearTimeout(attentionTimer.current), []);
+  useEffect(() => {
+    setLastSpin(readLast());
+    setRevealedSpins(readPulls());
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      clearInterval(t);
+      window.clearTimeout(attentionTimer.current);
+    };
+  }, []);
+
+  const wait = Math.max(0, lastSpin + DEMO_COOLDOWN_MS - now);
+  const credits = wait === 0 ? 1 : 0;
 
   const guideToRefill = useCallback(() => {
     const button = refillRef.current;
@@ -58,11 +98,17 @@ export function DemoGotchaMachine({ prizes, credits: startCredits = 5 }: { prize
   }, []);
 
   const onDraw = useCallback(async (count: number) => {
+    const at = Date.now();
+    try {
+      localStorage.setItem(DEMO_KEY, String(at));
+    } catch {
+      /* storage unavailable */
+    }
+    setLastSpin(at);
     await new Promise((r) => setTimeout(r, 900));
     const latency = 3500 + Math.random() * 3000;
-    const spinIds = Array.from({ length: count }, () => crypto.randomUUID());
+    const spinIds = Array.from({ length: Math.min(count, 1) }, () => crypto.randomUUID());
     for (const id of spinIds) draws.current.set(id, { readyAt: Date.now() + latency, word: randomWord() });
-    setCredits((c) => Math.max(0, c - count));
     return { spinIds };
   }, []);
 
@@ -77,16 +123,30 @@ export function DemoGotchaMachine({ prizes, credits: startCredits = 5 }: { prize
     [pool],
   );
 
+  const showShare = credits === 0 && !inPlay && revealedSpins.length > 0;
+
   return (
     <div className="gm-demo">
       <div className="gm-demo-bar">
-        <span>Demo: draws are simulated here and award no points. Real spins are drawn on-chain by Chainlink VRF.</span>
-        <Button ref={refillRef} type="button" size="sm" className={refillAttention ? "is-refill-attention" : ""} onClick={() => {
-          setCredits(startCredits);
-          setRefillAttention(false);
-        }}>
-          Refill {startCredits} spins
-        </Button>
+        <span>
+          Demo: 1 free spin every 30 minutes · no prizes or points.{" "}
+          {credits === 0 && !inPlay ? <b>Next demo spin in {fmt(wait)}.</b> : null} Sign in to play for real.
+        </span>
+        <span className="gm-bar-actions">
+          {showShare && <ShareSpinsButton spins={revealedSpins} demo />}
+          <Button
+            ref={refillRef}
+            type="button"
+            size="sm"
+            className={refillAttention ? "is-refill-attention" : ""}
+            onClick={() => {
+              setRefillAttention(false);
+              setRefillOpen(true);
+            }}
+          >
+            Refill spins
+          </Button>
+        </span>
       </div>
       <GotchaMachine
         credits={credits}
@@ -94,9 +154,24 @@ export function DemoGotchaMachine({ prizes, credits: startCredits = 5 }: { prize
         onDraw={onDraw}
         onCheck={onCheck}
         pollMs={700}
-        footnote="Sign in to spin for real points."
+        maxPerSession={5}
+        footnote="Demo spins are simulated and award no prizes. Sign in to spin for real."
         onNoSpins={guideToRefill}
+        onReveal={(r) =>
+          setRevealedSpins((xs) => {
+            const next = [...xs, { prize_name: r.prize_name, rarity: r.rarity, points: r.points }].slice(-5);
+            try {
+              localStorage.setItem(DEMO_PULLS_KEY, JSON.stringify(next));
+            } catch {
+              /* storage unavailable */
+            }
+            return next;
+          })
+        }
+        onBusyChange={setInPlay}
+        demo
       />
+      <RefillDialog open={refillOpen} onClose={() => setRefillOpen(false)} signedIn={false} onPurchased={() => setRefillOpen(false)} />
     </div>
   );
 }

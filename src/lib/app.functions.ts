@@ -375,3 +375,57 @@ export const adminSettleDraws = createServerFn({ method: "POST" })
     await audit(context.userId, "vrf.settled", { before, after: count });
     return { before, after: count ?? 0 };
   });
+
+// ---------- Spin purchases (APE on ApeChain) ----------
+// The player picks a bundle (5, 10, 15 or 20 spins); we lock the price in a purchase row and the
+// wallet sends that exact APE amount to the treasury with the purchase id as calldata.
+export const createSpinPurchase = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ quantity: z.number().int() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const p = await import("./purchase.server");
+    const cfg = p.requirePurchasing((await getConfig("purchase")) as import("./purchase.server").PurchaseConfig);
+    const bundles = cfg.bundles?.length ? cfg.bundles : p.DEFAULT_BUNDLES;
+    if (!bundles.includes(data.quantity) || data.quantity % 5 !== 0 || data.quantity > 20) throw new Error("Choose 5, 10, 15 or 20 spins.");
+    const price = p.bundlePriceWei(cfg, data.quantity);
+    const db = await admin();
+    const { data: row, error } = await db
+      .from("spin_purchases")
+      .insert({ user_id: context.userId, quantity: data.quantity, price_wei: price.toString(), chain_id: cfg.chain_id, treasury: cfg.treasury.toLowerCase() })
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    await audit(context.userId, "purchase.created", { id: row.id, quantity: data.quantity, price_wei: price.toString() });
+    return {
+      purchaseId: row.id as string,
+      chainId: cfg.chain_id,
+      to: cfg.treasury,
+      valueWei: price.toString(),
+      data: p.purchaseData(row.id),
+      explorerUrl: cfg.explorer_url ?? null,
+    };
+  });
+
+export const confirmSpinPurchase = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ purchaseId: z.string().uuid(), txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const p = await import("./purchase.server");
+    const cfg = (await getConfig("purchase")) as import("./purchase.server").PurchaseConfig;
+    const db = await admin();
+    const { data: row } = await db.from("spin_purchases").select("*").eq("id", data.purchaseId).eq("user_id", context.userId).maybeSingle();
+    if (!row) throw new Error("Purchase not found");
+    if (row.status === "paid") return { status: "paid" as const, quantity: row.quantity as number };
+    const check = await p.checkPayment(
+      { ...cfg, chain_id: row.chain_id, treasury: row.treasury }, // verify against the terms locked at purchase time
+      data.txHash as `0x${string}`,
+      row.id,
+      BigInt(row.price_wei),
+    );
+    if (check.state === "pending") return { status: "pending" as const, quantity: row.quantity as number };
+    if (check.state === "invalid") throw new Error(check.reason);
+    const { error } = await db.rpc("complete_spin_purchase", { _purchase_id: row.id, _tx_hash: data.txHash, _payer: check.payer });
+    if (error) throw new Error(error.message);
+    await audit(context.userId, "purchase.paid", { id: row.id, tx: data.txHash, quantity: row.quantity });
+    return { status: "paid" as const, quantity: row.quantity as number };
+  });
