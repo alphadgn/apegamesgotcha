@@ -497,8 +497,24 @@
   .gm-palm { bottom: auto; top: calc(var(--vault) * 0.9); height: calc(var(--vault) * 1.5) !important; }
 }
 @media (max-width: 639px) {
+  .gm { --vault: clamp(220px, 58vw, 248px); }
+  .gm-grid { gap: 14px; padding: 14px 10px 20px; }
   .gm-banner-script, .gm-banner-mark, .gm-script, .gm-palm-l2, .gm-palm-r2 { display: none; }
   .gm-lever { display: none; }
+  .gm-marquee { padding: 6px 8px 8px; }
+  .gm-plate { padding: 10px 12px; }
+  .gm-plate-row { gap: 10px; }
+  .gm-plate-sub { font-size: 13px; }
+  .gm-plate-pill { margin-top: 8px !important; font-size: 12px; }
+  .gm-spinner { width: 32px; height: 32px; }
+  .gm-spinner i { transform: rotate(calc(var(--i) * 45deg)) translateY(-12px); }
+  .gm-body { gap: 10px; padding: 22px 10px 14px; }
+  .gm-tray { gap: 6px; padding: 8px 10px 16px; }
+  .gm-slot-ball { width: 38px; }
+  .gm-mode { gap: 6px; padding: 7px 12px; font-size: 13px; }
+  .gm-cta { max-width: 300px; padding: 10px 16px; font-size: 20px; }
+  .gm-tools { gap: 6px; margin-top: 14px; }
+  .gm-tool { padding: 6px 10px; font-size: 12px; }
 }
 
 /* ---------- keyframes ---------- */
