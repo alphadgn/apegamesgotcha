@@ -183,6 +183,7 @@ export type Database = {
           id: string
           inventory: number | null
           name: string
+          onchain_index: number | null
           points: number
           rarity: string
           weight: number
@@ -193,6 +194,7 @@ export type Database = {
           id?: string
           inventory?: number | null
           name: string
+          onchain_index?: number | null
           points?: number
           rarity?: string
           weight?: number
@@ -203,6 +205,7 @@ export type Database = {
           id?: string
           inventory?: number | null
           name?: string
+          onchain_index?: number | null
           points?: number
           rarity?: string
           weight?: number
@@ -259,40 +262,61 @@ export type Database = {
       }
       spins: {
         Row: {
+          chain_id: number | null
+          contract_address: string | null
           created_at: string
           credit_id: string
+          fulfilled_at: string | null
           id: string
-          points: number
-          prize_id: string
-          prize_name: string
-          rarity: string
-          roll: number
-          total_weight: number
+          points: number | null
+          prize_id: string | null
+          prize_name: string | null
+          random_word: string | null
+          rarity: string | null
+          request_tx: string | null
+          roll: number | null
+          status: string
+          total_weight: number | null
           user_id: string
+          vrf_request_id: string | null
         }
         Insert: {
+          chain_id?: number | null
+          contract_address?: string | null
           created_at?: string
           credit_id: string
+          fulfilled_at?: string | null
           id?: string
-          points: number
-          prize_id: string
-          prize_name: string
-          rarity: string
-          roll: number
-          total_weight: number
+          points?: number | null
+          prize_id?: string | null
+          prize_name?: string | null
+          random_word?: string | null
+          rarity?: string | null
+          request_tx?: string | null
+          roll?: number | null
+          status?: string
+          total_weight?: number | null
           user_id: string
+          vrf_request_id?: string | null
         }
         Update: {
+          chain_id?: number | null
+          contract_address?: string | null
           created_at?: string
           credit_id?: string
+          fulfilled_at?: string | null
           id?: string
-          points?: number
-          prize_id?: string
-          prize_name?: string
-          rarity?: string
-          roll?: number
-          total_weight?: number
+          points?: number | null
+          prize_id?: string | null
+          prize_name?: string | null
+          random_word?: string | null
+          rarity?: string | null
+          request_tx?: string | null
+          roll?: number | null
+          status?: string
+          total_weight?: number | null
           user_id?: string
+          vrf_request_id?: string | null
         }
         Relationships: [
           {
@@ -366,6 +390,43 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      begin_spins: {
+        Args: { _count: number; _user_id: string }
+        Returns: string[]
+      }
+      finalize_spin: {
+        Args: {
+          _prize_index: number
+          _random_word: string
+          _request_id: string
+          _spin_id: string
+        }
+        Returns: {
+          chain_id: number | null
+          contract_address: string | null
+          created_at: string
+          credit_id: string
+          fulfilled_at: string | null
+          id: string
+          points: number | null
+          prize_id: string | null
+          prize_name: string | null
+          random_word: string | null
+          rarity: string | null
+          request_tx: string | null
+          roll: number | null
+          status: string
+          total_weight: number | null
+          user_id: string
+          vrf_request_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "spins"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       get_leaderboard: {
         Args: { _limit?: number }
         Returns: {
@@ -382,27 +443,7 @@ export type Database = {
         }
         Returns: boolean
       }
-      perform_spin: {
-        Args: { _user_id: string }
-        Returns: {
-          created_at: string
-          credit_id: string
-          id: string
-          points: number
-          prize_id: string
-          prize_name: string
-          rarity: string
-          roll: number
-          total_weight: number
-          user_id: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "spins"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
+      refund_spins: { Args: { _ids: string[] }; Returns: number }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
