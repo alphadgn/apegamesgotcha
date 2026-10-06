@@ -16,6 +16,7 @@ export function SiteHeader() {
         <nav className="flex flex-1 items-center gap-5">
           <Link to="/leaderboard" className={link} activeProps={{ className: "text-primary" }}>Leaderboard</Link>
           {user && <Link to="/dashboard" className={link} activeProps={{ className: "text-primary" }}>My Machine</Link>}
+          {user && <Link to="/guide" className={link} activeProps={{ className: "text-primary" }}>Guide</Link>}
           {isAdmin && <Link to="/admin" className={link} activeProps={{ className: "text-primary" }}>Admin</Link>}
         </nav>
         {user ? (
