@@ -429,3 +429,64 @@ export const confirmSpinPurchase = createServerFn({ method: "POST" })
     await audit(context.userId, "purchase.paid", { id: row.id, tx: data.txHash, quantity: row.quantity });
     return { status: "paid" as const, quantity: row.quantity as number };
   });
+
+// ---------- Admin: setup checklist ----------
+// Reports which settings/keys are in place. Never returns secret values — only whether they're set.
+type SetupItem = { group: string; label: string; ok: boolean; optional?: boolean; detail: string; where: string };
+
+export const adminSetupStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const db = await admin();
+    const items: SetupItem[] = [];
+    const isAddr = (a: unknown) => typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a);
+    const cfg = async (key: string) => (await db.from("app_config").select("value").eq("key", key).maybeSingle()).data?.value ?? null;
+
+    // Database
+    const purchasesTable = await db.from("spin_purchases").select("id", { head: true, count: "exact" });
+    const spinsStatus = await db.from("spins").select("status", { head: true, count: "exact" });
+    items.push({ group: "Database", label: "Migrations applied (Chainlink draws + purchases)", ok: !purchasesTable.error && !spinsStatus.error, detail: purchasesTable.error?.message ?? spinsStatus.error?.message ?? "Tables are in place", where: "Lovable: apply pending Supabase migrations" });
+
+    // Chainlink VRF draw
+    const vrf = (await cfg("vrf")) as { enabled?: boolean; contract?: string; rpc_url?: string; chain_id?: number } | null;
+    const key = process.env["VRF_OPERATOR_PRIVATE_KEY"];
+    const keyOk = !!key && /^0x[0-9a-fA-F]{64}$/.test(key);
+    items.push({ group: "Chainlink draw (Base)", label: "Draw contract address", ok: isAddr(vrf?.contract), detail: isAddr(vrf?.contract) ? vrf!.contract! : "Not set — deploy contracts/ (see contracts/README.md)", where: "Admin → Configuration → vrf → contract" });
+    items.push({ group: "Chainlink draw (Base)", label: "Operator wallet key (secret)", ok: keyOk, detail: keyOk ? "Set" : key ? "Set, but not a 0x + 64 hex character private key" : "Not set", where: "Lovable → Cloud → Secrets → VRF_OPERATOR_PRIVATE_KEY" });
+    if (keyOk && isAddr(vrf?.contract) && vrf?.rpc_url) {
+      try {
+        const { privateKeyToAccount } = await import("viem/accounts");
+        const { createPublicClient, http, parseAbi } = await import("viem");
+        const me = privateKeyToAccount(key as `0x${string}`).address;
+        const pub = createPublicClient({ transport: http(vrf.rpc_url) });
+        const op = await pub.readContract({ address: vrf.contract as `0x${string}`, abi: parseAbi(["function operator() view returns (address)"]), functionName: "operator" });
+        const bal = await pub.getBalance({ address: me });
+        items.push({ group: "Chainlink draw (Base)", label: "Operator key matches the contract", ok: op.toLowerCase() === me.toLowerCase(), detail: op.toLowerCase() === me.toLowerCase() ? `Operator ${me}` : `Contract operator is ${op}, key is for ${me}`, where: "Use the key for the OPERATOR you deployed with" });
+        items.push({ group: "Chainlink draw (Base)", label: "Operator wallet has ETH for gas", ok: bal > 0n, detail: `${Number(bal) / 1e18} ETH`, where: `Send a little ETH (Base) to ${me}` });
+      } catch (e) {
+        items.push({ group: "Chainlink draw (Base)", label: "Contract reachable", ok: false, detail: (e as Error).message.slice(0, 160), where: "Check vrf.rpc_url and vrf.contract" });
+      }
+    }
+    if (isAddr(vrf?.contract)) {
+      try {
+        const v = await import("./vrf.server");
+        const { data: prizes } = await db.from("prizes").select("id, weight, inventory, active, onchain_index");
+        const chain = await v.readPool(vrf as import("./vrf.server").VrfConfig);
+        const ok = v.weightsMatch(v.poolArrays(prizes ?? []), chain.pool) && chain.pool.length > 0;
+        items.push({ group: "Chainlink draw (Base)", label: "Prize odds published on-chain", ok, detail: ok ? `Pool v${chain.version}` : "Odds differ from the contract (or never published)", where: "Admin → Chainlink VRF → Publish prize pool" });
+      } catch {
+        /* covered by "Contract reachable" */
+      }
+    }
+    items.push({ group: "Chainlink draw (Base)", label: "Real spins switched on", ok: !!vrf?.enabled, detail: vrf?.enabled ? "On" : "Off — players see “Spins open soon”", where: "Admin → Configuration → vrf → enabled: true (last step)" });
+
+    // Purchases
+    const pc = (await cfg("purchase")) as { enabled?: boolean; treasury?: string; price_ape_per_spin?: string; privy_app_id?: string } | null;
+    const price = Number(pc?.price_ape_per_spin ?? 0);
+    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Treasury wallet (receives APE)", ok: isAddr(pc?.treasury), detail: isAddr(pc?.treasury) ? pc!.treasury! : "Not set — use a regular wallet address, not a Safe/contract", where: "Admin → Configuration → purchase → treasury" });
+    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Price per spin", ok: price > 0, detail: price > 0 ? `${price} APE per spin` : "Not set", where: "Admin → Configuration → purchase → price_ape_per_spin" });
+    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Privy App ID (email + mobile wallets)", ok: !!pc?.privy_app_id, optional: true, detail: pc?.privy_app_id ? "Set" : "Not set — only browser-extension wallets can pay", where: "dashboard.privy.io → App settings → App ID; also add your Lovable domains under Allowed origins" });
+    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Purchases switched on", ok: !!pc?.enabled, detail: pc?.enabled ? "On" : "Off — Refill shows “purchases open soon”", where: "Admin → Configuration → purchase → enabled: true (last step)" });
+    return items;
+  });

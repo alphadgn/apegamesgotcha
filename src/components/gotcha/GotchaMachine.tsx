@@ -58,6 +58,8 @@ type Props = {
   onBusyChange?: (busy: boolean) => void;
   /** Demo mode: prizes are shown but never awarded, so no points are displayed. */
   demo?: boolean;
+  /** When set, real spins aren't open yet (e.g. the on-chain draw isn't switched on); shown instead of pulling. */
+  closedReason?: string | undefined;
 };
 
 type Phase = "idle" | "requesting" | "drawing" | "rolling" | "charging" | "opening" | "revealed" | "complete";
@@ -122,6 +124,7 @@ export function GotchaMachine({
   onReveal,
   onBusyChange,
   demo = false,
+  closedReason,
 }: Props) {
   const pool = prizes.length ? prizes : FALLBACK_PRIZES;
   const tiles = useMemo(() => {
@@ -179,6 +182,8 @@ export function GotchaMachine({
   const drawToken = useRef(0);
   const resumed = useRef(false);
   const onEndRef = useRef(onSessionEnd);
+  const closedRef = useRef(closedReason);
+  closedRef.current = closedReason;
   const onRevealRef = useRef(onReveal);
   onRevealRef.current = onReveal;
   modeRef.current = mode;
@@ -541,7 +546,7 @@ export function GotchaMachine({
 
   const pull = async () => {
     const credits = creditsRef.current; // live value — automatic "Spin all" pulls run from timers
-    if (busy || credits < 1) return;
+    if (busy || credits < 1 || closedRef.current) return;
     const used = historyRef.current.length + resultsRef.current.length;
     const availableSlots = used >= maxPerSession ? maxPerSession : maxPerSession - used;
     const spinAll = spinModeRef.current === "all";
@@ -654,6 +659,7 @@ export function GotchaMachine({
     const i = cur + 1;
     switch (phase) {
       case "idle":
+        if (closedReason) return { t: "Real spins open soon", s: closedReason, pill: credits > 0 ? `${plural(credits, "spin")} waiting for you` : "Every draw powered by Chainlink VRF" };
         return credits > 0
           ? { t: "Ready to pull", s: `Load ${plural(count, "capsule")} · ${plural(credits, "spin")} available`, pill: "Every draw powered by Chainlink VRF" }
           : demo
@@ -701,7 +707,8 @@ export function GotchaMachine({
     return { st: k < drawn ? "sealed" : "off" };
   };
   let cta: { label: string; sub?: string; onClick: () => void; disabled?: boolean };
-  if (phase === "requesting") cta = { label: "Requesting…", onClick: () => {}, disabled: true };
+  if (closedReason && (phase === "idle" || sessionDone)) cta = { label: "Spins open soon", sub: credits > 0 ? `${plural(credits, "spin")} saved` : "Check back shortly", onClick: () => {}, disabled: true };
+  else if (phase === "requesting") cta = { label: "Requesting…", onClick: () => {}, disabled: true };
   else if (phase === "drawing") cta = { label: "Drawing on-chain…", sub: "Chainlink VRF", onClick: () => {}, disabled: true };
   else if (busy) cta = { label: "Revealing…", onClick: () => {}, disabled: true };
   else if (phase === "revealed" && remaining > 0 && (mode === "all" || spinMode === "all")) cta = { label: "Next capsule…", sub: `${remaining} sealed`, onClick: () => {}, disabled: true };
@@ -713,8 +720,8 @@ export function GotchaMachine({
     ? { label: "No spins available", sub: "Tap to refill", onClick: onNoSpins }
     : { label: "No spins available", onClick: () => {}, disabled: true };
 
-  const canPull = phase === "idle" && credits > 0;
-  const canLever = (phase === "idle" || sessionDone) && credits > 0;
+  const canPull = phase === "idle" && credits > 0 && !closedReason;
+  const canLever = (phase === "idle" || sessionDone) && credits > 0 && !closedReason;
   const spinReady = credits > 0 && (phase === "idle" || sessionDone);
   const rarityVar = rarityOf ? ({ "--rar": `var(--gm-${rarityOf})` } as CSSProperties) : undefined;
   const poolTotal = pool.reduce((s, p) => s + (p.inventory === 0 ? 0 : p.weight ?? 0), 0);

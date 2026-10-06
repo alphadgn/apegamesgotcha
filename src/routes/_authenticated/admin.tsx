@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminSettleDraws } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminSettleDraws, adminSetupStatus } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,14 +33,16 @@ function Admin() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="text-4xl font-bold">Admin console</h1>
-      <Tabs defaultValue="config" className="mt-6">
+      <Tabs defaultValue="setup" className="mt-6">
         <TabsList>
+          <TabsTrigger value="setup">Setup checklist</TabsTrigger>
           <TabsTrigger value="config">Configuration</TabsTrigger>
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
           <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>
           <TabsTrigger value="grants">Grants & levels</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
+        <TabsContent value="setup"><SetupPanel /></TabsContent>
         <TabsContent value="config"><ConfigPanel /></TabsContent>
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
         <TabsContent value="vrf"><VrfPanel /></TabsContent>
@@ -48,6 +50,41 @@ function Admin() {
         <TabsContent value="audit"><AuditPanel /></TabsContent>
       </Tabs>
     </main>
+  );
+}
+
+function SetupPanel() {
+  const status = useServerFn(adminSetupStatus);
+  const { data, error, isFetching, refetch } = useQuery({ queryKey: ["setup-status"], queryFn: () => status() });
+  const groups = [...new Set((data ?? []).map((i) => i.group))];
+  const missing = (data ?? []).filter((i) => !i.ok && !i.optional).length;
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm text-muted-foreground">
+          {data ? (missing ? `${missing} required item${missing === 1 ? "" : "s"} left before real spins and purchases work.` : "Everything required is in place.") : "Checking…"}
+        </p>
+        <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Checking…" : "Re-check"}</Button>
+      </div>
+      {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
+      {groups.map((g) => (
+        <div key={g} className="rounded border border-border bg-card p-4">
+          <h3 className="font-bold">{g}</h3>
+          <ul className="mt-2 divide-y divide-border">
+            {data!.filter((i) => i.group === g).map((i) => (
+              <li key={i.label} className="grid gap-1 py-3 sm:grid-cols-[28px_1fr]">
+                <span aria-hidden className={i.ok ? "text-primary" : i.optional ? "text-muted-foreground" : "text-destructive"}>{i.ok ? "✓" : i.optional ? "○" : "✗"}</span>
+                <div>
+                  <p className="font-medium">{i.label}{i.optional ? <span className="text-muted-foreground"> (optional)</span> : null}</p>
+                  <p className="break-all font-mono text-xs text-muted-foreground">{i.detail}</p>
+                  {!i.ok && <p className="mt-1 text-sm">Where: {i.where}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
 import { useAuth } from "@/hooks/useAuth";
+import { SafeSection } from "@/components/SafeSection";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -123,7 +124,9 @@ function Dashboard() {
 
       {/* Gotcha machine */}
       <div className="mt-8">
-        {user && <PlayerGotchaMachine userId={user.id} footnote="Buy more spins with Refill, or burn a Level 4+ NFT for a free one." />}
+        <SafeSection label="gotcha machine">
+          {user && <PlayerGotchaMachine userId={user.id} footnote="Buy more spins with Refill, or burn a Level 4+ NFT for a free one." />}
+        </SafeSection>
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">

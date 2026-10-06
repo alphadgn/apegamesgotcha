@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { Component, lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,6 +6,23 @@ import type { PurchaseSettings } from "./CheckoutPanel";
 
 const PrivyCheckout = lazy(() => import("./PrivyCheckout"));
 const InjectedCheckout = lazy(() => import("./InjectedCheckout"));
+
+/**
+ * Keeps a wallet problem (e.g. a wrong Privy App ID or a blocked domain) inside the Refill window
+ * instead of taking down the whole page.
+ */
+class CheckoutBoundary extends Component<{ fallback: (message: string) => ReactNode; children: ReactNode }, { error: string | null }> {
+  override state = { error: null as string | null };
+  static getDerivedStateFromError(e: unknown) {
+    return { error: (e as Error)?.message || "Wallet sign-in failed to load" };
+  }
+  override componentDidCatch(e: unknown) {
+    console.error("[Refill] wallet provider failed:", e);
+  }
+  override render() {
+    return this.state.error ? this.props.fallback(this.state.error) : this.props.children;
+  }
+}
 
 export function usePurchaseSettings() {
   return useQuery({
@@ -65,7 +82,18 @@ export function RefillDialog({
     body = (
       <Suspense fallback={<p className="gm-rf-copy">Loading wallet…</p>}>
         {settings.privy_app_id ? (
-          <PrivyCheckout settings={settings} onPurchased={onPurchased} />
+          <CheckoutBoundary
+            fallback={(message) => (
+              <>
+                <p className="gm-rf-warn">
+                  Email wallet sign-in isn't available right now{/invalid.*app id/i.test(message) ? " (the Privy App ID in Admin → Configuration → purchase isn't valid)" : ""}. You can still pay with a browser wallet.
+                </p>
+                <InjectedCheckout settings={settings} onPurchased={onPurchased} />
+              </>
+            )}
+          >
+            <PrivyCheckout settings={settings} onPurchased={onPurchased} />
+          </CheckoutBoundary>
         ) : (
           <InjectedCheckout settings={settings} onPurchased={onPurchased} />
         )}

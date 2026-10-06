@@ -4,6 +4,7 @@ import { Leaderboard } from "@/components/Leaderboard";
 import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
 import { useAuth } from "@/hooks/useAuth";
+import { SafeSection } from "@/components/SafeSection";
 import type { GotchaPrize } from "@/components/gotcha/GotchaMachine";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -56,13 +57,15 @@ function Index() {
       </section>
 
       <section className="mb-16">
-        {authLoading ? (
-          <div className="min-h-[900px]" aria-busy="true" />
-        ) : user ? (
-          <PlayerGotchaMachine userId={user.id} />
-        ) : (
-          <DemoGotchaMachine prizes={prizes} />
-        )}
+        <SafeSection label="gotcha machine">
+          {authLoading ? (
+            <div className="min-h-[900px]" aria-busy="true" />
+          ) : user ? (
+            <PlayerGotchaMachine userId={user.id} />
+          ) : (
+            <DemoGotchaMachine prizes={prizes} />
+          )}
+        </SafeSection>
       </section>
 
       <section className="grid gap-px overflow-hidden rounded border border-border bg-border md:grid-cols-4">

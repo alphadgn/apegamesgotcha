@@ -64,6 +64,18 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
     };
   }, [confirm, refresh]);
 
+  // Real spins need the on-chain draw switched on (Admin → Configuration → vrf).
+  const { data: vrfOpen } = useQuery({
+    queryKey: ["vrf-open"],
+    queryFn: async () => {
+      const { data: row } = await supabase.from("app_config").select("value").eq("key", "vrf").maybeSingle();
+      const v = (row?.value ?? {}) as { enabled?: boolean; contract?: string };
+      return !!v.enabled && /^0x[0-9a-fA-F]{40}$/.test(v.contract ?? "");
+    },
+    staleTime: 60_000,
+  });
+  const closedReason = vrfOpen === false ? "The on-chain prize draw is being switched on. Your spins are saved." : undefined;
+
   const credits = data?.credits ?? 0;
   const showShare = credits === 0 && !inPlay && (data?.lastFive.length ?? 0) > 0;
 
@@ -90,6 +102,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
         onError={(m) => toast.error(m)}
         onNoSpins={() => setRefillOpen(true)}
         onBusyChange={setInPlay}
+        closedReason={closedReason}
         {...(footnote ? { footnote } : {})}
       />
       <RefillDialog
