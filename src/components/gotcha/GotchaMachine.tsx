@@ -123,6 +123,7 @@ export function GotchaMachine({
 
   const [count, setCount] = useState(1);
   const [mode, setMode] = useState<"one" | "all">("one");
+  const [spinMode, setSpinMode] = useState<"one" | "all">("one");
   const [phase, setPhase] = useState<Phase>("idle");
   const [sessionSize, setSessionSize] = useState(0);
   const [results, setResults] = useState<GotchaResult[]>([]);
@@ -303,9 +304,12 @@ export function GotchaMachine({
   const drawn = results.length;
   const remaining = drawn - revealed;
   const maxLoad = clamp(Math.min(maxPerSession, credits), 0, maxPerSession);
+  const usedThisCycle = history.length + (phase === "idle" ? 0 : drawn);
+  const cycleCapacity = usedThisCycle >= maxPerSession ? maxPerSession : maxPerSession - usedThisCycle;
+  const selectedCount = spinMode === "all" ? Math.min(credits, cycleCapacity) : Math.min(credits, 1);
   useEffect(() => {
-    if (phase === "idle" && maxLoad > 0 && count > maxLoad) setCount(maxLoad);
-  }, [maxLoad, count, phase]);
+    if ((phase === "idle" || sessionDone) && selectedCount > 0 && count !== selectedCount) setCount(selectedCount);
+  }, [count, phase, selectedCount, sessionDone]);
 
   const resetToIdle = useCallback(() => {
     drawToken.current++;
@@ -506,6 +510,9 @@ export function GotchaMachine({
 
   const pull = async () => {
     if (busy || credits < 1) return;
+    const used = historyRef.current.length + resultsRef.current.length;
+    const availableSlots = used >= maxPerSession ? maxPerSession : maxPerSession - used;
+    const requested = spinMode === "all" ? Math.min(credits, availableSlots) : 1;
     resumed.current = true;
     resetToIdle();
     sfx.current ??= createSfx();
@@ -516,7 +523,7 @@ export function GotchaMachine({
     jukebox.current.start();
     setLeverKey((k) => k + 1);
 
-    const n = Math.min(count, credits, maxPerSession);
+    const n = Math.min(requested, credits, maxPerSession);
     const before = historyRef.current;
     const base = before.length + n > maxPerSession ? [] : before; // tray full → start a new round at slot 1
     historyRef.current = base;
@@ -630,26 +637,13 @@ export function GotchaMachine({
     if (k === cur && busy) return { st: "active" };
     return { st: k < drawn ? "sealed" : "off" };
   };
-  /** Between spins, tapping a free slot sets how many capsules the next pull loads. */
-  const pickBetweenSpins = (j: number) => {
-    const h = history.length + drawn; // this pull's prizes join the record
-    const start = h >= maxPerSession ? 0 : h;
-    const p = j - start + 1;
-    return p >= 1 && p <= maxLoad && start + p <= maxPerSession ? p : null;
-  };
-  useEffect(() => {
-    // Don't ask for more capsules than there are free slots left in this round.
-    const free = maxPerSession - history.length;
-    if (phase === "idle" && free > 0 && count > free) setCount(free);
-  }, [phase, history.length, count, maxPerSession]);
-
   let cta: { label: string; sub?: string; onClick: () => void; disabled?: boolean };
   if (phase === "requesting") cta = { label: "Requesting…", onClick: () => {}, disabled: true };
   else if (phase === "drawing") cta = { label: "Drawing on-chain…", sub: "Chainlink VRF", onClick: () => {}, disabled: true };
   else if (busy) cta = { label: "Revealing…", onClick: () => {}, disabled: true };
   else if (phase === "revealed" && remaining > 0) cta = { label: `Reveal capsule ${revealed + 1}`, sub: `${remaining} sealed`, onClick: () => revealCapsule(revealed) };
-  else if (sessionDone) cta = credits > 0 ? { label: "Click To Spin", sub: `${plural(credits, "spin")} left`, onClick: pull } : { label: "No spins available", sub: "Refill to keep playing", onClick: onNoSpins ?? resetToIdle, disabled: !onNoSpins };
-  else if (credits > 0) cta = { label: "Click To Spin", sub: plural(count, "capsule"), onClick: pull };
+  else if (sessionDone) cta = credits > 0 ? { label: "Click To Spin", sub: plural(selectedCount, "capsule"), onClick: pull } : { label: "No spins available", sub: "Refill to keep playing", onClick: onNoSpins ?? resetToIdle, disabled: !onNoSpins };
+  else if (credits > 0) cta = { label: "Click To Spin", sub: plural(selectedCount, "capsule"), onClick: pull };
   else cta = onNoSpins
     ? { label: "No spins available", sub: "Tap to refill", onClick: onNoSpins }
     : { label: "No spins available", onClick: () => {}, disabled: true };
@@ -816,8 +810,6 @@ export function GotchaMachine({
                 {Array.from({ length: maxPerSession }, (_, k) => {
                   const info = slotInfo(k);
                   const { st, r } = info;
-                  const between = sessionDone && credits > 0 ? pickBetweenSpins(k) : null;
-                  const pick = canPull ? info.pick : between ?? undefined;
                   const shown = r && (st === "revealed" || st === "past");
                   const Art = shown ? prizeArt(r.prize_name, r.rarity) : null;
                   return (
@@ -826,13 +818,8 @@ export function GotchaMachine({
                       type="button"
                       data-slot={k}
                       className={`gm-slot s-${st}${shown ? ` r-${r.rarity}` : ""}`}
-                      disabled={pick == null}
-                      onClick={() => {
-                        if (pick == null) return;
-                        if (!canPull) resetToIdle(); // between spins: file this pull's prizes, then load the next
-                        setCount(pick);
-                      }}
-                      aria-label={shown ? `Spin ${k + 1}: ${r.prize_name}` : pick != null ? `Load ${plural(pick, "capsule")}` : `Slot ${k + 1}`}
+                      disabled
+                      aria-label={shown ? `Spin ${k + 1}: ${r.prize_name}` : `Slot ${k + 1}`}
                     >
                       <span className="gm-slot-ball">{Art ? <Art className="gm-slot-art" /> : null}</span>
                       <span className="gm-slot-n">{k + 1}</span>
@@ -841,13 +828,21 @@ export function GotchaMachine({
                 })}
               </div>
 
-              <div className="gm-modes" role="radiogroup" aria-label="Reveal mode">
-                {(["one", "all"] as const).map((m) => (
-                  <button key={m} type="button" role="radio" aria-checked={mode === m} className={`gm-mode${mode === m ? " is-on" : ""}`} onClick={() => chooseMode(m)}>
-                    <span className="gm-radio" />
-                    {m === "one" ? "Reveal one by one" : "Reveal all"}
+              <div className="gm-modes">
+                <label className="gm-switch-row">
+                  <span>One by one</span>
+                  <button type="button" role="switch" aria-checked={mode === "all"} aria-label="Reveal all" className="gm-switch" onClick={() => chooseMode(mode === "one" ? "all" : "one")}>
+                    <span className="gm-switch-thumb" />
                   </button>
-                ))}
+                  <span>Reveal all</span>
+                </label>
+                <label className="gm-switch-row">
+                  <span>One spin</span>
+                  <button type="button" role="switch" aria-checked={spinMode === "all"} aria-label="Spin all" className="gm-switch" disabled={!spinReady} onClick={() => setSpinMode((value) => value === "one" ? "all" : "one")}>
+                    <span className="gm-switch-thumb" />
+                  </button>
+                  <span>Spin all</span>
+                </label>
               </div>
 
               <button type="button" className={`gm-cta${spinReady ? " is-ready" : ""}`} onClick={cta.onClick} disabled={cta.disabled}>
