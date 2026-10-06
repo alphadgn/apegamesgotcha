@@ -303,6 +303,7 @@ export function GotchaMachine({
   const busy = waiting || phase === "rolling" || phase === "charging" || phase === "opening";
   const drawn = results.length;
   const remaining = drawn - revealed;
+  const sessionDone = drawn > 0 && remaining === 0 && !busy;
   const maxLoad = clamp(Math.min(maxPerSession, credits), 0, maxPerSession);
   const usedThisCycle = history.length + (phase === "idle" ? 0 : drawn);
   const cycleCapacity = usedThisCycle >= maxPerSession ? maxPerSession : maxPerSession - usedThisCycle;
@@ -578,7 +579,6 @@ export function GotchaMachine({
   const active = results[cur];
   const sessionPts = results.slice(0, revealed).reduce((s, r) => s + r.points, 0);
   const rarityOf = (phase === "charging" || phase === "opening" || phase === "revealed") && active ? active.rarity : undefined;
-  const sessionDone = drawn > 0 && remaining === 0 && !busy;
   /** Verification links only appear when there's a real transaction to point at. */
   const link = (href: string | undefined, label: string, fallback: string = "Chainlink VRF draw") =>
     href ? (
@@ -829,20 +829,20 @@ export function GotchaMachine({
               </div>
 
               <div className="gm-modes">
-                <label className="gm-switch-row">
+                <div className="gm-switch-row">
                   <span>One by one</span>
                   <button type="button" role="switch" aria-checked={mode === "all"} aria-label="Reveal all" className="gm-switch" onClick={() => chooseMode(mode === "one" ? "all" : "one")}>
                     <span className="gm-switch-thumb" />
                   </button>
                   <span>Reveal all</span>
-                </label>
-                <label className="gm-switch-row">
+                </div>
+                <div className="gm-switch-row">
                   <span>One spin</span>
                   <button type="button" role="switch" aria-checked={spinMode === "all"} aria-label="Spin all" className="gm-switch" disabled={!spinReady} onClick={() => setSpinMode((value) => value === "one" ? "all" : "one")}>
                     <span className="gm-switch-thumb" />
                   </button>
                   <span>Spin all</span>
-                </label>
+                </div>
               </div>
 
               <button type="button" className={`gm-cta${spinReady ? " is-ready" : ""}`} onClick={cta.onClick} disabled={cta.disabled}>
