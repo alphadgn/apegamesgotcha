@@ -10,3 +10,4 @@
 <!-- LOVABLE:END -->
 
 - Shared page artwork is mounted once from the root shell through `PageArtwork`; this keeps every application page visually consistent.
+- Empty-spin guidance is injected into `GotchaMachine` as an optional callback so reusable machine logic stays independent of page-specific refill controls.

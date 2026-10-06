@@ -50,6 +50,8 @@ type Props = {
   pollMs?: number;
   drawTimeoutMs?: number;
   footnote?: string;
+  /** Guide the player to an external refill control when the machine is empty. */
+  onNoSpins?: () => void;
 };
 
 type Phase = "idle" | "requesting" | "drawing" | "rolling" | "charging" | "opening" | "revealed" | "complete";
@@ -110,6 +112,7 @@ export function GotchaMachine({
   pollMs = 1500,
   drawTimeoutMs = 240_000,
   footnote,
+  onNoSpins,
 }: Props) {
   const pool = prizes.length ? prizes : FALLBACK_PRIZES;
   const tiles = useMemo(() => {
@@ -645,11 +648,12 @@ export function GotchaMachine({
   else if (phase === "drawing") cta = { label: "Drawing on-chain…", sub: "Chainlink VRF", onClick: () => {}, disabled: true };
   else if (busy) cta = { label: "Revealing…", onClick: () => {}, disabled: true };
   else if (phase === "revealed" && remaining > 0) cta = { label: `Reveal capsule ${revealed + 1}`, sub: `${remaining} sealed`, onClick: () => revealCapsule(revealed) };
-  else if (sessionDone) cta = credits > 0 ? { label: "Pull again", sub: `${plural(credits, "spin")} left`, onClick: pull } : { label: "Done", sub: "No spins left", onClick: resetToIdle };
-  else cta = credits > 0 ? { label: "Pull the lever", sub: plural(count, "capsule"), onClick: pull } : { label: "No spins available", onClick: () => {}, disabled: true };
+  else if (sessionDone) cta = credits > 0 ? { label: "Click To Spin", sub: `${plural(credits, "spin")} left`, onClick: pull } : { label: "No spins available", sub: "Refill to keep playing", onClick: onNoSpins ?? resetToIdle, disabled: !onNoSpins };
+  else cta = credits > 0 ? { label: "Click To Spin", sub: plural(count, "capsule"), onClick: pull } : { label: "No spins available", sub: onNoSpins ? "Tap to refill" : undefined, onClick: onNoSpins ?? (() => {}), disabled: !onNoSpins };
 
   const canPull = phase === "idle" && credits > 0;
   const canLever = (phase === "idle" || sessionDone) && credits > 0;
+  const spinReady = credits > 0 && (phase === "idle" || sessionDone);
   const rarityVar = rarityOf ? ({ "--rar": `var(--gm-${rarityOf})` } as CSSProperties) : undefined;
   const poolTotal = pool.reduce((s, p) => s + (p.inventory === 0 ? 0 : p.weight ?? 0), 0);
   const word = active && (phase === "revealed" || phase === "charging" || phase === "opening") ? shortWord(active.random_word) : null;
@@ -843,7 +847,7 @@ export function GotchaMachine({
                 ))}
               </div>
 
-              <button type="button" className="gm-cta" onClick={cta.onClick} disabled={cta.disabled}>
+              <button type="button" className={`gm-cta${spinReady ? " is-ready" : ""}`} onClick={cta.onClick} disabled={cta.disabled}>
                 <span>{cta.label}</span>
                 {cta.sub && <small>{cta.sub}</small>}
               </button>

@@ -468,6 +468,7 @@
 .gm-cta:not(:disabled):hover { filter: brightness(1.06); }
 .gm-cta:not(:disabled):active { transform: translateY(5px); box-shadow: 0 1px 0 var(--gm-gold-deep), 0 4px 10px rgba(0, 0, 0, 0.4); }
 .gm-cta:disabled { filter: grayscale(0.5) brightness(0.85); }
+.gm-cta.is-ready { animation: gm-cta-attention 1.55s ease-in-out infinite; }
 
 .gm-tools { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 20px; }
 .gm-tool {
@@ -536,6 +537,14 @@
 @keyframes gm-jiggle { from { transform: rotate(-12deg) translateY(1px); } to { transform: rotate(12deg) translateY(-2px); } }
 @keyframes gm-dot { 0% { opacity: 1; } 100% { opacity: 0.2; } }
 @keyframes gm-lever { 0% { transform: scaleY(1); } 45% { transform: scaleY(-0.85); } 60% { transform: scaleY(-0.85); } 100% { transform: scaleY(1); } }
+@keyframes gm-cta-attention {
+  0%, 100% { transform: scale(1); box-shadow: 0 6px 0 var(--gm-gold-deep), 0 10px 20px rgba(0, 0, 0, 0.4), 0 0 0 rgba(246, 195, 67, 0); }
+  50% { transform: scale(1.035); box-shadow: 0 6px 0 var(--gm-gold-deep), 0 12px 26px rgba(0, 0, 0, 0.42), 0 0 28px rgba(246, 195, 67, 0.9); }
+}
+@keyframes gm-refill-attention {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(246, 195, 67, 0); }
+  35%, 70% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(246, 195, 67, 0.24), 0 0 24px rgba(246, 195, 67, 0.9); }
+}
 @keyframes gm-confetti {
   0% { transform: translate(0, 0) rotate(0); opacity: 1; }
   45% { transform: translate(calc(var(--dx) * 0.8), var(--dy)) rotate(calc(var(--r) * 0.5)); opacity: 1; }
@@ -560,3 +569,9 @@
   background: #f6c343; color: #0c1b3d; font-weight: 600; font-size: 13px;
 }
 .gm-demo-bar button:focus-visible { outline: 3px solid #f6c343; outline-offset: 2px; }
+.gm-demo-bar button.is-refill-attention { animation: gm-refill-attention 0.6s ease-in-out 3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gm-cta.is-ready { animation: none; box-shadow: 0 6px 0 var(--gm-gold-deep), 0 10px 20px rgba(0, 0, 0, 0.4), 0 0 18px rgba(246, 195, 67, 0.72); }
+  .gm-demo-bar button.is-refill-attention { animation: none; outline: 4px solid #f6c343; outline-offset: 4px; }
+}
