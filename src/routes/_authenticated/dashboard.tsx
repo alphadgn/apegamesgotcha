@@ -16,6 +16,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
       { name: "description", content: "Your wallet, NFTs, spins and points." },
       { property: "og:title", content: "My Machine — ApeGames Gotcha" },
       { property: "og:description", content: "Your wallet, NFTs, spins and points." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Dashboard,

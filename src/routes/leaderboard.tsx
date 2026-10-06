@@ -8,6 +8,8 @@ export const Route = createFileRoute("/leaderboard")({
       { name: "description", content: "Global campaign points ranking for Go ApeGames 2026." },
       { property: "og:title", content: "Leaderboard — ApeGames Gotcha" },
       { property: "og:description", content: "Who's leading the Go ApeGames 2026 campaign?" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: () => (
