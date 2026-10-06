@@ -6,7 +6,6 @@ import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PageArtwork } from "@/components/PageArtwork";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -57,8 +56,7 @@ function AuthPage() {
   };
 
   return (
-    <main className="relative isolate min-h-[calc(100vh-3.5rem)] overflow-hidden px-4 py-16">
-      <PageArtwork />
+    <main className="min-h-[calc(100vh-3.5rem)] overflow-hidden px-4 py-16">
       <div className="mx-auto max-w-sm rounded border border-border bg-background/80 p-6 shadow-2xl backdrop-blur-sm">
       <h1 className="text-3xl font-bold">{mode === "in" ? "Sign in" : "Create account"}</h1>
       <Button variant="outline" className="mt-8 w-full" onClick={google}>Continue with Google</Button>

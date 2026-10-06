@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { supabase } from "@/integrations/supabase/client";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Toaster } from "@/components/ui/sonner";
+import { PageArtwork } from "@/components/PageArtwork";
 
 function NotFoundComponent() {
   return (
@@ -109,7 +110,8 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
+        <PageArtwork />
+        <div className="relative z-10 min-h-screen">{children}</div>
         <Scripts />
       </body>
     </html>

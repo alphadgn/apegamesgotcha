@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Leaderboard } from "@/components/Leaderboard";
 import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
 import type { GotchaPrize } from "@/components/gotcha/GotchaMachine";
-import { PageArtwork } from "@/components/PageArtwork";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -37,8 +36,7 @@ function Index() {
     },
   });
   return (
-    <main className="relative isolate min-h-screen overflow-hidden">
-      <PageArtwork />
+    <main className="min-h-screen overflow-hidden">
       <div className="mx-auto max-w-6xl px-4 pb-24">
       <section className="py-12 md:py-16">
         <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Go ApeGames 2026 · Pre-event</p>

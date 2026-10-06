@@ -9,4 +9,4 @@
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 
-- Shared page artwork belongs in `PageArtwork`; this keeps landing and authentication backgrounds visually consistent.
+- Shared page artwork is mounted once from the root shell through `PageArtwork`; this keeps every application page visually consistent.

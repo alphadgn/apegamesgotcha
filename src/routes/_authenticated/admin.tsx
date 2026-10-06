@@ -18,6 +18,8 @@ export const Route = createFileRoute("/_authenticated/admin")({
       { name: "description", content: "Manage configuration, prizes, grants and audit logs." },
       { property: "og:title", content: "Admin Console — ApeGames Gotcha" },
       { property: "og:description", content: "Manage configuration, prizes, grants and audit logs." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
       { name: "robots", content: "noindex" },
     ],
   }),
