@@ -124,6 +124,8 @@ export function GotchaMachine({
   const [count, setCount] = useState(1);
   const [mode, setMode] = useState<"one" | "all">("one");
   const [spinMode, setSpinMode] = useState<"one" | "all">("one");
+  /** "Spin all" is running: spin → reveal → spin → reveal until the player's spins run out. */
+  const [chaining, setChaining] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [sessionSize, setSessionSize] = useState(0);
   const [results, setResults] = useState<GotchaResult[]>([]);
@@ -169,6 +171,14 @@ export function GotchaMachine({
   const resumed = useRef(false);
   const onEndRef = useRef(onSessionEnd);
   modeRef.current = mode;
+  const spinModeRef = useRef(spinMode);
+  spinModeRef.current = spinMode;
+  const creditsRef = useRef(credits);
+  creditsRef.current = credits;
+  const chainingRef = useRef(false);
+  const chainExpect = useRef(0); // spins the player should have left once this pull's credits are spent
+  const pullRef = useRef<(() => Promise<void>) | null>(null);
+  const chainRef = useRef<(() => void) | null>(null);
   reduceRef.current = reduce;
   onEndRef.current = onSessionEnd;
 
@@ -417,10 +427,12 @@ export function GotchaMachine({
             // Show the prize on the card for a moment, then send it to its tray slot.
             after(rm ? 0 : 1300, () => flyToSlot(i));
             const total = resultsRef.current.length;
+            const auto = modeRef.current === "all" || spinModeRef.current === "all";
             if (i + 1 >= total) {
               endSession();
-              if (total > 1) after(rm ? 900 : 2600, () => setPhase("complete"));
-            } else if (modeRef.current === "all") {
+              if (chainingRef.current) after(rm ? 900 : 2400, () => chainRef.current?.());
+              else if (total > 1) after(rm ? 900 : 2600, () => setPhase("complete"));
+            } else if (auto) {
               after(rm ? 700 : 2300, () => revealCapsule(i + 1));
             }
           });
@@ -510,10 +522,12 @@ export function GotchaMachine({
   }, [resumeIds, phase, waitForDraw]);
 
   const pull = async () => {
+    const credits = creditsRef.current; // live value — automatic "Spin all" pulls run from timers
     if (busy || credits < 1) return;
     const used = historyRef.current.length + resultsRef.current.length;
     const availableSlots = used >= maxPerSession ? maxPerSession : maxPerSession - used;
-    const requested = spinMode === "all" ? Math.min(credits, availableSlots) : 1;
+    const spinAll = spinModeRef.current === "all";
+    const requested = spinAll ? Math.min(credits, availableSlots) : 1;
     resumed.current = true;
     resetToIdle();
     sfx.current ??= createSfx();
@@ -525,6 +539,9 @@ export function GotchaMachine({
     setLeverKey((k) => k + 1);
 
     const n = Math.min(requested, credits, maxPerSession);
+    chainingRef.current = spinAll;
+    setChaining(spinAll);
+    chainExpect.current = credits - n;
     const before = historyRef.current;
     const base = before.length + n > maxPerSession ? [] : before; // tray full → start a new round at slot 1
     historyRef.current = base;
@@ -540,6 +557,8 @@ export function GotchaMachine({
       handle = await onDraw(n);
     } catch (e) {
       onError?.((e as Error).message || "Couldn't start the draw");
+      chainingRef.current = false; // a failed draw ends a "Spin all" run
+      setChaining(false);
       historyRef.current = before; // nothing was drawn — keep the tray as it was
       setHistory(before);
       if (mounted.current) resetToIdle();
@@ -549,6 +568,25 @@ export function GotchaMachine({
     setRequestUrl(handle.txUrl);
     await waitForDraw(handle.spinIds);
   };
+  pullRef.current = pull;
+
+  /** "Spin all": once a tray round is revealed, start the next pull until every spin is used. */
+  const continueChain = async () => {
+    const token = drawToken.current;
+    // Wait for the app to report the new spin count (the dashboard refreshes it from the server).
+    const deadline = Date.now() + 6000;
+    while (creditsRef.current > chainExpect.current && Date.now() < deadline) await sleep(150);
+    if (!mounted.current || token !== drawToken.current) return;
+    const left = Math.min(creditsRef.current, chainExpect.current);
+    if (left > 0 && spinModeRef.current === "all") {
+      void pullRef.current?.();
+      return;
+    }
+    chainingRef.current = false;
+    setChaining(false);
+    if (resultsRef.current.length > 1) setPhase("complete");
+  };
+  chainRef.current = () => void continueChain();
 
   const skip = () => {
     if (!drawn || waiting || phase === "complete" || (phase === "revealed" && remaining === 0)) return;
@@ -564,9 +602,10 @@ export function GotchaMachine({
     setRevealed(drawn);
     setLanded(drawn);
     setParked(true);
-    setPhase(drawn > 1 ? "complete" : "revealed");
+    setPhase(drawn > 1 && !chainingRef.current ? "complete" : "revealed");
     jukebox.current?.stop(0.8);
     endSession();
+    if (chainingRef.current) after(1200, () => chainRef.current?.());
   };
 
   const chooseMode = (m: "one" | "all") => {
@@ -641,9 +680,11 @@ export function GotchaMachine({
   if (phase === "requesting") cta = { label: "Requesting…", onClick: () => {}, disabled: true };
   else if (phase === "drawing") cta = { label: "Drawing on-chain…", sub: "Chainlink VRF", onClick: () => {}, disabled: true };
   else if (busy) cta = { label: "Revealing…", onClick: () => {}, disabled: true };
+  else if (phase === "revealed" && remaining > 0 && (mode === "all" || spinMode === "all")) cta = { label: "Next capsule…", sub: `${remaining} sealed`, onClick: () => {}, disabled: true };
   else if (phase === "revealed" && remaining > 0) cta = { label: `Reveal capsule ${revealed + 1}`, sub: `${remaining} sealed`, onClick: () => revealCapsule(revealed) };
-  else if (sessionDone) cta = credits > 0 ? { label: "Click To Spin", sub: plural(selectedCount, "capsule"), onClick: pull } : { label: "No spins available", sub: "Refill to keep playing", onClick: onNoSpins ?? resetToIdle, disabled: !onNoSpins };
-  else if (credits > 0) cta = { label: "Click To Spin", sub: plural(selectedCount, "capsule"), onClick: pull };
+  else if (chaining && sessionDone) cta = { label: "Spinning all…", sub: `${plural(Math.max(0, Math.min(credits, chainExpect.current)), "spin")} left`, onClick: () => {}, disabled: true };
+  else if (sessionDone) cta = credits > 0 ? { label: "Click To Spin", sub: spinMode === "all" ? `All ${plural(credits, "spin")}` : plural(selectedCount, "capsule"), onClick: pull } : { label: "No spins available", sub: "Refill to keep playing", onClick: onNoSpins ?? resetToIdle, disabled: !onNoSpins };
+  else if (credits > 0) cta = { label: "Click To Spin", sub: spinMode === "all" ? `All ${plural(credits, "spin")}` : plural(selectedCount, "capsule"), onClick: pull };
   else cta = onNoSpins
     ? { label: "No spins available", sub: "Tap to refill", onClick: onNoSpins }
     : { label: "No spins available", onClick: () => {}, disabled: true };
@@ -838,7 +879,7 @@ export function GotchaMachine({
                 </div>
                 <div className="gm-switch-row">
                   <span>One spin</span>
-                  <button type="button" role="switch" aria-checked={spinMode === "all"} aria-label="Spin all" className="gm-switch" disabled={!spinReady} onClick={() => setSpinMode((value) => value === "one" ? "all" : "one")}>
+                  <button type="button" role="switch" aria-checked={spinMode === "all"} aria-label="Spin all" className="gm-switch" disabled={!spinReady && spinMode !== "all"} onClick={() => setSpinMode((value) => value === "one" ? "all" : "one")}>
                     <span className="gm-switch-thumb" />
                   </button>
                   <span>Spin all</span>
