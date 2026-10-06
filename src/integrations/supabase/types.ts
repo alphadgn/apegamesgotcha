@@ -260,6 +260,48 @@ export type Database = {
         }
         Relationships: []
       }
+      spin_purchases: {
+        Row: {
+          chain_id: number
+          created_at: string
+          id: string
+          paid_at: string | null
+          payer: string | null
+          price_wei: number
+          quantity: number
+          status: string
+          treasury: string
+          tx_hash: string | null
+          user_id: string
+        }
+        Insert: {
+          chain_id: number
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payer?: string | null
+          price_wei: number
+          quantity: number
+          status?: string
+          treasury: string
+          tx_hash?: string | null
+          user_id: string
+        }
+        Update: {
+          chain_id?: number
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payer?: string | null
+          price_wei?: number
+          quantity?: number
+          status?: string
+          treasury?: string
+          tx_hash?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       spins: {
         Row: {
           chain_id: number | null
@@ -393,6 +435,28 @@ export type Database = {
       begin_spins: {
         Args: { _count: number; _user_id: string }
         Returns: string[]
+      }
+      complete_spin_purchase: {
+        Args: { _payer: string; _purchase_id: string; _tx_hash: string }
+        Returns: {
+          chain_id: number
+          created_at: string
+          id: string
+          paid_at: string | null
+          payer: string | null
+          price_wei: number
+          quantity: number
+          status: string
+          treasury: string
+          tx_hash: string | null
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "spin_purchases"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       finalize_spin: {
         Args: {
