@@ -8,6 +8,7 @@ import { checkDraw, startDraw } from "@/lib/app.functions";
 import { RefillDialog } from "@/components/wallet/RefillDialog";
 import { readPendingPurchase, usePurchaseConfirmer } from "@/components/wallet/CheckoutPanel";
 import { GotchaMachine, type GotchaPrize } from "./GotchaMachine";
+import { GuideButton } from "@/components/guide/GuideButton";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 
 type MachineData = {
@@ -86,6 +87,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
           {credits > 0 ? `${credits} spin${credits === 1 ? "" : "s"} ready` : "Out of spins — refill to keep playing"} · drawn on-chain by Chainlink VRF
         </span>
         <span className="gm-bar-actions">
+          <GuideButton label="Guide" />
           {showShare && <ShareSpinsButton spins={data?.lastFive ?? []} />}
           <button type="button" className="gm-refill-btn" onClick={() => setRefillOpen(true)}>
             Refill spins
