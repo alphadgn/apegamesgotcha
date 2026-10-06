@@ -649,7 +649,10 @@ export function GotchaMachine({
   else if (busy) cta = { label: "Revealing…", onClick: () => {}, disabled: true };
   else if (phase === "revealed" && remaining > 0) cta = { label: `Reveal capsule ${revealed + 1}`, sub: `${remaining} sealed`, onClick: () => revealCapsule(revealed) };
   else if (sessionDone) cta = credits > 0 ? { label: "Click To Spin", sub: `${plural(credits, "spin")} left`, onClick: pull } : { label: "No spins available", sub: "Refill to keep playing", onClick: onNoSpins ?? resetToIdle, disabled: !onNoSpins };
-  else cta = credits > 0 ? { label: "Click To Spin", sub: plural(count, "capsule"), onClick: pull } : { label: "No spins available", sub: onNoSpins ? "Tap to refill" : undefined, onClick: onNoSpins ?? (() => {}), disabled: !onNoSpins };
+  else if (credits > 0) cta = { label: "Click To Spin", sub: plural(count, "capsule"), onClick: pull };
+  else cta = onNoSpins
+    ? { label: "No spins available", sub: "Tap to refill", onClick: onNoSpins }
+    : { label: "No spins available", onClick: () => {}, disabled: true };
 
   const canPull = phase === "idle" && credits > 0;
   const canLever = (phase === "idle" || sessionDone) && credits > 0;
