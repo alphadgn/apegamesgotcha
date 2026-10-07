@@ -1,0 +1,1 @@
+update public.app_config set value = (value - 'price_ape_per_spin') || '{"treasury":"0x8c8df8cf3ed6e9ed3ac74a6b925e042289a5f332","price_usd_per_spin":"1","price_source":"coinbase_spot","enabled":false}'::jsonb where key='purchase'; update public.app_config set value = value || '{"price_usd":1}'::jsonb where key='spins';
