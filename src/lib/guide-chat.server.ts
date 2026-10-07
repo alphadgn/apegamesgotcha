@@ -184,16 +184,18 @@ export async function handleGuideChat(request: Request): Promise<Response> {
 
   const response = result.toUIMessageStreamResponse({
     originalMessages: messages,
-    onFinish: user
-      ? async ({ responseMessage }) => {
-          const { error } = await user.supabase.from("guide_messages").insert({
-            user_id: user.userId,
-            role: "assistant",
-            parts: responseMessage.parts,
-          } as never);
-          if (error) console.error("[guide-chat] failed to save assistant message", error);
+    ...(user
+      ? {
+          onFinish: async ({ responseMessage }) => {
+            const { error } = await user.supabase.from("guide_messages").insert({
+              user_id: user.userId,
+              role: "assistant",
+              parts: responseMessage.parts,
+            } as never);
+            if (error) console.error("[guide-chat] failed to save assistant message", error);
+          },
         }
-      : undefined,
+      : {}),
   });
 
   return withLovableAiGatewayRunIdHeader(response, runIdFetch, {
