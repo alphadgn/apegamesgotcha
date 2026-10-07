@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, defineChain, formatEther, http, parseEther, type Hex } from "viem";
-import { confirmSpinPurchase, createSpinPurchase } from "@/lib/app.functions";
+import { confirmSpinPurchase, createSpinPurchase, getSpinPriceQuote } from "@/lib/app.functions";
+import { Button } from "@/components/ui/button";
 
 export type PurchaseSettings = {
   enabled: boolean;
@@ -10,6 +12,7 @@ export type PurchaseSettings = {
   explorer_url?: string;
   treasury: string;
   price_ape_per_spin: string;
+  price_usd_per_spin?: string;
   bundles?: number[];
   privy_app_id?: string;
 };
@@ -79,11 +82,15 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
   const [step, setStep] = useState<Step>({ kind: "choose" });
   const [balance, setBalance] = useState<bigint | null>(null);
   const createFn = useServerFn(createSpinPurchase);
+  const quoteFn = useServerFn(getSpinPriceQuote);
+  const { data: quote, error: quoteError } = useQuery({ queryKey: ["spin-price-quote"], queryFn: () => quoteFn(), refetchInterval: 30_000, staleTime: 15_000 });
+  const [approvedPayment, setApprovedPayment] = useState<{ eachWei: string; quotedAt: string } | null>(null);
   const confirm = usePurchaseConfirmer();
   const cancelled = useRef(false);
   useEffect(() => () => void (cancelled.current = true), []);
 
   const each = (() => {
+    if (settings.price_usd_per_spin) return BigInt((approvedPayment ?? quote)?.eachWei ?? "0");
     try {
       return parseEther(String(settings.price_ape_per_spin || "0"));
     } catch {
@@ -128,6 +135,12 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
     setStep({ kind: "wallet" });
     try {
       const p = await createFn({ data: { quantity } });
+      const shown = quote?.eachWei;
+      if (settings.price_usd_per_spin && (!shown || BigInt(p.valueWei) !== BigInt(shown) * BigInt(quantity))) {
+        setStep({ kind: "error", message: "The APE exchange rate changed. Check the updated amount and try again." });
+        setApprovedPayment({ eachWei: (BigInt(p.valueWei) / BigInt(quantity)).toString(), quotedAt: new Date().toISOString() });
+        return;
+      }
       const hash = await wallet.pay({ to: p.to, valueWei: p.valueWei, data: p.data as Hex, chainId: p.chainId });
       const pending = { purchaseId: p.purchaseId, txHash: hash, quantity };
       savePending(pending); // so the spins are still credited if this window closes
@@ -165,7 +178,7 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
       <p className="gm-rf-label">How many spins?</p>
       <div className="gm-rf-bundles" role="radiogroup" aria-label="Number of spins">
         {bundles.map((n) => (
-          <button
+          <Button
             key={n}
             type="button"
             role="radio"
@@ -176,12 +189,13 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
           >
             <b>{n}</b>
             <small>{short4(each * BigInt(n))} APE</small>
-          </button>
+          </Button>
         ))}
       </div>
       <p className="gm-rf-note">
-        {settings.price_ape_per_spin} APE per spin · paid on ApeChain
+        {settings.price_usd_per_spin ? `$${settings.price_usd_per_spin} USD per spin · $${Number(settings.price_usd_per_spin) * quantity} USD total in APE` : `${settings.price_ape_per_spin} APE per spin`} · paid on ApeChain · network fees extra
       </p>
+      {settings.price_usd_per_spin && quoteError && <p className="gm-rf-error">Live APE pricing is unavailable. Please try again.</p>}
 
       <div className="gm-rf-wallet">
         {wallet.address ? (
@@ -219,18 +233,18 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
       )}
 
       {!wallet.address ? (
-        <button type="button" className="gm-rf-cta" disabled={!wallet.ready} onClick={() => void wallet.connect()}>
+        <Button type="button" className="gm-rf-cta" disabled={!wallet.ready} onClick={() => void wallet.connect()}>
           {wallet.ready ? "Connect wallet" : "Loading wallet…"}
-        </button>
+        </Button>
       ) : (
-        <button
+        <Button
           type="button"
           className="gm-rf-cta"
           disabled={step.kind === "wallet" || step.kind === "confirming" || insufficient || total === 0n}
           onClick={() => void pay()}
         >
           {step.kind === "wallet" ? "Approve in your wallet…" : step.kind === "confirming" ? "Confirming…" : `Pay ${short4(total)} APE · ${quantity} spins`}
-        </button>
+        </Button>
       )}
     </div>
   );
