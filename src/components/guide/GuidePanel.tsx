@@ -18,6 +18,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import mascotUrl from "@/assets/guide-mascot.png";
+import { ContactForm } from "./ContactForm";
 
 type GuideRow = { id: string; role: "user" | "assistant"; parts: UIMessage["parts"] };
 
@@ -92,6 +93,7 @@ function GuideChat({
   });
 
   const busy = status === "submitted" || status === "streaming";
+  const [contact, setContact] = useState(false);
 
   useEffect(() => {
     if (compact && status === "ready" && messages.length === 0) return;
@@ -108,13 +110,22 @@ function GuideChat({
     <main className={compact ? "flex h-full flex-col" : "mx-auto flex h-[calc(100vh-3.5rem)] max-w-3xl flex-col px-4 py-6"}>
       <header className="flex items-center gap-3 pb-4">
         <img src={mascotUrl} alt="Captain Ape, your guide" width={48} height={48} className="rounded-full border border-border bg-card" />
-        <div>
+        <div className="flex-1">
           <h1 className="text-xl font-bold">Captain Ape — your guide</h1>
           <p className="font-mono text-xs text-muted-foreground">Spins, prizes, NFTs, points and Charleston — ask away.</p>
         </div>
+        <button type="button" onClick={() => setContact((c) => !c)} className="rounded-full border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">
+          {contact ? "Back to guide" : "Contact us"}
+        </button>
       </header>
 
-      <Conversation className="flex-1 rounded border border-border bg-card/80">
+      {contact && (
+        <div className="pb-3">
+          <ContactForm onDone={() => setContact(false)} />
+        </div>
+      )}
+
+      <Conversation className={`flex-1 rounded border border-border bg-card/80 ${contact ? "hidden" : ""}`}>
         <ConversationContent>
           {messages.length === 0 ? (
             <ConversationEmptyState
