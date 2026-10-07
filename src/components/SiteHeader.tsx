@@ -3,30 +3,62 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { openSignIn } from "@/components/wallet/walletUi";
+import { Menu, Trophy, Gamepad2, MessageCircle, Shield, LogIn, LogOut } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 export function SiteHeader() {
   const { user, isAdmin } = useAuth();
   const router = useRouter();
-  const link = "text-sm font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground";
+  const link = "min-h-11 cursor-pointer text-sm uppercase text-muted-foreground";
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
-        <Link to="/" className="font-display text-lg font-bold uppercase tracking-wide">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4">
+        <Link to="/" className="min-w-0 font-display text-lg font-bold uppercase tracking-wide">
           Ape<span className="text-primary">Games</span> Gotcha
         </Link>
-        <nav className="flex flex-1 items-center gap-5">
-          <Link to="/leaderboard" className={link} activeProps={{ className: "text-primary" }}>Leaderboard</Link>
-          {user && <Link to="/dashboard" className={link} activeProps={{ className: "text-primary" }}>My Machine</Link>}
-          {user && <Link to="/guide" className={link} activeProps={{ className: "text-primary" }}>Guide</Link>}
-          {isAdmin && <Link to="/admin" className={link} activeProps={{ className: "text-primary" }}>Admin</Link>}
-        </nav>
-        {user ? (
-          <Button variant="outline" size="sm" onClick={async () => { await supabase.auth.signOut(); router.navigate({ to: "/" }); }}>
-            Sign out
-          </Button>
-        ) : (
-          <Button size="sm" onClick={() => openSignIn()}>Sign in</Button>
-        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="icon" className="shrink-0" aria-label="Open navigation menu" title="Navigation menu">
+              <Menu aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={8} className="w-52" aria-label="Navigation">
+            <DropdownMenuItem asChild className={link}>
+              <Link to="/leaderboard" activeProps={{ className: "text-primary" }}><Trophy aria-hidden="true" />Leaderboard</Link>
+            </DropdownMenuItem>
+            {user && (
+              <>
+                <DropdownMenuItem asChild className={link}>
+                  <Link to="/dashboard" activeProps={{ className: "text-primary" }}><Gamepad2 aria-hidden="true" />My Machine</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className={link}>
+                  <Link to="/guide" activeProps={{ className: "text-primary" }}><MessageCircle aria-hidden="true" />Guide</Link>
+                </DropdownMenuItem>
+              </>
+            )}
+            {isAdmin && (
+              <DropdownMenuItem asChild className={link}>
+                <Link to="/admin" activeProps={{ className: "text-primary" }}><Shield aria-hidden="true" />Admin</Link>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            {user ? (
+              <DropdownMenuItem className={link} onSelect={async () => { await supabase.auth.signOut(); void router.navigate({ to: "/" }); }}>
+                <LogOut aria-hidden="true" />Sign out
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem className={link} onSelect={() => openSignIn()}>
+                <LogIn aria-hidden="true" />Sign in
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
