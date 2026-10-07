@@ -11,9 +11,9 @@ import { supabase } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ApeGames Gotcha — Spin, Earn, Climb" },
+      { title: "ApeGames Gotcha - Spin, Climb, Fun" },
       { name: "description", content: "Hold ApeGames NFTs, burn Level 4+ for free spins, win prizes and climb the Go ApeGames 2026 leaderboard before Charleston." },
-      { property: "og:title", content: "ApeGames Gotcha — Spin, Earn, Climb" },
+      { property: "og:title", content: "ApeGames Gotcha - Spin, Climb, Fun" },
       { property: "og:description", content: "Hold, burn, spin and climb the Go ApeGames 2026 leaderboard." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
