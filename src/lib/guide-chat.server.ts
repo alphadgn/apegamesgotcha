@@ -88,7 +88,7 @@ export async function handleGuideChat(request: Request): Promise<Response> {
   const cfg = Object.fromEntries(((cfgRes.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value])) as {
     scoring?: { level_weights?: Record<string, number>; default_level_weight?: number };
     spins?: { daily_limit?: number; campaign_limit?: number };
-    purchase?: { enabled?: boolean; price_ape_per_spin?: string; bundles?: number[] };
+    purchase?: { enabled?: boolean; price_ape_per_spin?: string; price_usd_per_spin?: string; bundles?: number[] };
   };
   const weights = cfg.scoring?.level_weights ?? {};
   const reasonLabel: Record<string, string> = { holding: "holding NFTs", spin: "gacha prizes", admin_adjustment: "organizer grants" };
@@ -107,8 +107,8 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     "- Spending: points are not spent or deducted; they only accumulate and decide leaderboard rank going into Charleston. Spins are bought with APE or earned by burning, never with points.",
     cfg.spins ? `- Spin limits: ${cfg.spins.daily_limit ?? "no"} per day, ${cfg.spins.campaign_limit ?? "no"} per campaign.` : "",
     cfg.purchase?.enabled
-      ? `- Refill: ${cfg.purchase.price_ape_per_spin} APE per spin, bundles of ${(cfg.purchase.bundles ?? [5, 10, 15, 20]).join("/")}.`
-      : "- Buying spins is not open yet.",
+      ? `- Refill: ${cfg.purchase.price_usd_per_spin ? `$${cfg.purchase.price_usd_per_spin} USD worth of APE` : `${cfg.purchase.price_ape_per_spin} APE`} per spin on ApeChain, bundles of ${(cfg.purchase.bundles ?? [5, 10, 15, 20]).join("/")}. The APE amount uses a live exchange quote; network fees are extra.`
+      : `- Buying spins is not open yet.${cfg.purchase?.price_usd_per_spin ? ` Planned price: $${cfg.purchase.price_usd_per_spin} USD worth of APE per spin on ApeChain.` : ""}`,
     "THIS PLAYER RIGHT NOW:",
     `- Total points: ${total}${rankRow ? `, leaderboard rank #${rankRow.rank}` : ", not ranked yet"}.`,
     `- Breakdown: ${Object.entries(byReason).map(([r, a]) => `${reasonLabel[r] ?? r} ${a}`).join(", ") || "no points yet"}.`,

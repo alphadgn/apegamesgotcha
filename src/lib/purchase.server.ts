@@ -1,4 +1,3 @@
-// Server-only: verify APE payments for spin purchases on ApeChain.
 import { createPublicClient, defineChain, formatEther, http, parseEther, type Hex } from "viem";
 
 export type PurchaseConfig = {
@@ -8,6 +7,8 @@ export type PurchaseConfig = {
   explorer_url?: string;
   treasury: string;
   price_ape_per_spin: string;
+  price_usd_per_spin?: string;
+  price_source?: string;
   bundles?: number[];
   min_confirmations?: number;
   privy_app_id?: string;
@@ -28,7 +29,22 @@ export function bundlePriceWei(cfg: PurchaseConfig, quantity: number) {
   return each * BigInt(quantity);
 }
 
-/** The purchase id the wallet sends as calldata (binds the payment to this purchase). */
+/** Fetch a fresh exchange quote; never silently substitute a fixed APE price. */
+export async function quoteSpinPrice(cfg: PurchaseConfig) {
+  if (!cfg.price_usd_per_spin) return { eachWei: bundlePriceWei(cfg, 1).toString(), quotedAt: new Date().toISOString() };
+  if (cfg.price_source !== "coinbase_spot") throw new Error("APE/USD pricing isn't configured yet.");
+  const response = await fetch("https://api.coinbase.com/v2/prices/APE-USD/spot", { signal: AbortSignal.timeout(10_000), cache: "no-store" });
+  if (!response.ok) throw new Error("Live APE pricing is unavailable. Please try again.");
+  const body = await response.json() as { data?: { amount?: string; base?: string; currency?: string } };
+  const rate = body.data;
+  if (rate?.base !== "APE" || rate.currency !== "USD" || !/^\d+(\.\d{1,18})?$/.test(rate.amount ?? "")) throw new Error("Live APE pricing is unavailable. Please try again.");
+  const usdRate = parseEther(rate.amount ?? "0");
+  const usdPrice = parseEther(cfg.price_usd_per_spin);
+  if (usdRate <= 0n || usdPrice <= 0n) throw new Error("Invalid APE/USD price.");
+  const eachWei = (usdPrice * 10n ** 18n + usdRate - 1n) / usdRate;
+  return { eachWei: eachWei.toString(), quotedAt: new Date().toISOString() };
+}
+
 export function purchaseData(purchaseId: string): Hex {
   const hex = purchaseId.replace(/-/g, "").toLowerCase();
   if (!/^[0-9a-f]{32}$/.test(hex)) throw new Error("Bad purchase id");
@@ -50,14 +66,13 @@ export type PaymentCheck =
   | { state: "ok"; payer: string }
   | { state: "invalid"; reason: string };
 
-/** Check that `txHash` is a confirmed payment of `priceWei` APE to the treasury carrying this purchase id. */
 export async function checkPayment(cfg: PurchaseConfig, txHash: Hex, purchaseId: string, priceWei: bigint): Promise<PaymentCheck> {
   const pub = client(cfg);
   let tx;
   try {
     tx = await pub.getTransaction({ hash: txHash });
   } catch {
-    return { state: "pending" }; // not visible on the RPC yet
+    return { state: "pending" };
   }
   if (tx.chainId != null && tx.chainId !== cfg.chain_id) return { state: "invalid", reason: "That transaction is on a different network." };
   if (!tx.to || tx.to.toLowerCase() !== cfg.treasury.toLowerCase()) return { state: "invalid", reason: "That transaction wasn't sent to the ApeGames treasury." };

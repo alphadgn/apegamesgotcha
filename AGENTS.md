@@ -11,5 +11,7 @@
 
 - Shared page artwork is mounted once from the root shell through `PageArtwork`; this keeps every application page visually consistent.
 - Empty-spin guidance is injected into `GotchaMachine` as an optional callback so reusable machine logic stays independent of page-specific refill controls.
+- USD-priced native-APE checkout fetches Coinbase spot rates server-side and locks the exact wei amount in a purchase before wallet approval; never trust client conversion or silently fall back to a fixed rate.
+- Purchase settings reach players through a narrow authenticated server function; do not broaden configuration-table read policies for checkout.
 
 - Player guide chat: streaming endpoint at src/routes/api/guide-chat.ts (server route, bearer-authed), handler in src/lib/guide-chat.server.ts (Claude via Lovable AI Gateway /v1/messages), one conversation per user persisted in guide_messages; UI at src/routes/_authenticated/guide.tsx using AI Elements + useChat.
