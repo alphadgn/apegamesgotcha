@@ -112,6 +112,18 @@
   --color-rarity-legendary: var(--rarity-legendary);
 }
 
+@font-face {
+  font-family: "Freaky Spooky";
+  src: url("/__l5e/assets-v1/37ee4c58-7303-448c-9303-082e081d694c/freaky-spooky.otf") format("opentype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* App-wide font: overrides every component font choice. */
+*, *::before, *::after {
+  font-family: "Freaky Spooky", ui-sans-serif, sans-serif !important;
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
