@@ -28,11 +28,12 @@ const suggestions = [
   "What happens at Charleston?",
 ];
 
-export function GuidePanel({ compact = false }: { compact?: boolean }) {
-  const [initial, setInitial] = useState<UIMessage[] | null>(null);
+export function GuidePanel({ compact = false, publicMode = false }: { compact?: boolean; publicMode?: boolean }) {
+  const [initial, setInitial] = useState<UIMessage[] | null>(publicMode ? [] : null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
+    if (publicMode) return; // signed-out visitors: general info only, no stored history
     let cancelled = false;
     void (async () => {
       const { data, error } = await supabase
@@ -53,7 +54,7 @@ export function GuidePanel({ compact = false }: { compact?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [publicMode]);
 
   if (initial === null) {
     return <main className="mx-auto max-w-3xl px-4 py-12 font-mono text-muted-foreground">Loading…</main>;

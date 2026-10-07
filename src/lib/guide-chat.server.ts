@@ -172,11 +172,10 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     abortSignal: request.signal,
   });
 
-  // Persist the player's message now; the assistant reply is saved in onFinish.
-  // Anonymous visitors get no persistence — their chat stays in the open panel.
-  if (authed) {
-    const { error: saveUserError } = await authed.supabase.from("guide_messages").insert({
-      user_id: authed.userId,
+  const user = authed;
+  if (user) {
+    const { error: saveUserError } = await user.supabase.from("guide_messages").insert({
+      user_id: user.userId,
       role: "user",
       parts: last.parts,
     } as never);
@@ -185,10 +184,10 @@ export async function handleGuideChat(request: Request): Promise<Response> {
 
   const response = result.toUIMessageStreamResponse({
     originalMessages: messages,
-    onFinish: authed
+    onFinish: user
       ? async ({ responseMessage }) => {
-          const { error } = await authed.supabase.from("guide_messages").insert({
-            user_id: authed.userId,
+          const { error } = await user.supabase.from("guide_messages").insert({
+            user_id: user.userId,
             role: "assistant",
             parts: responseMessage.parts,
           } as never);
