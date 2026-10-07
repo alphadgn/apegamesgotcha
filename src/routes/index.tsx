@@ -1,5 +1,4 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Button } from "@/components/ui/button";
 import { Leaderboard } from "@/components/Leaderboard";
 import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
@@ -45,15 +44,11 @@ function Index() {
       <section className="py-12 md:py-16">
         <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Go ApeGames 2026 · Pre-event</p>
         <h1 className="mt-4 text-5xl font-bold leading-[0.95] md:text-7xl">
-          Pull the lever.<br /><span className="text-primary">Climb the board.</span>
+          Click to Spin.<br /><span className="text-primary">Try Your Luck 🍀</span>
         </h1>
         <p className="mt-6 max-w-lg text-lg text-muted-foreground">
           The official gacha for the Go ApeGames 2026 launch. Hold, burn and spin to stack points before Charleston.
         </p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Button asChild size="lg"><Link to="/dashboard">Open my machine</Link></Button>
-          <Button asChild size="lg" variant="outline"><Link to="/leaderboard">View leaderboard</Link></Button>
-        </div>
       </section>
 
       <section className="mb-16">
