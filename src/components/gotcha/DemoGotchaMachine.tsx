@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { GotchaMachine, type DrawStatus, type GotchaPrize } from "./GotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
-import { RefillDialog } from "@/components/wallet/RefillDialog";
+import { openSignIn } from "@/components/wallet/walletUi";
 
 /** Same prizes the app ships with — used if the live prize list hasn't loaded. */
 export const DEMO_PRIZES: GotchaPrize[] = [
@@ -56,13 +56,12 @@ const fmt = (ms: number) => {
 
 /**
  * Demo machine for signed-out visitors: one free spin every 30 minutes, simulated draws,
- * no prizes or points. Refill asks them to sign in to buy real spins.
+ * no prizes or points. Refill opens sign-in, then the payment window.
  */
 export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefined }) {
   const pool = prizes?.length ? prizes : DEMO_PRIZES;
   const [lastSpin, setLastSpin] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  const [refillOpen, setRefillOpen] = useState(false);
   const [refillAttention, setRefillAttention] = useState(false);
   const [revealedSpins, setRevealedSpins] = useState<ShareSpin[]>([]);
   const [inPlay, setInPlay] = useState(false);
@@ -141,7 +140,7 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
             className={refillAttention ? "is-refill-attention" : ""}
             onClick={() => {
               setRefillAttention(false);
-              setRefillOpen(true);
+              openSignIn({ then: "refill" }); // sign in first, then the payment window opens
             }}
           >
             Refill spins
@@ -171,7 +170,6 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
         onBusyChange={setInPlay}
         demo
       />
-      <RefillDialog open={refillOpen} onClose={() => setRefillOpen(false)} signedIn={false} onPurchased={() => setRefillOpen(false)} />
     </div>
   );
 }

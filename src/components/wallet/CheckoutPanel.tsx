@@ -163,6 +163,8 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
     return s.includes(".") ? s.replace(/(\.\d{0,4}).*$/, "$1").replace(/\.$/, "") : s;
   };
   const insufficient = balance != null && balance < total;
+  // Wallet connect always works; paying waits until the organizers switch purchases on.
+  const purchasesOpen = settings.enabled && /^0x[0-9a-fA-F]{40}$/.test(settings.treasury ?? "");
 
   if (step.kind === "done") {
     return (
@@ -240,10 +242,10 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
         <Button
           type="button"
           className="gm-rf-cta"
-          disabled={step.kind === "wallet" || step.kind === "confirming" || insufficient || total === 0n}
+          disabled={!purchasesOpen || step.kind === "wallet" || step.kind === "confirming" || insufficient || total === 0n}
           onClick={() => void pay()}
         >
-          {step.kind === "wallet" ? "Approve in your wallet…" : step.kind === "confirming" ? "Confirming…" : `Pay ${short4(total)} APE · ${quantity} spins`}
+          {!purchasesOpen ? "Purchases open soon" : step.kind === "wallet" ? "Approve in your wallet…" : step.kind === "confirming" ? "Confirming…" : `Pay ${short4(total)} APE · ${quantity} spins`}
         </Button>
       )}
     </div>

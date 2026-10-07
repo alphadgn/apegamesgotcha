@@ -2,6 +2,7 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { openSignIn } from "@/components/wallet/walletUi";
 
 export function SiteHeader() {
   const { user, isAdmin } = useAuth();
@@ -24,7 +25,7 @@ export function SiteHeader() {
             Sign out
           </Button>
         ) : (
-          <Button asChild size="sm"><Link to="/auth">Sign in</Link></Button>
+          <Button size="sm" onClick={() => openSignIn()}>Sign in</Button>
         )}
       </div>
     </header>

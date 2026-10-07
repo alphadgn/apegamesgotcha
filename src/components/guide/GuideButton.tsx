@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useRouterState } from "@tanstack/react-router";
+import { openSignIn } from "@/components/wallet/walletUi";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
 import cover from "@/assets/guide-cover.webp";
@@ -62,9 +63,9 @@ export function FloatingGuide() {
           {face}
         </button>
       ) : (
-        <Link to="/auth" className="gw-hit" aria-label="Sign in to chat with the guide">
+        <button type="button" className="gw-hit" aria-label="Sign in to chat with the guide" onClick={() => openSignIn()}>
           {face}
-        </Link>
+        </button>
       )}
       {user && <GuideSheet open={open} onOpenChange={setOpen} />}
     </div>

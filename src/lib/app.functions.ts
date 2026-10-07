@@ -50,7 +50,10 @@ export const linkWallet = createServerFn({ method: "POST" })
     const address = data.address.toLowerCase();
     const { data: existing } = await db.from("wallets").select("user_id").eq("address", address).maybeSingle();
     if (existing && existing.user_id !== context.userId) throw new Error("Wallet already linked to another account");
-    if (!existing) await db.from("wallets").insert({ user_id: context.userId, address });
+    if (!existing) {
+      const { count } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", context.userId).eq("is_default", true);
+      await db.from("wallets").insert({ user_id: context.userId, address, kind: "external", is_default: !count });
+    }
     await db.from("wallet_nonces").delete().eq("user_id", context.userId);
     await audit(context.userId, "wallet.linked", { address });
     return { address };
@@ -505,7 +508,136 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     const price = Number(pc?.price_usd_per_spin ?? pc?.price_ape_per_spin ?? 0);
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Treasury wallet (receives APE)", ok: isAddr(pc?.treasury), detail: pc?.treasury && isAddr(pc.treasury) ? pc.treasury : "Not set — use a regular wallet address, not a Safe/contract", where: "Admin → Configuration → purchase → treasury" });
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Price per spin", ok: price > 0, detail: price > 0 ? (pc?.price_usd_per_spin ? `$${price} USD in APE per spin` : `${price} APE per spin`) : "Not set", where: "Admin → Configuration → purchase → price_usd_per_spin" });
-    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Privy App ID (email + mobile wallets)", ok: !!pc?.privy_app_id, optional: true, detail: pc?.privy_app_id ? "Set" : "Not set — only browser-extension wallets can pay", where: "dashboard.privy.io → App settings → App ID; also add your Lovable domains under Allowed origins" });
+    items.push({ group: "Sign-in (Privy)", label: "Privy App ID", ok: !!pc?.privy_app_id, detail: pc?.privy_app_id ? "Set" : "Not set — sign-in falls back to email/password and only browser-extension wallets can pay", where: "dashboard.privy.io → App settings → App ID → Admin → Configuration → purchase → privy_app_id. In Privy also: add your published + preview domains under Allowed origins; turn on Email, Google and Wallet login; turn on Ethereum embedded wallets" });
+    const privySecret = !!process.env["PRIVY_APP_SECRET"];
+    items.push({ group: "Sign-in (Privy)", label: "Privy App Secret (secret)", ok: privySecret, detail: privySecret ? "Set" : "Not set — Privy sign-in can't finish without it", where: "dashboard.privy.io → App settings → API keys → App secret → Lovable → Cloud → Secrets → PRIVY_APP_SECRET" });
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Purchases switched on", ok: !!pc?.enabled, detail: pc?.enabled ? "On" : "Off — Refill shows “purchases open soon”", where: "Admin → Configuration → purchase → enabled: true (last step)" });
     return items;
+  });
+
+// ---------- Privy sign-in & default wallet ----------
+// Privy is the sign-in window (email, Google or wallet) and creates an embedded wallet for players who
+// don't have one. The server verifies the Privy session, maps it to a Supabase account (same Privy login,
+// same verified email, or same linked wallet) and hands back a one-time token the browser swaps for a
+// normal Supabase session. Supabase stays the source of truth for the app; Privy is the front door.
+
+/** Public, non-secret bits the sign-in window needs before anyone is signed in. */
+export const getPrivyPublicConfig = createServerFn({ method: "GET" }).handler(async () => {
+  const cfg = (await getConfig("purchase").catch(() => null)) as import("./purchase.server").PurchaseConfig | null;
+  return {
+    privy_app_id: cfg?.privy_app_id?.trim() || null,
+    chain_id: cfg?.chain_id ?? 33139,
+    rpc_url: cfg?.rpc_url ?? "https://rpc.apechain.com/http",
+    explorer_url: cfg?.explorer_url ?? null,
+  };
+});
+
+async function privyIdentityFromToken(accessToken: string) {
+  const cfg = (await getConfig("purchase").catch(() => null)) as import("./purchase.server").PurchaseConfig | null;
+  const appId = cfg?.privy_app_id?.trim();
+  if (!appId) throw new Error("Privy sign-in isn't set up yet.");
+  const privy = await import("./privy.server");
+  const did = await privy.verifyPrivyAccessToken(accessToken, appId);
+  return privy.fetchPrivyIdentity(did, appId);
+}
+
+/** Adds the player's Privy wallets to their account and makes sure they have a default wallet. */
+async function syncPrivyWallets(userId: string, identity: import("./privy.server").PrivyIdentity) {
+  const db = await admin();
+  const skipped: string[] = [];
+  for (const w of identity.wallets) {
+    const { data: existing } = await db.from("wallets").select("user_id, kind").eq("address", w.address).maybeSingle();
+    if (existing && existing.user_id !== userId) {
+      skipped.push(w.address);
+      continue;
+    }
+    if (!existing) {
+      await db.from("wallets").insert({ user_id: userId, address: w.address, kind: w.kind });
+      await audit(userId, "wallet.linked", { address: w.address, via: "privy", kind: w.kind });
+    } else if (w.kind === "privy" && existing.kind !== "privy") {
+      await db.from("wallets").update({ kind: "privy" }).eq("address", w.address);
+    }
+  }
+  const { data: mine } = await db.from("wallets").select("address, kind, is_default, verified_at").eq("user_id", userId).order("verified_at");
+  const rows = (mine ?? []) as { address: string; kind: string; is_default: boolean }[];
+  if (rows.length && !rows.some((r) => r.is_default)) {
+    // The wallet Privy created is the default; otherwise the wallet they signed in with; otherwise the oldest.
+    const pick = rows.find((r) => r.kind === "privy") ?? rows.find((r) => identity.wallets.some((w) => w.address === r.address)) ?? rows[0]!;
+    await db.from("wallets").update({ is_default: true }).eq("user_id", userId).eq("address", pick.address);
+  }
+  return { skipped };
+}
+
+export const privySignIn = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ accessToken: z.string().min(20).max(4096) }).parse(d))
+  .handler(async ({ data }) => {
+    const identity = await privyIdentityFromToken(data.accessToken);
+    const db = await admin();
+
+    // 1) Same Privy login as before  2) same verified email  3) a wallet already linked to an account.
+    let userId: string | null = ((await db.from("privy_accounts").select("user_id").eq("privy_did", identity.did).maybeSingle()).data?.user_id as string | undefined) ?? null;
+    if (!userId && identity.email) {
+      const { data: id } = await db.rpc("user_id_by_email", { _email: identity.email });
+      userId = (id as string | null) ?? null;
+    }
+    if (!userId && identity.wallets.length) {
+      const { data: w } = await db.from("wallets").select("user_id").in("address", identity.wallets.map((x) => x.address)).limit(1).maybeSingle();
+      userId = (w?.user_id as string | undefined) ?? null;
+    }
+
+    let email: string | null = null;
+    if (userId) {
+      const { data: u } = await db.auth.admin.getUserById(userId);
+      email = u?.user?.email ?? null;
+      if (!email) {
+        email = identity.email ?? `wallet-${identity.did.replace("did:privy:", "")}@privy.apegamesgotcha.app`;
+        await db.auth.admin.updateUserById(userId, { email, email_confirm: true });
+      }
+    } else {
+      // New player. Wallet-only sign-ins get a placeholder address; no email is ever sent to it.
+      email = identity.email ?? `wallet-${identity.did.replace("did:privy:", "")}@privy.apegamesgotcha.app`;
+      const { data: created, error } = await db.auth.admin.createUser({ email, email_confirm: true, user_metadata: { privy_did: identity.did } });
+      if (error || !created?.user) throw new Error(error?.message ?? "Couldn't create your account");
+      userId = created.user.id as string;
+      await audit(userId, "user.created", { via: "privy" });
+    }
+
+    await db.from("privy_accounts").upsert({ privy_did: identity.did, user_id: userId }, { onConflict: "privy_did" });
+    await syncPrivyWallets(userId!, identity);
+
+    const { data: link, error: linkError } = await db.auth.admin.generateLink({ type: "magiclink", email });
+    const tokenHash = link?.properties?.hashed_token as string | undefined;
+    if (linkError || !tokenHash) throw new Error(linkError?.message ?? "Couldn't start your session");
+    await audit(userId!, "user.signed_in", { via: "privy" });
+    return { tokenHash };
+  });
+
+/** A signed-in player who also signs in to Privy (e.g. to pay): attach that Privy login and its wallets. */
+export const linkPrivyAccount = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ accessToken: z.string().min(20).max(4096) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const identity = await privyIdentityFromToken(data.accessToken);
+    const db = await admin();
+    const { data: row } = await db.from("privy_accounts").select("user_id").eq("privy_did", identity.did).maybeSingle();
+    if (row && row.user_id !== context.userId) throw new Error("That Privy login belongs to another player. Sign out and sign in with it instead.");
+    if (!row) await db.from("privy_accounts").insert({ privy_did: identity.did, user_id: context.userId });
+    const { skipped } = await syncPrivyWallets(context.userId, identity);
+    return { skipped };
+  });
+
+/** Account preferences: choose which linked wallet is the default (used to pay for spins). */
+export const setDefaultWallet = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const db = await admin();
+    const address = data.address.toLowerCase();
+    const { data: w } = await db.from("wallets").select("id").eq("user_id", context.userId).eq("address", address).maybeSingle();
+    if (!w) throw new Error("That wallet isn't linked to your account");
+    await db.from("wallets").update({ is_default: false }).eq("user_id", context.userId).eq("is_default", true);
+    const { error } = await db.from("wallets").update({ is_default: true }).eq("id", w.id);
+    if (error) throw new Error(error.message);
+    await audit(context.userId, "wallet.default", { address });
+    return { address };
   });

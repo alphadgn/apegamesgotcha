@@ -4,7 +4,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getWalletNonce, linkWallet, syncNfts, claimBurn } from "@/lib/app.functions";
+import { getWalletNonce, linkWallet, syncNfts, claimBurn, setDefaultWallet } from "@/lib/app.functions";
+import { requestLinkWallet } from "@/components/wallet/walletUi";
+import { usePrivyPublicConfig } from "@/components/wallet/WalletHost";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
@@ -40,6 +42,8 @@ type DashboardSpin = {
   rarity: string | null;
 };
 
+type WalletRow = { id: string; address: string; is_default?: boolean; kind?: string };
+
 function useMyData() {
   return useQuery({
     queryKey: ["me"],
@@ -74,6 +78,8 @@ function Dashboard() {
   const refresh = () => qc.invalidateQueries();
   const nonceFn = useServerFn(getWalletNonce);
   const linkFn = useServerFn(linkWallet);
+  const defaultFn = useServerFn(setDefaultWallet);
+  const { data: privyCfg } = usePrivyPublicConfig();
   const syncFn = useServerFn(syncNfts);
   const burnFn = useServerFn(claimBurn);
   const { user } = useAuth();
@@ -85,6 +91,15 @@ function Dashboard() {
     setBusy(key);
     try { await fn(); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); }
   };
+
+  // Add a wallet: through Privy (any wallet, incl. mobile) when it's set up, otherwise a browser-extension signature.
+  const addWallet = () => (privyCfg?.privy_app_id ? requestLinkWallet() : connectWallet());
+
+  const makeDefault = (address: string) => run(`default:${address}`, async () => {
+    await defaultFn({ data: { address } });
+    toast.success("Default wallet updated");
+    refresh();
+  });
 
   const connectWallet = () => run("wallet", async () => {
     const eth = (window as any).ethereum;
@@ -135,11 +150,28 @@ function Dashboard() {
           <div className="rounded border border-border bg-card p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">Wallets</h2>
-              <Button size="sm" variant="outline" onClick={connectWallet} disabled={!!busy}>{busy === "wallet" ? "Waiting…" : "Link wallet"}</Button>
+              <Button size="sm" variant="outline" onClick={addWallet} disabled={!!busy}>{busy === "wallet" ? "Waiting…" : "Add wallet"}</Button>
             </div>
             {data.wallets.length ? (
-              <ul className="mt-3 space-y-1 font-mono text-sm">{data.wallets.map((w) => <li key={w.id}>{w.address}</li>)}</ul>
-            ) : <p className="mt-3 text-sm text-muted-foreground">Link your ApeChain wallet to earn holding points.</p>}
+              <ul className="mt-3 space-y-2 text-sm">
+                {(data.wallets as WalletRow[]).map((w) => (
+                  <li key={w.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border px-3 py-2">
+                    <span className="min-w-0 break-all font-mono text-xs">{w.address}</span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {w.kind === "privy" && <span className="rounded bg-muted px-2 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">Privy wallet</span>}
+                      {w.is_default ? (
+                        <span className="rounded bg-primary px-2 py-0.5 font-mono text-[10px] uppercase text-primary-foreground">Default</span>
+                      ) : (
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={!!busy} onClick={() => makeDefault(w.address)}>
+                          {busy === `default:${w.address}` ? "Saving…" : "Make default"}
+                        </Button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="mt-3 text-sm text-muted-foreground">Add your ApeChain wallet to earn holding points.</p>}
+            <p className="mt-3 text-xs text-muted-foreground">Your default wallet is used to pay for spins. Wallets you add also count for NFT holding points.</p>
           </div>
 
           <div className="rounded border border-border bg-card p-6">

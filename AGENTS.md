@@ -16,3 +16,5 @@
 
 - Player guide chat: streaming endpoint at src/routes/api/guide-chat.ts (server route, bearer-authed), handler in src/lib/guide-chat.server.ts (Claude via Lovable AI Gateway /v1/messages), one conversation per user persisted in guide_messages; UI at src/routes/_authenticated/guide.tsx using AI Elements + useChat.
 - App-wide font is set once in src/styles.css with a universal !important rule — component-level font choices are intentionally overridden.
+- Sign-in and Refill windows are app-wide: open them with `openSignIn()` / `openRefill()` from `src/components/wallet/walletUi.ts`; `WalletHost` (root shell) renders them inside one lazily loaded PrivyProvider (`PrivyLayer`).
+- Privy is the sign-in front door; Supabase stays the session of record. `privySignIn` verifies the Privy access token (JWKS) + reads linked accounts with `PRIVY_APP_SECRET`, maps to a Supabase user (Privy DID → verified email → linked wallet) and returns a magic-link token hash the browser exchanges with `verifyOtp`. Players without a wallet get a Privy embedded wallet, which becomes `wallets.is_default`.

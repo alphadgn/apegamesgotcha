@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { checkDraw, startDraw } from "@/lib/app.functions";
-import { RefillDialog } from "@/components/wallet/RefillDialog";
+import { openRefill } from "@/components/wallet/walletUi";
 import { readPendingPurchase, usePurchaseConfirmer } from "@/components/wallet/CheckoutPanel";
 import { GotchaMachine, type GotchaPrize } from "./GotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
@@ -22,7 +22,6 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
   const qc = useQueryClient();
   const drawFn = useServerFn(startDraw);
   const checkFn = useServerFn(checkDraw);
-  const [refillOpen, setRefillOpen] = useState(false);
   const [inPlay, setInPlay] = useState(false);
 
   const { data } = useQuery({
@@ -87,7 +86,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
         </span>
         <span className="gm-bar-actions">
           {showShare && <ShareSpinsButton spins={data?.lastFive ?? []} />}
-          <button type="button" className="gm-refill-btn" onClick={() => setRefillOpen(true)}>
+          <button type="button" className="gm-refill-btn" onClick={() => openRefill()}>
             Refill spins
           </button>
         </span>
@@ -100,20 +99,10 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
         resumeIds={data?.pendingIds ?? []}
         onSessionEnd={refresh}
         onError={(m) => toast.error(m)}
-        onNoSpins={() => setRefillOpen(true)}
+        onNoSpins={() => openRefill()}
         onBusyChange={setInPlay}
         closedReason={closedReason}
         {...(footnote ? { footnote } : {})}
-      />
-      <RefillDialog
-        open={refillOpen}
-        onClose={() => setRefillOpen(false)}
-        signedIn
-        onPurchased={(q) => {
-          toast.success(`${q} spins added to your machine`);
-          void refresh();
-          window.setTimeout(() => setRefillOpen(false), 1600);
-        }}
       />
     </div>
   );

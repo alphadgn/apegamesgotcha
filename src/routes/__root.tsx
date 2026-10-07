@@ -16,6 +16,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Toaster } from "@/components/ui/sonner";
 import { PageArtwork } from "@/components/PageArtwork";
 import { FloatingGuide } from "@/components/guide/GuideButton";
+import { WalletHost } from "@/components/wallet/WalletHost";
 
 function NotFoundComponent() {
   return (
@@ -136,6 +137,7 @@ function RootComponent() {
       <SiteHeader />
       <Outlet />
       <FloatingGuide />
+      <WalletHost />
       <Toaster theme="dark" offset={{ bottom: 112 }} mobileOffset={{ bottom: 112 }} />
     </QueryClientProvider>
   );
