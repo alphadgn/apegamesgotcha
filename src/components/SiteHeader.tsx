@@ -18,13 +18,13 @@ export function SiteHeader() {
   const link = "min-h-11 cursor-pointer text-sm uppercase text-muted-foreground";
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4">
-        <Link to="/" className="min-w-0 font-display text-lg font-bold uppercase tracking-wide">
-          Ape<span className="text-primary">Games</span> Gotcha
+      <div className="relative mx-auto flex h-14 max-w-6xl items-center justify-center px-4">
+        <Link to="/" className="site-title min-w-0 font-display text-lg font-bold uppercase tracking-wide">
+          ApeGames Gotcha
         </Link>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" className="shrink-0" aria-label="Open navigation menu" title="Navigation menu">
+            <Button variant="outline" size="icon" className="absolute right-4 shrink-0" aria-label="Open navigation menu" title="Navigation menu">
               <Menu aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>

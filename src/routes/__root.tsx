@@ -113,7 +113,10 @@ function RootShell({ children }: { children: ReactNode }) {
       </head>
       <body>
         <PageArtwork />
-        <div className="relative z-10 min-h-screen">{children}</div>
+        <div className="relative z-10 flex min-h-screen flex-col">{children}</div>
+        <footer className="relative z-10 py-6 text-sm text-muted-foreground">
+          © ApeGames 2026 · All rights reserved
+        </footer>
         <Scripts />
       </body>
     </html>
