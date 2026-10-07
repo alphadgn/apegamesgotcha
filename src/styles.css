@@ -121,7 +121,7 @@
 
 /* App-wide font: overrides every component font choice. */
 *, *::before, *::after {
-  font-family: "Freaky Spooky", ui-sans-serif, sans-serif !important;
+  font-family: "Freaky Spooky", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", ui-sans-serif, sans-serif !important;
 }
 
 @layer base {
