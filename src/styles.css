@@ -176,3 +176,74 @@
   75% { transform: rotate(8deg); }
 }
 .animate-capsule { animation: capsule-shake 0.25s ease-in-out infinite; }
+
+/* ---------- Floating guide widget (bottom-right) ---------- */
+.gw {
+  position: fixed;
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+}
+.gw-hit {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.gw-arc {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.gw-arc text {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  fill: #f6c343;
+  stroke: #0c1b3d;
+  stroke-width: 3px;
+  paint-order: stroke;
+}
+.gw-btn {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border-radius: 9999px;
+  overflow: hidden;
+  box-shadow: 0 0 0 3px #f6c343, 0 0 0 5px #0c1b3d, 0 8px 22px rgba(0, 0, 0, 0.55);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  animation: gw-bob 3.2s ease-in-out infinite;
+}
+.gw-btn img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.gw-hit:hover .gw-btn {
+  transform: scale(1.07);
+  box-shadow: 0 0 0 3px #f6c343, 0 0 0 5px #0c1b3d, 0 0 22px rgba(246, 195, 67, 0.6), 0 8px 22px rgba(0, 0, 0, 0.55);
+}
+.gw-hit:focus-visible {
+  outline: none;
+}
+.gw-hit:focus-visible .gw-btn {
+  box-shadow: 0 0 0 3px #f6c343, 0 0 0 6px #ffffff, 0 8px 22px rgba(0, 0, 0, 0.55);
+}
+@keyframes gw-bob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gw-btn { animation: none; transition: none; }
+}

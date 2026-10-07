@@ -7,7 +7,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { getWalletNonce, linkWallet, syncNfts, claimBurn } from "@/lib/app.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { GuideButton } from "@/components/guide/GuideButton";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
 import { useAuth } from "@/hooks/useAuth";
 import { SafeSection } from "@/components/SafeSection";
@@ -124,11 +123,7 @@ function Dashboard() {
       </div>
 
       {/* Gotcha machine */}
-      <div className="mt-6 flex items-center justify-between gap-3 rounded border border-border bg-card/80 px-4 py-3">
-        <p className="font-mono text-xs text-muted-foreground">Questions about points or spins? Captain Ape knows your numbers.</p>
-        <GuideButton className="shrink-0 rounded border border-primary px-3 py-1.5 font-mono text-xs text-primary hover:bg-primary hover:text-primary-foreground" />
-      </div>
-      <div className="mt-4">
+      <div className="mt-6">
         <SafeSection label="gotcha machine">
           {user && <PlayerGotchaMachine userId={user.id} footnote="Buy more spins with Refill, or burn a Level 4+ NFT for a free one." />}
         </SafeSection>

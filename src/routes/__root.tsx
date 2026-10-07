@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Toaster } from "@/components/ui/sonner";
 import { PageArtwork } from "@/components/PageArtwork";
+import { FloatingGuide } from "@/components/guide/GuideButton";
 
 function NotFoundComponent() {
   return (
@@ -134,7 +135,8 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <SiteHeader />
       <Outlet />
-      <Toaster theme="dark" />
+      <FloatingGuide />
+      <Toaster theme="dark" offset={{ bottom: 112 }} mobileOffset={{ bottom: 112 }} />
     </QueryClientProvider>
   );
 }
