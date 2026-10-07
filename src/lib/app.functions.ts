@@ -377,6 +377,22 @@ export const adminSettleDraws = createServerFn({ method: "POST" })
   });
 
 // ---------- Spin purchases (APE on ApeChain) ----------
+export const getPurchaseSettings = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const cfg = await getConfig("purchase") as import("./purchase.server").PurchaseConfig;
+    return { enabled: cfg.enabled, chain_id: cfg.chain_id, rpc_url: cfg.rpc_url, explorer_url: cfg.explorer_url,
+      treasury: cfg.treasury, price_ape_per_spin: cfg.price_ape_per_spin ?? "", price_usd_per_spin: cfg.price_usd_per_spin,
+      bundles: cfg.bundles, privy_app_id: cfg.privy_app_id };
+  });
+
+export const getSpinPriceQuote = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const p = await import("./purchase.server");
+    return p.quoteSpinPrice(await getConfig("purchase"));
+  });
+
 // The player picks a bundle (5, 10, 15 or 20 spins); we lock the price in a purchase row and the
 // wallet sends that exact APE amount to the treasury with the purchase id as calldata.
 export const createSpinPurchase = createServerFn({ method: "POST" })
@@ -387,7 +403,10 @@ export const createSpinPurchase = createServerFn({ method: "POST" })
     const cfg = p.requirePurchasing((await getConfig("purchase")) as import("./purchase.server").PurchaseConfig);
     const bundles = cfg.bundles?.length ? cfg.bundles : p.DEFAULT_BUNDLES;
     if (!bundles.includes(data.quantity) || data.quantity % 5 !== 0 || data.quantity > 20) throw new Error("Choose 5, 10, 15 or 20 spins.");
-    const price = p.bundlePriceWei(cfg, data.quantity);
+    const vrf = await getConfig("vrf");
+    if (!vrf.enabled || !/^0x[0-9a-fA-F]{40}$/.test(vrf.contract ?? "")) throw new Error("Purchases will open when the real prize draw is ready.");
+    const quote = await p.quoteSpinPrice(cfg);
+    const price = BigInt(quote.eachWei) * BigInt(data.quantity);
     const db = await admin();
     const { data: row, error } = await db
       .from("spin_purchases")
@@ -482,10 +501,10 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     items.push({ group: "Chainlink draw (Base)", label: "Real spins switched on", ok: !!vrf?.enabled, detail: vrf?.enabled ? "On" : "Off — players see “Spins open soon”", where: "Admin → Configuration → vrf → enabled: true (last step)" });
 
     // Purchases
-    const pc = (await cfg("purchase")) as { enabled?: boolean; treasury?: string; price_ape_per_spin?: string; privy_app_id?: string } | null;
-    const price = Number(pc?.price_ape_per_spin ?? 0);
-    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Treasury wallet (receives APE)", ok: isAddr(pc?.treasury), detail: isAddr(pc?.treasury) ? pc!.treasury! : "Not set — use a regular wallet address, not a Safe/contract", where: "Admin → Configuration → purchase → treasury" });
-    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Price per spin", ok: price > 0, detail: price > 0 ? `${price} APE per spin` : "Not set", where: "Admin → Configuration → purchase → price_ape_per_spin" });
+    const pc = (await cfg("purchase")) as { enabled?: boolean; treasury?: string; price_ape_per_spin?: string; price_usd_per_spin?: string; privy_app_id?: string } | null;
+    const price = Number(pc?.price_usd_per_spin ?? pc?.price_ape_per_spin ?? 0);
+    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Treasury wallet (receives APE)", ok: isAddr(pc?.treasury), detail: pc?.treasury && isAddr(pc.treasury) ? pc.treasury : "Not set — use a regular wallet address, not a Safe/contract", where: "Admin → Configuration → purchase → treasury" });
+    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Price per spin", ok: price > 0, detail: price > 0 ? (pc?.price_usd_per_spin ? `$${price} USD in APE per spin` : `${price} APE per spin`) : "Not set", where: "Admin → Configuration → purchase → price_usd_per_spin" });
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Privy App ID (email + mobile wallets)", ok: !!pc?.privy_app_id, optional: true, detail: pc?.privy_app_id ? "Set" : "Not set — only browser-extension wallets can pay", where: "dashboard.privy.io → App settings → App ID; also add your Lovable domains under Allowed origins" });
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Purchases switched on", ok: !!pc?.enabled, detail: pc?.enabled ? "On" : "Off — Refill shows “purchases open soon”", where: "Admin → Configuration → purchase → enabled: true (last step)" });
     return items;

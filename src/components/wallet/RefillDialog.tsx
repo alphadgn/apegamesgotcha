@@ -1,7 +1,8 @@
 import { Component, lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useServerFn } from "@tanstack/react-start";
+import { getPurchaseSettings } from "@/lib/app.functions";
 import type { PurchaseSettings } from "./CheckoutPanel";
 
 const PrivyCheckout = lazy(() => import("./PrivyCheckout"));
@@ -25,11 +26,11 @@ class CheckoutBoundary extends Component<{ fallback: (message: string) => ReactN
 }
 
 export function usePurchaseSettings() {
+  const settingsFn = useServerFn(getPurchaseSettings);
   return useQuery({
     queryKey: ["purchase-settings"],
     queryFn: async () => {
-      const { data } = await supabase.from("app_config").select("value").eq("key", "purchase").maybeSingle();
-      return (data?.value ?? null) as PurchaseSettings | null;
+      return await settingsFn() as PurchaseSettings;
     },
     staleTime: 60_000,
   });
@@ -77,7 +78,7 @@ export function RefillDialog({
   } else if (isLoading) {
     body = <p className="gm-rf-copy">Loading…</p>;
   } else if (!ready || !settings) {
-    body = <p className="gm-rf-copy">Spin purchases open soon. Check back when the organizers turn on checkout.</p>;
+    body = <div><p className="gm-rf-copy">{settings?.price_usd_per_spin ? `$${settings.price_usd_per_spin} USD per spin, paid in APE on ApeChain. Five spins cost $${Number(settings.price_usd_per_spin) * 5} USD in APE, plus network fees.` : "Spin purchases open soon."}</p><p className="gm-rf-copy">Purchases will open when the real prize draw is ready.</p></div>;
   } else {
     body = (
       <Suspense fallback={<p className="gm-rf-copy">Loading wallet…</p>}>
