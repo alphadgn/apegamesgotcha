@@ -8,6 +8,8 @@ export type PurchaseConfig = {
   explorer_url?: string;
   treasury: string;
   price_ape_per_spin: string;
+  price_usd_per_spin?: string;
+  price_source?: string;
   bundles?: number[];
   min_confirmations?: number;
   privy_app_id?: string;
@@ -26,6 +28,22 @@ export function bundlePriceWei(cfg: PurchaseConfig, quantity: number) {
   const each = parseEther(String(cfg.price_ape_per_spin || "0"));
   if (each <= 0n) throw new Error("The spin price isn't configured yet.");
   return each * BigInt(quantity);
+}
+
+/** Fetch a fresh exchange quote; never silently substitute a fixed APE price. */
+export async function quoteSpinPrice(cfg: PurchaseConfig) {
+  if (!cfg.price_usd_per_spin) return { eachWei: bundlePriceWei(cfg, 1).toString(), quotedAt: new Date().toISOString() };
+  if (cfg.price_source !== "coinbase_spot") throw new Error("APE/USD pricing isn't configured yet.");
+  const response = await fetch("https://api.coinbase.com/v2/prices/APE-USD/spot", { signal: AbortSignal.timeout(10_000), cache: "no-store" });
+  if (!response.ok) throw new Error("Live APE pricing is unavailable. Please try again.");
+  const body = await response.json() as { data?: { amount?: string; base?: string; currency?: string } };
+  const rate = body.data;
+  if (rate?.base !== "APE" || rate.currency !== "USD" || !/^\d+(\.\d{1,18})?$/.test(rate.amount ?? "")) throw new Error("Live APE pricing is unavailable. Please try again.");
+  const usdRate = parseEther(rate.amount ?? "0");
+  const usdPrice = parseEther(cfg.price_usd_per_spin);
+  if (usdRate <= 0n || usdPrice <= 0n) throw new Error("Invalid APE/USD price.");
+  const eachWei = (usdPrice * 10n ** 18n + usdRate - 1n) / usdRate;
+  return { eachWei: eachWei.toString(), quotedAt: new Date().toISOString() };
 }
 
 /** The purchase id the wallet sends as calldata (binds the payment to this purchase). */
