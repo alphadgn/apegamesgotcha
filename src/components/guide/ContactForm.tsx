@@ -12,7 +12,10 @@ export function ContactForm({ defaultEmail = "", onDone }: { defaultEmail?: stri
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = contactSchema.safeParse(form);
-    if (!parsed.success) return toast.error(parsed.error.issues[0]?.message ?? "Check the form");
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? "Check the form");
+      return;
+    }
     setBusy(true);
     try {
       await send({ data: parsed.data });
