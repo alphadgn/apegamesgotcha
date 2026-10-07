@@ -46,12 +46,16 @@ function jsonError(status: number, message: string) {
 
 export async function handleGuideChat(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
-  if (!token || token.split(".").length !== 3) return jsonError(401, "Sign in to chat with the guide.");
-
-  const supabase = authedClient(token);
-  const { data: claims, error: authError } = await supabase.auth.getClaims(token);
-  if (authError || !claims?.claims?.sub) return jsonError(401, "Sign in to chat with the guide.");
-  const userId = claims.claims.sub as string;
+  // Signed-in players get personalized answers; signed-out visitors get a
+  // public guide with general info only (no personal data, nothing persisted).
+  let authed: { supabase: ReturnType<typeof authedClient>; userId: string } | null = null;
+  if (token) {
+    if (token.split(".").length !== 3) return jsonError(401, "Sign in to chat with the guide.");
+    const supabase = authedClient(token);
+    const { data: claims, error: authError } = await supabase.auth.getClaims(token);
+    if (authError || !claims?.claims?.sub) return jsonError(401, "Sign in to chat with the guide.");
+    authed = { supabase, userId: claims.claims.sub as string };
+  }
 
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) return jsonError(500, "The guide is not configured yet.");
@@ -67,29 +71,52 @@ export async function handleGuideChat(request: Request): Promise<Response> {
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return jsonError(400, "Last message must be from the user.");
 
-  // Live context for the guide: prizes, NFT settings, and this player's real points.
+  // Live context for the guide: general rules for everyone, plus this player's
+  // real numbers only when a verified session is present.
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const [prizesRes, nftRes, ledgerRes, creditsRes, boardRes, cfgRes] = await Promise.all([
-    supabase.from("prizes").select("name, rarity, points").eq("active", true),
-    supabase.from("app_config").select("value").eq("key", "nft").maybeSingle(),
-    supabase.from("points_ledger").select("amount, reason").eq("user_id", userId),
-    supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", userId).is("used_spin_id", null),
-    supabase.rpc("get_leaderboard", { _limit: 500 }),
-    // Non-sensitive rule values only (scoring weights, spin limits, prices).
-    supabaseAdmin.from("app_config").select("key, value").in("key", ["scoring", "spins", "purchase"]),
-  ]);
-  const prizes = (prizesRes.data ?? []) as { name: string; rarity: string; points: number }[];
-  const nft = (nftRes.data?.value ?? {}) as { burn_min_level?: number; opensea_url?: string };
-  const ledger = (ledgerRes.data ?? []) as { amount: number; reason: string }[];
-  const byReason: Record<string, number> = {};
-  for (const l of ledger) byReason[l.reason] = (byReason[l.reason] ?? 0) + l.amount;
-  const total = ledger.reduce((s, l) => s + l.amount, 0);
-  const rankRow = ((boardRes.data ?? []) as { rank: number; user_id: string }[]).find((r) => r.user_id === userId);
-  const cfg = Object.fromEntries(((cfgRes.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value])) as {
+  type Prize = { name: string; rarity: string; points: number };
+  type Cfg = {
     scoring?: { level_weights?: Record<string, number>; default_level_weight?: number };
     spins?: { daily_limit?: number; campaign_limit?: number };
     purchase?: { enabled?: boolean; price_ape_per_spin?: string; price_usd_per_spin?: string; bundles?: number[] };
   };
+
+  let prizes: Prize[] = [];
+  let nft: { burn_min_level?: number; opensea_url?: string } = {};
+  let byReason: Record<string, number> = {};
+  let total = 0;
+  let rankRow: { rank: number } | undefined;
+  let spinsReady = 0;
+  let cfg: Cfg = {};
+
+  if (authed) {
+    const [prizesRes, nftRes, ledgerRes, creditsRes, boardRes, cfgRes] = await Promise.all([
+      authed.supabase.from("prizes").select("name, rarity, points").eq("active", true),
+      authed.supabase.from("app_config").select("value").eq("key", "nft").maybeSingle(),
+      authed.supabase.from("points_ledger").select("amount, reason").eq("user_id", authed.userId),
+      authed.supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", authed.userId).is("used_spin_id", null),
+      authed.supabase.rpc("get_leaderboard", { _limit: 500 }),
+      // Non-sensitive rule values only (scoring weights, spin limits, prices).
+      supabaseAdmin.from("app_config").select("key, value").in("key", ["scoring", "spins", "purchase"]),
+    ]);
+    prizes = (prizesRes.data ?? []) as Prize[];
+    nft = (nftRes.data?.value ?? {}) as { burn_min_level?: number; opensea_url?: string };
+    const ledger = (ledgerRes.data ?? []) as { amount: number; reason: string }[];
+    for (const l of ledger) byReason[l.reason] = (byReason[l.reason] ?? 0) + l.amount;
+    total = ledger.reduce((s, l) => s + l.amount, 0);
+    rankRow = ((boardRes.data ?? []) as { rank: number; user_id: string }[]).find((r) => r.user_id === authed!.userId);
+    cfg = Object.fromEntries(((cfgRes.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value])) as Cfg;
+    spinsReady = creditsRes.count ?? 0;
+  } else {
+    const [prizesRes, nftRes, cfgRes] = await Promise.all([
+      supabaseAdmin.from("prizes").select("name, rarity, points").eq("active", true),
+      supabaseAdmin.from("app_config").select("value").eq("key", "nft").maybeSingle(),
+      supabaseAdmin.from("app_config").select("key, value").in("key", ["scoring", "spins", "purchase"]),
+    ]);
+    prizes = (prizesRes.data ?? []) as Prize[];
+    nft = (nftRes.data?.value ?? {}) as { burn_min_level?: number; opensea_url?: string };
+    cfg = Object.fromEntries(((cfgRes.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value])) as Cfg;
+  }
   const weights = cfg.scoring?.level_weights ?? {};
   const reasonLabel: Record<string, string> = { holding: "holding NFTs", spin: "gacha prizes", admin_adjustment: "organizer grants" };
 
@@ -109,11 +136,18 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     cfg.purchase?.enabled
       ? `- Refill: ${cfg.purchase.price_usd_per_spin ? `$${cfg.purchase.price_usd_per_spin} USD worth of APE` : `${cfg.purchase.price_ape_per_spin} APE`} per spin on ApeChain, bundles of ${(cfg.purchase.bundles ?? [5, 10, 15, 20]).join("/")}. The APE amount uses a live exchange quote; network fees are extra.`
       : `- Buying spins is not open yet.${cfg.purchase?.price_usd_per_spin ? ` Planned price: $${cfg.purchase.price_usd_per_spin} USD worth of APE per spin on ApeChain.` : ""}`,
-    "THIS PLAYER RIGHT NOW:",
-    `- Total points: ${total}${rankRow ? `, leaderboard rank #${rankRow.rank}` : ", not ranked yet"}.`,
-    `- Breakdown: ${Object.entries(byReason).map(([r, a]) => `${reasonLabel[r] ?? r} ${a}`).join(", ") || "no points yet"}.`,
-    `- Spins ready: ${creditsRes.count ?? 0}.`,
-    "Use these real numbers when the player asks about their points; suggest concrete next steps to earn more.",
+    authed ? "THIS PLAYER RIGHT NOW:" : "This visitor is not signed in.",
+    ...(authed
+      ? [
+          `- Total points: ${total}${rankRow ? `, leaderboard rank #${rankRow.rank}` : ", not ranked yet"}.`,
+          `- Breakdown: ${Object.entries(byReason).map(([r, a]) => `${reasonLabel[r] ?? r} ${a}`).join(", ") || "no points yet"}.`,
+          `- Spins ready: ${spinsReady}.`,
+          "Use these real numbers when the player asks about their points; suggest concrete next steps to earn more.",
+        ]
+      : [
+          "The visitor has no personal data: do not mention points totals, spins, ranks or any account details.",
+          "Explain how the site, the gotcha machine and ApeGames work in general. If they ask about their own points, spins or wallet, tell them to sign in first.",
+        ]),
     "Spin outcomes are drawn on-chain by Chainlink VRF; you cannot predict or influence results.",
     "Never discuss token trading, prices, or investment — there is no public token trading before the Charleston event.",
     "Keep answers short (2-4 sentences), upbeat, and concrete. If you don't know something, say so and suggest the dashboard or admin.",
@@ -138,24 +172,30 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     abortSignal: request.signal,
   });
 
-  // Persist the player's message now; the assistant reply is saved in onFinish.
-  const { error: saveUserError } = await supabase.from("guide_messages").insert({
-    user_id: userId,
-    role: "user",
-    parts: last.parts,
-  } as never);
-  if (saveUserError) console.error("[guide-chat] failed to save user message", saveUserError);
+  const user = authed;
+  if (user) {
+    const { error: saveUserError } = await user.supabase.from("guide_messages").insert({
+      user_id: user.userId,
+      role: "user",
+      parts: last.parts,
+    } as never);
+    if (saveUserError) console.error("[guide-chat] failed to save user message", saveUserError);
+  }
 
   const response = result.toUIMessageStreamResponse({
     originalMessages: messages,
-    onFinish: async ({ responseMessage }) => {
-      const { error } = await supabase.from("guide_messages").insert({
-        user_id: userId,
-        role: "assistant",
-        parts: responseMessage.parts,
-      } as never);
-      if (error) console.error("[guide-chat] failed to save assistant message", error);
-    },
+    ...(user
+      ? {
+          onFinish: async ({ responseMessage }) => {
+            const { error } = await user.supabase.from("guide_messages").insert({
+              user_id: user.userId,
+              role: "assistant",
+              parts: responseMessage.parts,
+            } as never);
+            if (error) console.error("[guide-chat] failed to save assistant message", error);
+          },
+        }
+      : {}),
   });
 
   return withLovableAiGatewayRunIdHeader(response, runIdFetch, {

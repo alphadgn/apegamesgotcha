@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
-import { openSignIn } from "@/components/wallet/walletUi";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
 import cover from "@/assets/guide-cover.webp";
 import { GuidePanel } from "./GuidePanel";
 
-function GuideSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function GuideSheet({ open, onOpenChange, publicMode = false }: { open: boolean; onOpenChange: (open: boolean) => void; publicMode?: boolean }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="h-[85vh] max-w-3xl mx-auto flex flex-col gap-2 p-4">
@@ -14,7 +13,7 @@ function GuideSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open
           <SheetTitle>Captain Ape — your guide</SheetTitle>
           <SheetDescription>Points, spins, prizes and Charleston — ask away.</SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1">{open && <GuidePanel compact />}</div>
+        <div className="min-h-0 flex-1">{open && <GuidePanel compact publicMode={publicMode} />}</div>
       </SheetContent>
     </Sheet>
   );
@@ -33,7 +32,8 @@ export function GuideButton({ className, label = "Ask the guide" }: { className?
   );
 }
 
-/** Round floating guide widget, bottom-right on every page. Signed-out visitors are sent to sign in. */
+/** Round floating guide widget, bottom-right on every page. Signed-out visitors
+ * get a public guide (general info only) instead of being sent to sign in. */
 export function FloatingGuide() {
   const [open, setOpen] = useState(false);
   const { user } = useAuth();
@@ -58,16 +58,15 @@ export function FloatingGuide() {
 
   return (
     <div className="gw">
-      {user ? (
-        <button type="button" className="gw-hit" aria-label="Open the guide" onClick={() => setOpen(true)}>
-          {face}
-        </button>
-      ) : (
-        <button type="button" className="gw-hit" aria-label="Sign in to chat with the guide" onClick={() => openSignIn()}>
-          {face}
-        </button>
-      )}
-      {user && <GuideSheet open={open} onOpenChange={setOpen} />}
+      <button
+        type="button"
+        className="gw-hit"
+        aria-label={user ? "Open the guide" : "Ask the guide — no sign-in needed"}
+        onClick={() => setOpen(true)}
+      >
+        {face}
+      </button>
+      <GuideSheet open={open} onOpenChange={setOpen} publicMode={!user} />
     </div>
   );
 }
