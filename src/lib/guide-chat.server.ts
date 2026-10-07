@@ -107,7 +107,7 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     "- Spending: points are not spent or deducted; they only accumulate and decide leaderboard rank going into Charleston. Spins are bought with APE or earned by burning, never with points.",
     cfg.spins ? `- Spin limits: ${cfg.spins.daily_limit ?? "no"} per day, ${cfg.spins.campaign_limit ?? "no"} per campaign.` : "",
     cfg.purchase?.enabled
-      ? `- Refill: ${cfg.purchase.price_ape_per_spin} APE per spin, bundles of ${(cfg.purchase.bundles ?? [5, 10, 15, 20]).join("/")}.`
+      ? `- Refill: ${cfg.purchase.price_usd_per_spin ? `$${cfg.purchase.price_usd_per_spin} USD` : `${cfg.purchase.price_ape_per_spin} APE`} per spin, bundles of ${(cfg.purchase.bundles ?? [5, 10, 15, 20]).join("/")}.`
       : "- Buying spins is not open yet.",
     "THIS PLAYER RIGHT NOW:",
     `- Total points: ${total}${rankRow ? `, leaderboard rank #${rankRow.rank}` : ", not ranked yet"}.`,
