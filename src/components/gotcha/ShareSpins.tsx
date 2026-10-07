@@ -150,25 +150,31 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
 
   if (!last5.length) return null;
 
+  // Open our menu (social links) — the device share sheet is offered inside it as one more option.
   const share = async () => {
     setBusy(true);
+    setCopied(false);
     const url = window.location.origin;
     const text = shareText(last5, demo);
     try {
       const blob = card.current ?? (artHost.current ? await renderCard(last5, demo, artHost.current) : null);
-      const file = blob ? new File([blob], "apegames-gotcha-pulls.png", { type: "image/png" }) : null;
-      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-      if (file && nav.share && nav.canShare?.({ files: [file] })) {
-        await nav.share({ files: [file], title: "ApeGames Gotcha", text: `${text}\n${url}` });
-      } else if (nav.share) {
-        await nav.share({ title: "ApeGames Gotcha", text, url });
-      } else {
-        setMenu({ text, url, image: blob ? URL.createObjectURL(blob) : null });
-      }
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") setMenu({ text, url, image: null });
+      card.current = blob;
+      setMenu({ text, url, image: blob ? URL.createObjectURL(blob) : null });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const nav = (typeof navigator !== "undefined" ? navigator : undefined) as (Navigator & { canShare?: (d: ShareData) => boolean }) | undefined;
+  const deviceShare = async () => {
+    if (!menu || !nav?.share) return;
+    const blob = card.current;
+    const file = blob ? new File([blob], "apegames-gotcha-pulls.png", { type: "image/png" }) : null;
+    try {
+      if (file && nav.canShare?.({ files: [file] })) await nav.share({ files: [file], title: "ApeGames Gotcha", text: `${menu.text}\n${menu.url}` });
+      else await nav.share({ title: "ApeGames Gotcha", text: menu.text, url: menu.url });
+    } catch {
+      /* cancelled */
     }
   };
 
@@ -196,8 +202,17 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
             </div>
             {menu.image && <img src={menu.image} alt="Your last five pulls" className="gm-share-preview" />}
             <div className="gm-share-grid">
-              <a href={`https://www.facebook.com/sharer/sharer.php?u=${enc(menu.url)}&quote=${enc(menu.text)}`} target="_blank" rel="noreferrer">Facebook</a>
+              {nav?.share && (
+                <button type="button" onClick={() => void deviceShare()}>
+                  More on this device…
+                </button>
+              )}
               <a href={`https://twitter.com/intent/tweet?text=${enc(menu.text)}&url=${enc(menu.url)}`} target="_blank" rel="noreferrer">X</a>
+              <a href={`https://www.facebook.com/sharer/sharer.php?u=${enc(menu.url)}&quote=${enc(menu.text)}`} target="_blank" rel="noreferrer">Facebook</a>
+              <a href={`https://wa.me/?text=${enc(`${menu.text}\n${menu.url}`)}`} target="_blank" rel="noreferrer">WhatsApp</a>
+              <a href={`https://t.me/share/url?url=${enc(menu.url)}&text=${enc(menu.text)}`} target="_blank" rel="noreferrer">Telegram</a>
+              <a href={`https://www.reddit.com/submit?url=${enc(menu.url)}&title=${enc(menu.text.split("\n")[0] ?? "")}`} target="_blank" rel="noreferrer">Reddit</a>
+              <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(menu.url)}`} target="_blank" rel="noreferrer">LinkedIn</a>
               <a href={`sms:?&body=${enc(`${menu.text}\n${menu.url}`)}`}>Text message</a>
               <button
                 type="button"
