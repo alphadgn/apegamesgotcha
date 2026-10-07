@@ -141,6 +141,33 @@
     text-transform: uppercase;
     letter-spacing: 0.02em;
   }
+
+  /* Centered layout, site-wide. Base layer, so any explicit Tailwind utility
+     (text-left, justify-between, mx-0 …) on an element still wins. */
+  body {
+    text-align: center;
+  }
+  /* Width-capped text blocks (max-w-*) sit in the middle of the page instead of hugging the left. */
+  main :where(p, h1, h2, h3, h4, h5, h6, ul, ol, form, div, section, label)[class*="max-w-"],
+  footer :where(p, div)[class*="max-w-"] {
+    margin-inline: auto;
+  }
+  /* Rows of buttons / links / badges center unless a row asks for another distribution. */
+  :where(main, footer) .flex:not(.flex-col) {
+    justify-content: center;
+  }
+  /* Places you type into or read long-form content stay start-aligned. */
+  input:not([type="button"], [type="submit"], [type="reset"]),
+  textarea,
+  select,
+  pre,
+  code,
+  table,
+  [contenteditable="true"],
+  .is-user,
+  .is-assistant {
+    text-align: start;
+  }
 }
 
 @keyframes capsule-shake {

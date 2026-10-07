@@ -101,6 +101,7 @@
 
 /* ---------- side cards ---------- */
 .gm-card {
+  text-align: center;
   background: linear-gradient(180deg, #fffdf7, #fff3d9);
   color: var(--gm-navy);
   border-radius: 16px;
@@ -114,8 +115,8 @@
 .gm-kv { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 3px 0; }
 .gm-kv b { font-family: var(--gm-display); font-size: 17px; }
 .gm-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
-.gm-checks li { position: relative; padding-left: 20px; }
-.gm-checks li::before { content: "✓"; position: absolute; left: 0; color: var(--gm-red); font-weight: 700; }
+.gm-checks li { position: relative; }
+.gm-checks li::before { content: "✓"; margin-right: 6px; color: var(--gm-red); font-weight: 700; }
 .gm-vrf-badge {
   display: inline-block; margin: 0 0 8px !important; padding: 2px 10px; border-radius: 999px;
   background: #375bd2; color: #fff; font-family: var(--gm-display); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
@@ -356,9 +357,9 @@
   background: linear-gradient(180deg, #0f1d42, #070f26);
   border-radius: 16px;
   box-shadow: 0 0 0 3px var(--gm-gold), 0 0 0 6px #6d420b, 0 14px 30px rgba(0, 0, 0, 0.5);
-  text-align: left;
+  text-align: center;
 }
-.gm-plate-row { display: flex; align-items: center; gap: 14px; }
+.gm-plate-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
 .gm-plate-title { font-family: var(--gm-display); font-weight: 700; text-transform: uppercase; color: var(--gm-gold); font-size: clamp(20px, calc(var(--vault) * 0.068), 27px); line-height: 1.05; }
 .is-revealed .gm-plate-title { color: var(--rar); }
 .gm-plate-sub { font-size: 15px; color: var(--gm-cream); margin-top: 2px !important; }
@@ -568,7 +569,7 @@
 
 /* ---------- demo wrapper (home page) ---------- */
 .gm-demo-bar {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 16px; text-align: center;
   margin-bottom: 12px; font-size: 13px; color: var(--color-muted-foreground, #a3a39a);
 }
 .gm-demo-bar button {
@@ -584,7 +585,7 @@
 }
 
 /* ---------- action bar: Share + Refill ---------- */
-.gm-bar-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.gm-bar-actions { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 8px; align-items: center; }
 .gm-demo-bar .gm-refill-btn, .gm-demo-bar .gm-share-btn, .gm-refill-btn, .gm-share-btn {
   flex: none; border: 0; border-radius: 999px; padding: 7px 16px; cursor: pointer;
   font-weight: 700; font-size: 13px; letter-spacing: 0.02em;
