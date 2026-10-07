@@ -135,7 +135,7 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
     setStep({ kind: "wallet" });
     try {
       const p = await createFn({ data: { quantity } });
-      const shown = quote?.eachWei;
+      const shown = (approvedPayment ?? quote)?.eachWei;
       if (settings.price_usd_per_spin && (!shown || BigInt(p.valueWei) !== BigInt(shown) * BigInt(quantity))) {
         setStep({ kind: "error", message: "The APE exchange rate changed. Check the updated amount and try again." });
         setApprovedPayment({ eachWei: (BigInt(p.valueWei) / BigInt(quantity)).toString(), quotedAt: new Date().toISOString() });
