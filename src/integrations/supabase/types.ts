@@ -200,6 +200,24 @@ export type Database = {
         }
         Relationships: []
       }
+      privy_accounts: {
+        Row: {
+          created_at: string
+          privy_did: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          privy_did: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          privy_did?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       prizes: {
         Row: {
           active: boolean
@@ -434,18 +452,24 @@ export type Database = {
         Row: {
           address: string
           id: string
+          is_default: boolean
+          kind: string
           user_id: string
           verified_at: string
         }
         Insert: {
           address: string
           id?: string
+          is_default?: boolean
+          kind?: string
           user_id: string
           verified_at?: string
         }
         Update: {
           address?: string
           id?: string
+          is_default?: boolean
+          kind?: string
           user_id?: string
           verified_at?: string
         }
@@ -532,6 +556,7 @@ export type Database = {
         Returns: boolean
       }
       refund_spins: { Args: { _ids: string[] }; Returns: number }
+      user_id_by_email: { Args: { _email: string }; Returns: string }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
