@@ -1,5 +1,4 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Button } from "@/components/ui/button";
 import { Leaderboard } from "@/components/Leaderboard";
 import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";

@@ -15,3 +15,4 @@
 - Purchase settings reach players through a narrow authenticated server function; do not broaden configuration-table read policies for checkout.
 
 - Player guide chat: streaming endpoint at src/routes/api/guide-chat.ts (server route, bearer-authed), handler in src/lib/guide-chat.server.ts (Claude via Lovable AI Gateway /v1/messages), one conversation per user persisted in guide_messages; UI at src/routes/_authenticated/guide.tsx using AI Elements + useChat.
+- App-wide font is set once in src/styles.css with a universal !important rule — component-level font choices are intentionally overridden.
