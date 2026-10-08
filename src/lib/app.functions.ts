@@ -510,6 +510,10 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Price per spin", ok: price > 0, detail: price > 0 ? (pc?.price_usd_per_spin ? `$${price} USD in APE per spin` : `${price} APE per spin`) : "Not set", where: "Admin → Configuration → purchase → price_usd_per_spin" });
     items.push({ group: "Sign-in (Privy)", label: "Privy App ID", ok: !!pc?.privy_app_id, detail: pc?.privy_app_id ? "Set" : "Not set — sign-in falls back to email/password and only browser-extension wallets can pay", where: "dashboard.privy.io → App settings → App ID → Admin → Configuration → purchase → privy_app_id. In Privy also: add your published + preview domains under Allowed origins; turn on Email, Google and Wallet login; turn on Ethereum embedded wallets" });
     const privySecret = !!process.env["PRIVY_APP_SECRET"];
+    const firecrawl = !!process.env["FIRECRAWL_API_KEY"];
+    const { data: ekRows } = await db.from("event_knowledge").select("fetched_at").order("fetched_at", { ascending: false }).limit(1);
+    const lastFetch = (ekRows?.[0]?.fetched_at as string | undefined) ?? null;
+    items.push({ group: "Guide: ApeFest 2026 info", label: "Firecrawl API key (secret)", ok: firecrawl, detail: firecrawl ? `Set${lastFetch ? ` · BAYC pages last fetched ${new Date(lastFetch).toLocaleString("en-US", { timeZone: "America/New_York" })} ET` : " · not fetched yet (use “Refresh ApeFest info” below)"}` : "Not set — the guide only knows the basic event facts", where: "Lovable → Connectors → Firecrawl (sets FIRECRAWL_API_KEY), or firecrawl.dev → API keys → Lovable → Cloud → Secrets → FIRECRAWL_API_KEY" });
     items.push({ group: "Sign-in (Privy)", label: "Privy App Secret (secret)", ok: privySecret, detail: privySecret ? "Set" : "Not set — Privy sign-in can't finish without it", where: "dashboard.privy.io → App settings → API keys → App secret → Lovable → Cloud → Secrets → PRIVY_APP_SECRET" });
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Purchases switched on", ok: !!pc?.enabled, detail: pc?.enabled ? "On" : "Off — Refill shows “purchases open soon”", where: "Admin → Configuration → purchase → enabled: true (last step)" });
     return items;
@@ -640,4 +644,28 @@ export const setDefaultWallet = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     await audit(context.userId, "wallet.default", { address });
     return { address };
+  });
+
+// ---------- Guide: ApeFest 2026 info (Firecrawl) ----------
+export const adminRefreshEventInfo = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const ek = await import("./event-knowledge.server");
+    if (!ek.firecrawlConfigured()) throw new Error("Add the FIRECRAWL_API_KEY secret first.");
+    const db = await admin();
+    const cfg = ek.eventConfig(await getConfig("event_info").catch(() => null));
+    const r = await ek.refreshEventKnowledge(db, cfg);
+    await audit(context.userId, "event_info.refreshed", r);
+    const { data } = await db.from("event_knowledge").select("url, title, source, fetched_at").order("fetched_at", { ascending: false });
+    return { ...r, pages: (data ?? []) as { url: string; title: string | null; source: string; fetched_at: string }[] };
+  });
+
+export const adminEventInfoPages = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const db = await admin();
+    const { data } = await db.from("event_knowledge").select("url, title, source, fetched_at").order("fetched_at", { ascending: false });
+    return (data ?? []) as { url: string; title: string | null; source: string; fetched_at: string }[];
   });

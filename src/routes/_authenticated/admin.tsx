@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminSettleDraws, adminSetupStatus } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,6 +84,45 @@ function SetupPanel() {
           </ul>
         </div>
       ))}
+      <EventInfoCard onRefreshed={() => void refetch()} />
+    </div>
+  );
+}
+
+/** Pages the guide reads about ApeFest 2026, fetched from the BAYC site with Firecrawl. */
+function EventInfoCard({ onRefreshed }: { onRefreshed: () => void }) {
+  const list = useServerFn(adminEventInfoPages);
+  const refresh = useServerFn(adminRefreshEventInfo);
+  const { data, refetch } = useQuery({ queryKey: ["event-info-pages"], queryFn: () => list() });
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await refresh();
+      toast.success(`Fetched ${r.saved} BAYC page${r.saved === 1 ? "" : "s"}${r.errors.length ? ` · ${r.errors.length} problem(s)` : ""}`);
+      if (r.errors.length) console.warn("[event info]", r.errors);
+      void refetch();
+      onRefreshed();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="rounded border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-bold">ApeFest 2026 pages the guide reads</h3>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void run()}>{busy ? "Fetching…" : "Refresh ApeFest info"}</Button>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">Fetched from boredapeyachtclub.com with Firecrawl, refreshed automatically every few hours. Sources and search terms: Configuration → event_info.</p>
+      {data?.length ? (
+        <ul className="mt-3 space-y-1 text-left text-xs">
+          {data.map((p) => (
+            <li key={p.url} className="break-all font-mono"><a className="text-primary hover:underline" href={p.url} target="_blank" rel="noreferrer">{p.title || p.url}</a> <span className="text-muted-foreground">· {p.source} · {new Date(p.fetched_at).toLocaleString()}</span></li>
+          ))}
+        </ul>
+      ) : <p className="mt-3 text-sm text-muted-foreground">Nothing fetched yet.</p>}
     </div>
   );
 }

@@ -26,6 +26,7 @@ const suggestions = [
   "How do I earn points?",
   "How does burning an NFT work?",
   "What prizes can I win?",
+  "When and where is ApeFest 2026?",
   "What happens at Charleston?",
 ];
 
@@ -157,6 +158,8 @@ function GuideChat({
                       ) : (
                         <span key={j}>{part.text}</span>
                       )
+                    ) : part.type.startsWith("tool-") && "state" in part && part.state !== "output-available" && part.state !== "output-error" ? (
+                      <Shimmer key={j}>Checking boredapeyachtclub.com…</Shimmer>
                     ) : null,
                   )}
                   {busy && m.role === "assistant" && i === messages.length - 1 && !m.parts.some((p) => p.type === "text" && p.text) && (
