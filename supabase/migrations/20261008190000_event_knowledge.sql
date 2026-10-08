@@ -21,6 +21,7 @@ values (
     "city": "Charleston, South Carolina",
     "date": "2026-10-17",
     "notes": "The ApeGames are held at ApeFest every year.",
+    "games_handle": "@goApeGames",
     "sources": ["https://boredapeyachtclub.com/", "https://boredapeyachtclub.com/activations", "https://boredapeyachtclub.com/meetups"],
     "follow_link_keywords": ["apefest-2026", "apefest-charleston", "charleston", "apegames", "ape-games"],
     "search_queries": ["ApeFest 2026 Charleston", "ApeGames ApeFest"],

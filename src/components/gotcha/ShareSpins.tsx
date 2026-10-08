@@ -17,7 +17,7 @@ function shareText(spins: ShareSpin[], demo: boolean) {
     `My last ${spins.length === 1 ? "" : `${spins.length} `}ApeGames Gotcha ${demo ? "demo " : ""}pull${spins.length === 1 ? "" : "s"} 🎰`,
     ...lines,
     demo ? "" : `Total: +${total} pts`,
-    "#GoApeGames2026",
+    "#GoApeGames2026 @goApeGames",
   ]
     .filter(Boolean)
     .join("\n");
