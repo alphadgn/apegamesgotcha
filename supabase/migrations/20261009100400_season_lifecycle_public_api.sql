@@ -463,3 +463,18 @@ grant execute on function public.get_public_seasons() to anon, authenticated, se
 grant execute on function public.get_season_leaderboard(text, int, int) to anon, authenticated, service_role;
 grant execute on function public.get_leaderboard(int) to anon, authenticated, service_role;
 grant execute on function public.get_my_season_standing(text) to authenticated, service_role;
+
+-- Tables created by these migrations inherit Supabase's permissive default privileges; strip client
+-- write privileges again now that every table exists (RLS remains the read guard).
+do $$
+declare t record;
+begin
+  for t in select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public' and c.relkind in ('r', 'p') loop
+    execute format('revoke update, delete, truncate, references, trigger on public.%I from public, anon, authenticated', t.relname);
+    execute format('revoke insert on public.%I from public, anon', t.relname);
+    if t.relname <> 'guide_messages' then
+      execute format('revoke insert on public.%I from authenticated', t.relname);
+    end if;
+  end loop;
+end $$;

@@ -356,6 +356,7 @@ end
 $$;
 
 -- Issue sponsored (burn / grant / free-entry) credits, reserving the worst-case cost of each one.
+-- Returns the new credit ids, or an empty array if the budget is exhausted (budget is then paused).
 create or replace function public.issue_sponsored_credits(_user uuid, _source text, _count int, _ref text, _actor uuid, _metadata jsonb default '{}'::jsonb)
 returns uuid[]
 language plpgsql
@@ -385,7 +386,7 @@ begin
     update public.sponsored_budgets set paused = true, pause_reason = 'Budget exhausted', updated_at = now() where source = _source;
     perform public.raise_alert('budget_exhausted', _source, 'critical', format('Sponsored %s budget cannot fund %s more spin(s)', _source, _count),
                                jsonb_build_object('available_usd', avail::text, 'needed_usd', need::text));
-    raise exception 'The sponsored % budget is exhausted', _source;
+    return '{}';  -- nothing issued; the pause and alert are kept (no exception, so they commit)
   end if;
   for i in 1.._count loop
     insert into public.spin_credits (user_id, source, ref, created_by, funding, reserved_usd, metadata)

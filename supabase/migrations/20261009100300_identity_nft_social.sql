@@ -340,20 +340,27 @@ begin
   if not exists (select 1 from public.wallets where user_id = _user and address = lower(_from)) then
     raise exception 'The burning wallet is not verified for this account';
   end if;
+  if exists (select 1 from public.burn_claims where chain_id = _chain_id and contract = lower(_contract) and token_id = _token_id)
+     or exists (select 1 from public.burn_claims where chain_id = _chain_id and tx_hash = lower(_tx_hash) and log_index = _log_index) then
+    raise exception 'This NFT or burn transfer was already claimed';
+  end if;
+  -- Fund the credit first: if the budget is exhausted nothing is recorded and the player can claim later.
+  v_credits := public.issue_sponsored_credits(_user, 'burn', 1, 'burn:' || _chain_id || ':' || lower(_contract) || ':' || _token_id, null,
+                                              jsonb_build_object('tx_hash', lower(_tx_hash), 'log_index', _log_index));
+  if cardinality(v_credits) = 0 then
+    return jsonb_build_object('ok', false, 'reason', 'budget_exhausted');
+  end if;
   begin
-    insert into public.burn_claims (user_id, token_id, tx_hash, level, chain_id, contract, log_index, block_number, block_hash, from_address, level_source, evidence)
-    values (_user, _token_id, lower(_tx_hash), _level, _chain_id, lower(_contract), _log_index, _block_number, lower(_block_hash), lower(_from), _level_source, coalesce(_evidence, '{}'::jsonb))
+    insert into public.burn_claims (user_id, token_id, tx_hash, level, chain_id, contract, log_index, block_number, block_hash, from_address, level_source, evidence, credit_id)
+    values (_user, _token_id, lower(_tx_hash), _level, _chain_id, lower(_contract), _log_index, _block_number, lower(_block_hash), lower(_from), _level_source, coalesce(_evidence, '{}'::jsonb), v_credits[1])
     returning id into v_claim;
   exception when unique_violation then
     raise exception 'This NFT or burn transfer was already claimed';
   end;
-  v_credits := public.issue_sponsored_credits(_user, 'burn', 1, 'burn:' || _chain_id || ':' || lower(_contract) || ':' || _token_id, null,
-                                              jsonb_build_object('burn_claim_id', v_claim));
-  update public.burn_claims set credit_id = v_credits[1] where id = v_claim;
   insert into public.nft_holdings (token_id, owner_address, user_id, level, burned, synced_at)
   values (_token_id, lower(coalesce(cfg ->> 'burn_address', '0x000000000000000000000000000000000000dead')), _user, _level, true, now())
   on conflict (token_id) do update set burned = true, owner_address = excluded.owner_address, synced_at = now();
-  return jsonb_build_object('claim_id', v_claim, 'credit_id', v_credits[1]);
+  return jsonb_build_object('ok', true, 'claim_id', v_claim, 'credit_id', v_credits[1]);
 end
 $$;
 
@@ -541,6 +548,8 @@ begin
   select * into sh from public.social_shares where id = _share for update;
   if not found then raise exception 'Unknown share'; end if;
   if sh.status <> 'pending' then return sh; end if;
+  -- Serialize approvals per player so day/spin slots can't be double-taken concurrently.
+  perform pg_advisory_xact_lock(hashtext('share-award:' || sh.user_id::text));
   select * into s from public.seasons where id = sh.season_id;
   select * into acct from public.x_accounts where id = sh.x_account_id;
 
@@ -616,4 +625,4 @@ begin
     execute format('grant execute on function %s to service_role', f);
   end loop;
 end $$;
-revoke all on function public.normalize_x_post_url(text) from public, anon;
+revoke all on function public.normalize_x_post_url(text) from public, anon, authenticated;

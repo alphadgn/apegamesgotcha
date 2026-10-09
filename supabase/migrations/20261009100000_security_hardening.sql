@@ -126,6 +126,22 @@ begin
   end loop;
 end $$;
 
+-- Every other public table (including ones created outside these migrations): no client
+-- UPDATE/DELETE/TRUNCATE (TRUNCATE ignores RLS), no anonymous writes. The guide chat keeps its
+-- RLS-checked INSERT for signed-in players.
+do $$
+declare t record;
+begin
+  for t in select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public' and c.relkind in ('r', 'p') loop
+    execute format('revoke update, delete, truncate, references, trigger on public.%I from public, anon, authenticated', t.relname);
+    execute format('revoke insert on public.%I from public, anon', t.relname);
+    if t.relname <> 'guide_messages' then
+      execute format('revoke insert on public.%I from authenticated', t.relname);
+    end if;
+  end loop;
+end $$;
+
 -- Prizes are shown to signed-out visitors on the demo machine.
 grant select on public.prizes to anon;
 

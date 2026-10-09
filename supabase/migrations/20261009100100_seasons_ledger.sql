@@ -643,9 +643,9 @@ grant execute on function public.admin_adjust_points(uuid, uuid, bigint, text, u
 revoke all on function public.reverse_ledger_entry(bigint, bigint, text, uuid) from public, anon, authenticated;
 grant execute on function public.reverse_ledger_entry(bigint, bigint, text, uuid) to service_role;
 revoke all on function public.score_reached_at(uuid, uuid) from public, anon, authenticated;
-revoke all on function public.season_rules_errors(jsonb) from public, anon;
-revoke all on function public.ledger_category(text) from public, anon;
-revoke all on function public.default_season_rules() from public, anon;
+revoke all on function public.season_rules_errors(jsonb) from public, anon, authenticated;
+revoke all on function public.ledger_category(text) from public, anon, authenticated;
+revoke all on function public.default_season_rules() from public, anon, authenticated;
 revoke all on function public.seasons_guard(), public.points_ledger_before_insert(), public.points_ledger_after_insert(),
               public.points_ledger_immutable(), public.season_scores_guard(), public.standings_immutable()
   from public, anon, authenticated;

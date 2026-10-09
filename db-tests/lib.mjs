@@ -87,6 +87,8 @@ export async function freshDb(label = "t") {
   const name = `gotcha_${label}_${Math.random().toString(36).slice(2, 8)}`;
   await adminQuery(`create database "${name}" template gotcha_template`);
   const pool = new pg.Pool({ ...PG, database: name, max: 12 });
+  // Idle connections are force-closed when the test database is dropped; that is expected.
+  pool.on("error", () => {});
   return new Db(name, pool);
 }
 
