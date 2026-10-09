@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { openSignIn } from "@/components/wallet/walletUi";
-import { Menu, Trophy, Gamepad2, MessageCircle, Shield, LogIn, LogOut } from "lucide-react";
+import { Menu, Trophy, Gamepad2, MessageCircle, Shield, LogIn, LogOut, UserRound } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -36,6 +36,9 @@ export function SiteHeader() {
               <>
                 <DropdownMenuItem asChild className={link}>
                   <Link to="/dashboard" activeProps={{ className: "text-primary" }}><Gamepad2 aria-hidden="true" />My Machine</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className={link}>
+                  <Link to="/profile" activeProps={{ className: "text-primary" }}><UserRound aria-hidden="true" />Profile</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild className={link}>
                   <Link to="/guide" activeProps={{ className: "text-primary" }}><MessageCircle aria-hidden="true" />Guide</Link>

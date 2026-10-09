@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Leaderboard } from "@/components/Leaderboard";
+import { TopBoard } from "@/components/season/SeasonBoard";
 import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
 import { useAuth } from "@/hooks/useAuth";
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "ApeGames Gotcha - Spin, Climb, Fun" },
-      { name: "description", content: "Hold ApeGames NFTs, burn Level 4+ for free spins, win prizes and climb the Go ApeGames 2026 leaderboard before Charleston." },
+      { name: "description", content: "Hold ApeGames NFTs, burn Level 4+ for free spins, win prizes and climb the seasonal Go ApeGames 2026 leaderboard." },
       { property: "og:title", content: "ApeGames Gotcha - Spin, Climb, Fun" },
       { property: "og:description", content: "Hold, burn, spin and climb the Go ApeGames 2026 leaderboard." },
       { property: "og:type", content: "website" },
@@ -23,10 +23,10 @@ export const Route = createFileRoute("/")({
 });
 
 const steps = [
-  { n: "01", t: "Link wallet", d: "Sign in, then verify your ApeChain wallet with a free signature." },
-  { n: "02", t: "Earn holding points", d: "Every 2025 ApeGames NFT you hold earns points weighted by its Level." },
+  { n: "01", t: "Link wallet", d: "Sign in, then verify your ApeChain wallet with a free, gasless signature." },
+  { n: "02", t: "Claim snapshot points", d: "Each 2025 ApeGames NFT you owned at the season snapshot earns points once." },
   { n: "03", t: "Burn or buy a spin", d: "Burn a Level 4+ NFT for a free spin, or buy one when checkout opens." },
-  { n: "04", t: "Climb to Charleston", d: "Prizes and points stack on the global board until the event snapshot." },
+  { n: "04", t: "Climb the season", d: "Every fulfilled spin and its prize bonus count toward this season's board." },
 ];
 
 function Index() {
@@ -78,7 +78,7 @@ function Index() {
           <h2 className="text-3xl font-bold">Top apes</h2>
           <Link to="/leaderboard" className="font-mono text-sm text-primary">Full board →</Link>
         </div>
-        <Leaderboard limit={10} />
+        <TopBoard limit={10} />
       </section>
       </div>
     </main>

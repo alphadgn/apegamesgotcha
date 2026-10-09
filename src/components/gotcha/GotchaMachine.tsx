@@ -955,7 +955,8 @@ export function GotchaMachine({
                   <span className="gm-pool-txt">
                     <b>{p.name}</b>
                     <small>
-                      {RARITY_LABEL[p.rarity] ?? p.rarity} · +{p.points}
+                      {RARITY_LABEL[p.rarity] ?? p.rarity}
+                      {!demo && p.points > 0 && ` · +${p.points} pts`}
                       {odds != null && ` · ${odds < 1 ? odds.toFixed(1) : Math.round(odds)}%`}
                     </small>
                   </span>
