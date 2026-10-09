@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { prizeArt } from "./icons";
+import { prizeArt, TorchEmblem } from "./icons";
+import { VerifiedShareForm } from "./VerifiedShare";
 
-export type ShareSpin = { prize_name: string; rarity: string; points: number };
+/** A fulfilled spin as shared: real spin id plus participation and prize-bonus points (strings, exact). */
+export type ShareSpin = { id?: string; prize_name: string; rarity: string; points: number; participation?: string; bonus?: string };
+
+export const TAGLINE = "The Games Are Calling. Take Your Spin.";
 
 const RARITY: Record<string, { label: string; color: string }> = {
   common: { label: "Common", color: "#cbd5e1" },
@@ -17,6 +21,7 @@ function shareText(spins: ShareSpin[], demo: boolean) {
     `My last ${spins.length === 1 ? "" : `${spins.length} `}ApeGames Gotcha ${demo ? "demo " : ""}pull${spins.length === 1 ? "" : "s"} 🎰`,
     ...lines,
     demo ? "" : `Total: +${total} pts`,
+    TAGLINE,
     "#GoApeGames2026 @goApeGames",
   ]
     .filter(Boolean)
@@ -49,6 +54,14 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   g.fillStyle = "#f6c343";
   g.fillRect(0, H - 116, W, 6);
 
+  // ApeGames emblem
+  const logo = artHost.querySelector("[data-logo] svg");
+  if (logo) {
+    const img = new Image();
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(logo));
+    await img.decode().catch(() => {});
+    if (img.complete && img.naturalWidth) g.drawImage(img, 60, 40, 96, 96);
+  }
   g.textAlign = "center";
   g.fillStyle = "#f6c343";
   g.font = `700 44px ${display}`;
@@ -59,7 +72,7 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   const what = n === 1 ? (demo ? "MY LAST DEMO PULL" : "MY LAST PULL") : `MY LAST ${n} ${demo ? "DEMO " : ""}PULLS`;
   g.fillText(what, W / 2, 176);
 
-  const arts = Array.from(artHost.querySelectorAll("svg"));
+  const arts = Array.from(artHost.querySelectorAll("[data-art] > svg"));
   const rowH = 168, top = 228;
   for (let i = 0; i < spins.length; i++) {
     const s = spins[i]!;
@@ -102,7 +115,12 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
       g.textAlign = "right";
       g.fillStyle = "#f6c343";
       g.font = `700 42px ${display}`;
-      g.fillText(`+${s.points}`, W - 110, y + 92);
+      g.fillText(`+${s.points}`, W - 110, y + 80);
+      if (s.participation != null && s.bonus != null) {
+        g.fillStyle = "#c9d4ff";
+        g.font = `500 22px ${display}`;
+        g.fillText(`${s.participation} spin + ${s.bonus} bonus`, W - 110, y + 116);
+      }
     }
     g.textAlign = "center";
   }
@@ -110,10 +128,10 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   g.fillStyle = "#fff6e3";
   g.font = `700 46px ${display}`;
   const total = spins.reduce((s, x) => s + x.points, 0);
-  g.fillText(demo ? "THE GAMES ARE CALLING" : `TOTAL +${total} PTS`, W / 2, H - 42);
+  g.fillText(TAGLINE.toUpperCase(), W / 2, H - 42);
   g.font = `500 26px ${display}`;
   g.fillStyle = "#c9d4ff";
-  g.fillText(demo ? "Demo spins · no prizes" : "Drawn on-chain by Chainlink VRF", W / 2, H - 140);
+  g.fillText(demo ? "Demo spins · no prizes" : `TOTAL +${total} PTS · Drawn on-chain by Chainlink VRF`, W / 2, H - 140);
 
   return new Promise((res) => c.toBlob((b) => res(b), "image/png"));
 }
@@ -154,7 +172,9 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
   const share = async () => {
     setBusy(true);
     setCopied(false);
-    const url = window.location.origin;
+    const latest = last5[last5.length - 1];
+    // Real spin id in the link: verified X shares must reference a fulfilled spin.
+    const url = !demo && latest?.id ? `${window.location.origin}/spin/${latest.id}` : window.location.origin;
     const text = shareText(last5, demo);
     try {
       const blob = card.current ?? (artHost.current ? await renderCard(last5, demo, artHost.current) : null);
@@ -186,9 +206,16 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
       </button>
       {/* hidden prize art, drawn into the share image */}
       <div ref={artHost} aria-hidden style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
+        <div data-logo>
+          <TorchEmblem width={96} height={96} />
+        </div>
         {last5.map((s, i) => {
           const Art = prizeArt(s.prize_name, s.rarity);
-          return <Art key={i} width={128} height={128} />;
+          return (
+            <div data-art key={i}>
+              <Art width={128} height={128} />
+            </div>
+          );
         })}
       </div>
       {menu && (
@@ -228,6 +255,7 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
                 </a>
               )}
             </div>
+            {!demo && last5[last5.length - 1]?.id && <VerifiedShareForm spinId={last5[last5.length - 1]!.id!} />}
           </div>
         </div>
       )}

@@ -16,7 +16,10 @@ import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedGuideRouteImport } from './routes/_authenticated/guide'
+import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as ApiGuideChatRouteImport } from './routes/api/guide-chat'
+import { Route as SpinIdRouteImport } from './routes/spin.$id'
+import { Route as ApiWorkerSettleRouteImport } from './routes/api/worker/settle'
 import { Route as LovableEmailTransactionalPreviewRouteImport } from './routes/lovable/email/transactional/preview'
 
 const IndexRoute = IndexRouteImport.update({
@@ -53,9 +56,24 @@ const AuthenticatedGuideRoute = AuthenticatedGuideRouteImport.update({
   path: '/guide',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const ApiGuideChatRoute = ApiGuideChatRouteImport.update({
   id: '/api/guide-chat',
   path: '/api/guide-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SpinIdRoute = SpinIdRouteImport.update({
+  id: '/spin/$id',
+  path: '/spin/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWorkerSettleRoute = ApiWorkerSettleRouteImport.update({
+  id: '/api/worker/settle',
+  path: '/api/worker/settle',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LovableEmailTransactionalPreviewRoute =
@@ -72,7 +90,10 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/guide': typeof AuthenticatedGuideRoute
+  '/profile': typeof AuthenticatedProfileRoute
   '/api/guide-chat': typeof ApiGuideChatRoute
+  '/spin/$id': typeof SpinIdRoute
+  '/api/worker/settle': typeof ApiWorkerSettleRoute
   '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
 }
 export interface FileRoutesByTo {
@@ -82,7 +103,10 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/guide': typeof AuthenticatedGuideRoute
+  '/profile': typeof AuthenticatedProfileRoute
   '/api/guide-chat': typeof ApiGuideChatRoute
+  '/spin/$id': typeof SpinIdRoute
+  '/api/worker/settle': typeof ApiWorkerSettleRoute
   '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
 }
 export interface FileRoutesById {
@@ -94,7 +118,10 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/guide': typeof AuthenticatedGuideRoute
+  '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/api/guide-chat': typeof ApiGuideChatRoute
+  '/spin/$id': typeof SpinIdRoute
+  '/api/worker/settle': typeof ApiWorkerSettleRoute
   '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
 }
 export interface FileRouteTypes {
@@ -106,7 +133,10 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/guide'
+    | '/profile'
     | '/api/guide-chat'
+    | '/spin/$id'
+    | '/api/worker/settle'
     | '/lovable/email/transactional/preview'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -116,7 +146,10 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/guide'
+    | '/profile'
     | '/api/guide-chat'
+    | '/spin/$id'
+    | '/api/worker/settle'
     | '/lovable/email/transactional/preview'
   id:
     | '__root__'
@@ -127,7 +160,10 @@ export interface FileRouteTypes {
     | '/_authenticated/admin'
     | '/_authenticated/dashboard'
     | '/_authenticated/guide'
+    | '/_authenticated/profile'
     | '/api/guide-chat'
+    | '/spin/$id'
+    | '/api/worker/settle'
     | '/lovable/email/transactional/preview'
   fileRoutesById: FileRoutesById
 }
@@ -137,6 +173,8 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   LeaderboardRoute: typeof LeaderboardRoute
   ApiGuideChatRoute: typeof ApiGuideChatRoute
+  SpinIdRoute: typeof SpinIdRoute
+  ApiWorkerSettleRoute: typeof ApiWorkerSettleRoute
   LovableEmailTransactionalPreviewRoute: typeof LovableEmailTransactionalPreviewRoute
 }
 
@@ -191,11 +229,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedGuideRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/profile': {
+      id: '/_authenticated/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/api/guide-chat': {
       id: '/api/guide-chat'
       path: '/api/guide-chat'
       fullPath: '/api/guide-chat'
       preLoaderRoute: typeof ApiGuideChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/spin/$id': {
+      id: '/spin/$id'
+      path: '/spin/$id'
+      fullPath: '/spin/$id'
+      preLoaderRoute: typeof SpinIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/worker/settle': {
+      id: '/api/worker/settle'
+      path: '/api/worker/settle'
+      fullPath: '/api/worker/settle'
+      preLoaderRoute: typeof ApiWorkerSettleRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lovable/email/transactional/preview': {
@@ -212,12 +271,14 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedGuideRoute: typeof AuthenticatedGuideRoute
+  AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedGuideRoute: AuthenticatedGuideRoute,
+  AuthenticatedProfileRoute: AuthenticatedProfileRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -229,6 +290,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   LeaderboardRoute: LeaderboardRoute,
   ApiGuideChatRoute: ApiGuideChatRoute,
+  SpinIdRoute: SpinIdRoute,
+  ApiWorkerSettleRoute: ApiWorkerSettleRoute,
   LovableEmailTransactionalPreviewRoute: LovableEmailTransactionalPreviewRoute,
 }
 export const routeTree = rootRouteImport

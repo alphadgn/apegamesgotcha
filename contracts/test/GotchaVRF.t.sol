@@ -202,18 +202,34 @@ contract GotchaVRFTest is Test {
         gotcha.setOperator(stranger);
         vm.prank(operator);
         vm.expectRevert("Only callable by owner");
-        gotcha.cancelRequest(1);
+        gotcha.setRequestsPaused(true);
     }
 
-    function test_CancelThenLateFulfillmentIsIgnored() public {
+    /// No owner cancellation or re-request path exists (Chainlink VRF security guidance).
+    function test_NoCancellationOrRerequest() public {
         bytes32[] memory ids = _ids(2, 10);
         uint256 req = _request(ids);
-        gotcha.cancelRequest(req); // test contract is owner
-        assertEq(uint8(gotcha.getSpin(ids[0]).status), uint8(GotchaVRF.Status.Cancelled));
-        assertEq(gotcha.pendingRequests(), 0);
+        (bool ok,) = address(gotcha).call(abi.encodeWithSignature("cancelRequest(uint256)", req));
+        assertFalse(ok, "cancelRequest must not exist");
+        // The same spin ids can never be requested again, even by the owner-set operator.
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(GotchaVRF.SpinExists.selector, ids[0]));
+        gotcha.requestSpins(ids);
         assertTrue(_fulfill(req, _twoWords()));
-        assertEq(uint8(gotcha.getSpin(ids[1]).status), uint8(GotchaVRF.Status.Cancelled));
-        assertEq(gotcha.getSpin(ids[1]).randomWord, 0);
+        assertEq(uint8(gotcha.getSpin(ids[1]).status), uint8(GotchaVRF.Status.Fulfilled));
+    }
+
+    function test_PauseStopsNewRequestsButNotCallbacks() public {
+        bytes32[] memory ids = _ids(1, 12);
+        uint256 req = _request(ids);
+        gotcha.setRequestsPaused(true); // test contract is owner
+        vm.prank(operator);
+        vm.expectRevert(GotchaVRF.Paused.selector);
+        gotcha.requestSpins(_ids(1, 13));
+        assertTrue(_fulfill(req, _one(7)), "callback must still succeed while paused");
+        assertEq(uint8(gotcha.getSpin(ids[0]).status), uint8(GotchaVRF.Status.Fulfilled));
+        gotcha.setRequestsPaused(false);
+        _request(_ids(1, 14));
     }
 
     function test_OnlyCoordinatorCanFulfill() public {

@@ -77,7 +77,6 @@ export async function handleGuideChat(request: Request): Promise<Response> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   type Prize = { name: string; rarity: string; points: number };
   type Cfg = {
-    scoring?: { level_weights?: Record<string, number>; default_level_weight?: number };
     spins?: { daily_limit?: number; campaign_limit?: number };
     purchase?: { enabled?: boolean; price_ape_per_spin?: string; price_usd_per_spin?: string; bundles?: number[] };
     event_info?: unknown;
@@ -85,41 +84,43 @@ export async function handleGuideChat(request: Request): Promise<Response> {
 
   let prizes: Prize[] = [];
   let nft: { burn_min_level?: number; opensea_url?: string } = {};
-  let byReason: Record<string, number> = {};
-  let total = 0;
-  let rankRow: { rank: number } | undefined;
+  let mine: Record<string, string> | null = null;
   let spinsReady = 0;
   let cfg: Cfg = {};
 
+  // Current season (rules are frozen once active) and the published odds.
+  const { data: seasonRow } = await supabaseAdmin.rpc("current_season" as never);
+  const season = (seasonRow as { id: string | null; slug?: string; name?: string; ends_at?: string; rules?: import("./seasonRules").SeasonRules } | null)?.id
+    ? (seasonRow as unknown as { id: string; slug: string; name: string; ends_at: string; rules: import("./seasonRules").SeasonRules })
+    : null;
+  const { data: poolRows } = await supabaseAdmin.from("prizes").select("id, name, rarity, weight, inventory, active, onchain_index").eq("active", true);
+  const { projectPerSpin } = await import("./seasonRules");
+  const projection = season ? projectPerSpin(season.rules, (poolRows ?? []) as import("./seasonRules").PoolPrize[]) : null;
+
   if (authed) {
-    const [prizesRes, nftRes, ledgerRes, creditsRes, boardRes, cfgRes] = await Promise.all([
+    const [prizesRes, nftRes, creditsRes, mineRes, cfgRes] = await Promise.all([
       authed.supabase.from("prizes").select("name, rarity, points").eq("active", true),
       authed.supabase.from("app_config").select("value").eq("key", "nft").maybeSingle(),
-      authed.supabase.from("points_ledger").select("amount, reason").eq("user_id", authed.userId),
       authed.supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", authed.userId).is("used_spin_id", null),
-      authed.supabase.rpc("get_leaderboard", { _limit: 500 }),
-      // Non-sensitive rule values only (scoring weights, spin limits, prices).
-      supabaseAdmin.from("app_config").select("key, value").in("key", ["scoring", "spins", "purchase", "event_info"]),
+      season ? authed.supabase.rpc("get_my_season_standing" as never, { _slug: season.slug } as never) : Promise.resolve({ data: null }),
+      // Non-sensitive rule values only (spin limits, prices, event info).
+      supabaseAdmin.from("app_config").select("key, value").in("key", ["spins", "purchase", "event_info"]),
     ]);
     prizes = (prizesRes.data ?? []) as Prize[];
     nft = (nftRes.data?.value ?? {}) as { burn_min_level?: number; opensea_url?: string };
-    const ledger = (ledgerRes.data ?? []) as { amount: number; reason: string }[];
-    for (const l of ledger) byReason[l.reason] = (byReason[l.reason] ?? 0) + l.amount;
-    total = ledger.reduce((s, l) => s + l.amount, 0);
-    rankRow = ((boardRes.data ?? []) as { rank: number; user_id: string }[]).find((r) => r.user_id === authed!.userId);
+    mine = ((mineRes.data as unknown as Record<string, string>[] | null) ?? [])[0] ?? null;
     cfg = Object.fromEntries(((cfgRes.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value])) as Cfg;
     spinsReady = creditsRes.count ?? 0;
   } else {
     const [prizesRes, nftRes, cfgRes] = await Promise.all([
       supabaseAdmin.from("prizes").select("name, rarity, points").eq("active", true),
       supabaseAdmin.from("app_config").select("value").eq("key", "nft").maybeSingle(),
-      supabaseAdmin.from("app_config").select("key, value").in("key", ["scoring", "spins", "purchase", "event_info"]),
+      supabaseAdmin.from("app_config").select("key, value").in("key", ["spins", "purchase", "event_info"]),
     ]);
     prizes = (prizesRes.data ?? []) as Prize[];
     nft = (nftRes.data?.value ?? {}) as { burn_min_level?: number; opensea_url?: string };
     cfg = Object.fromEntries(((cfgRes.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value])) as Cfg;
   }
-  const weights = cfg.scoring?.level_weights ?? {};
 
   // ApeFest 2026 (Charleston) info from the BAYC site, cached from Firecrawl scrapes.
   const ek = await import("./event-knowledge.server");
@@ -128,30 +129,35 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     console.error("[guide-chat] event knowledge unavailable", e);
     return [];
   });
-  const reasonLabel: Record<string, string> = { holding: "holding NFTs", spin: "gacha prizes", admin_adjustment: "organizer grants" };
 
   const system = [
     "You are the ApeGames Gotcha guide — a friendly, energetic arcade host for the Go ApeGames 2026 pre-event gacha.",
-    "Answer questions about how the app works: linking an ApeChain wallet, earning holding points from ApeGames NFTs, spinning the gotcha machine, prizes and rarity, the leaderboard, and the Charleston event (ApeFest 2026, where the ApeGames are held).",
+    "Answer questions about how the app works: verifying a wallet, season points (snapshot NFTs, spins, prize bonuses, verified shares), spinning the gotcha machine, prizes and rarity, the leaderboard, and the Charleston event (ApeFest 2026, where the ApeGames are held).",
     ek.eventPrompt(eventCfg, knowledge),
     `Burning an NFT of Level ${nft.burn_min_level ?? 4} or higher grants a free spin. The NFT collection is on ApeChain${nft.opensea_url ? ` (OpenSea: ${nft.opensea_url})` : ""}.`,
-    prizes.length
-      ? `Current prizes: ${prizes.map((p) => `${p.name} (${p.rarity}, ${p.points} pts)`).join("; ")}.`
-      : "Prizes are being configured.",
-    "HOW POINTS WORK (real rules from the live settings):",
-    `- Holding: linking a wallet and syncing NFTs awards points once per NFT by level: ${Object.entries(weights).map(([lv, p]) => `Level ${lv} = ${p} pts`).join(", ") || "set by organizers"}${cfg.scoring?.default_level_weight != null ? ` (unknown level = ${cfg.scoring.default_level_weight} pts)` : ""}.`,
-    "- Spins: every prize won adds its point value instantly.",
-    "- Organizer grants: admins can add or adjust points.",
-    "- Spending: points are not spent or deducted; they only accumulate and decide leaderboard rank going into Charleston. Spins are bought with APE or earned by burning, never with points.",
-    cfg.spins ? `- Spin limits: ${cfg.spins.daily_limit ?? "no"} per day, ${cfg.spins.campaign_limit ?? "no"} per campaign.` : "",
+    prizes.length ? `Current prizes: ${prizes.map((p) => `${p.name} (${p.rarity})`).join("; ")}.` : "Prizes are being configured.",
+    "HOW SEASON POINTS WORK (published rules; points are nontransferable engagement scores with no guaranteed dollar, APE or $GAMES value and no payouts):",
+    season
+      ? [
+          `- Current season: ${season.name}, ends ${season.ends_at} (UTC, exclusive). Rules are frozen for the season.`,
+          `- ${season.rules.points.participation_per_spin} points per fulfilled spin plus a prize bonus: common ${season.rules.points.rarity_bonus.common}, rare ${season.rules.points.rarity_bonus.rare}, epic ${season.rules.points.rarity_bonus.epic}, legendary ${season.rules.points.rarity_bonus.legendary} (some prizes may have their own bonus).`,
+          season.rules.points.nft_snapshot_per_token !== "0" ? `- ${season.rules.points.nft_snapshot_per_token} points once per eligible 2025 NFT held at the frozen historical snapshot (claimed with a verified wallet; buying one later does not count).` : "- NFT snapshot points are not part of this season.",
+          `- Verified X result share: ${season.rules.points.x_share} points, at most ${season.rules.limits.x_shares_per_utc_day} per UTC day (only once verified). Referrals are off.`,
+          `- Limits: ${season.rules.limits.spins_rolling_24h} spins per rolling 24 hours, ${season.rules.limits.spins_per_season} per season.`,
+          projection ? `- With today's available prizes the average is about ${projection.expectedBonus} bonus + ${projection.participation} participation = ${projection.expectedTotal} points per spin; finite prize stock changes these odds as prizes run out.` : "",
+          "- Rank: total points, then who reached that total first. Holdings, play volume and random bonuses all influence rank.",
+        ].filter(Boolean).join("\n")
+      : "- No season is active right now, so spins still deliver prizes but don't earn seasonal points.",
+    "- Points are never spent. Spins are bought with APE or earned by burning a Level 4+ NFT, never with points.",
     cfg.purchase?.enabled
       ? `- Refill: ${cfg.purchase.price_usd_per_spin ? `$${cfg.purchase.price_usd_per_spin} USD worth of APE` : `${cfg.purchase.price_ape_per_spin} APE`} per spin on ApeChain, bundles of ${(cfg.purchase.bundles ?? [5, 10, 15, 20]).join("/")}. The APE amount uses a live exchange quote; network fees are extra.`
       : `- Buying spins is not open yet.${cfg.purchase?.price_usd_per_spin ? ` Planned price: $${cfg.purchase.price_usd_per_spin} USD worth of APE per spin on ApeChain.` : ""}`,
     authed ? "THIS PLAYER RIGHT NOW:" : "This visitor is not signed in.",
     ...(authed
       ? [
-          `- Total points: ${total}${rankRow ? `, leaderboard rank #${rankRow.rank}` : ", not ranked yet"}.`,
-          `- Breakdown: ${Object.entries(byReason).map(([r, a]) => `${reasonLabel[r] ?? r} ${a}`).join(", ") || "no points yet"}.`,
+          mine
+            ? `- This season: ${mine["total_points"]} points, rank #${mine["rank"]} of ${mine["players"]} (snapshot NFTs ${mine["nft_points"]}, spins ${mine["participation_points"]}, prize bonuses ${mine["prize_points"]}, shares ${mine["social_points"]}, adjustments ${mine["adjustment_points"]}).`
+            : `- No seasonal points yet${season ? "" : " (no active season)"}.`,
           `- Spins ready: ${spinsReady}.`,
           "Use these real numbers when the player asks about their points; suggest concrete next steps to earn more.",
         ]
