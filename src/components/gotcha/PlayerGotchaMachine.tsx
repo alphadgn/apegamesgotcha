@@ -8,6 +8,7 @@ import { checkDraw, startDraw } from "@/lib/app.functions";
 import { openRefill } from "@/components/wallet/walletUi";
 import { readPendingPurchase, usePurchaseConfirmer } from "@/components/wallet/CheckoutPanel";
 import { GotchaMachine, type GotchaPrize } from "./GotchaMachine";
+import { DemoGotchaMachine } from "./DemoGotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 
 type MachineData = {
@@ -23,6 +24,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
   const drawFn = useServerFn(startDraw);
   const checkFn = useServerFn(checkDraw);
   const [inPlay, setInPlay] = useState(false);
+  const [freeInPlay, setFreeInPlay] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["machine", userId],
@@ -77,6 +79,11 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
 
   const credits = data?.credits ?? 0;
   const showShare = credits === 0 && !inPlay && (data?.lastFive.length ?? 0) > 0;
+
+  // Out of real spins: the same free practice spin every 30 minutes (no prizes or points).
+  if (data && ((credits === 0 && data.pendingIds.length === 0 && !inPlay) || freeInPlay)) {
+    return <DemoGotchaMachine prizes={data.prizes} userId={userId} onBusyChange={setFreeInPlay} />;
+  }
 
   return (
     <div className="gm-demo">

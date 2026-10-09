@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { GotchaMachine, type DrawStatus, type GotchaPrize } from "./GotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
-import { openSignIn } from "@/components/wallet/walletUi";
+import { openRefill, openSignIn } from "@/components/wallet/walletUi";
 
 /** Same prizes the app ships with — used if the live prize list hasn't loaded. */
 export const DEMO_PRIZES: GotchaPrize[] = [
@@ -33,17 +33,17 @@ function pick(prizes: GotchaPrize[], word: bigint) {
 
 const DEMO_COOLDOWN_MS = 30 * 60_000;
 const DEMO_KEY = "gm-demo-last-spin";
-const readLast = () => {
+const readLast = (key: string) => {
   try {
-    return Number(localStorage.getItem(DEMO_KEY) ?? 0) || 0;
+    return Number(localStorage.getItem(key) ?? 0) || 0;
   } catch {
     return 0;
   }
 };
 const DEMO_PULLS_KEY = "gm-demo-pulls";
-const readPulls = (): ShareSpin[] => {
+const readPulls = (key: string): ShareSpin[] => {
   try {
-    const x = JSON.parse(localStorage.getItem(DEMO_PULLS_KEY) ?? "[]");
+    const x = JSON.parse(localStorage.getItem(key) ?? "[]");
     return Array.isArray(x) ? (x as ShareSpin[]).slice(-5) : [];
   } catch {
     return [];
@@ -58,7 +58,18 @@ const fmt = (ms: number) => {
  * Demo machine for signed-out visitors: one free spin every 30 minutes, simulated draws,
  * no prizes or points. Refill opens sign-in, then the payment window.
  */
-export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefined }) {
+export function DemoGotchaMachine({
+  prizes,
+  userId,
+  onBusyChange,
+}: {
+  prizes?: GotchaPrize[] | undefined;
+  /** Signed-in player out of real spins: same free practice spin, Refill opens checkout directly. */
+  userId?: string | undefined;
+  onBusyChange?: ((busy: boolean) => void) | undefined;
+}) {
+  const lastKey = userId ? `${DEMO_KEY}:${userId}` : DEMO_KEY;
+  const pullsKey = userId ? `${DEMO_PULLS_KEY}:${userId}` : DEMO_PULLS_KEY;
   const pool = prizes?.length ? prizes : DEMO_PRIZES;
   const [lastSpin, setLastSpin] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -70,14 +81,14 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
   const attentionTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    setLastSpin(readLast());
-    setRevealedSpins(readPulls());
+    setLastSpin(readLast(lastKey));
+    setRevealedSpins(readPulls(pullsKey));
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       clearInterval(t);
       window.clearTimeout(attentionTimer.current);
     };
-  }, []);
+  }, [lastKey, pullsKey]);
 
   const wait = Math.max(0, lastSpin + DEMO_COOLDOWN_MS - now);
   const credits = wait === 0 ? 1 : 0;
@@ -99,7 +110,7 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
   const onDraw = useCallback(async (count: number) => {
     const at = Date.now();
     try {
-      localStorage.setItem(DEMO_KEY, String(at));
+      localStorage.setItem(lastKey, String(at));
     } catch {
       /* storage unavailable */
     }
@@ -109,7 +120,7 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
     const spinIds = Array.from({ length: Math.min(count, 1) }, () => crypto.randomUUID());
     for (const id of spinIds) draws.current.set(id, { readyAt: Date.now() + latency, word: randomWord() });
     return { spinIds };
-  }, []);
+  }, [lastKey]);
 
   const onCheck = useCallback(
     async (ids: string[]): Promise<DrawStatus[]> =>
@@ -129,7 +140,7 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
       <div className="gm-demo-bar">
         <span>
           Demo: 1 free spin every 30 minutes · no prizes or points.{" "}
-          {credits === 0 && !inPlay ? <b>Next demo spin in {fmt(wait)}.</b> : null} Sign in to play for real.
+          {credits === 0 && !inPlay ? <b>Next demo spin in {fmt(wait)}.</b> : null} {userId ? "Refill to play for real." : "Sign in to play for real."}
         </span>
         <span className="gm-bar-actions">
           {showShare && <ShareSpinsButton spins={revealedSpins} demo />}
@@ -140,7 +151,8 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
             className={refillAttention ? "is-refill-attention" : ""}
             onClick={() => {
               setRefillAttention(false);
-              openSignIn({ then: "refill" }); // sign in first, then the payment window opens
+              if (userId) openRefill();
+              else openSignIn({ then: "refill" }); // sign in first, then the payment window opens
             }}
           >
             Refill spins
@@ -154,20 +166,23 @@ export function DemoGotchaMachine({ prizes }: { prizes?: GotchaPrize[] | undefin
         onCheck={onCheck}
         pollMs={700}
         maxPerSession={5}
-        footnote="Demo spins are simulated and award no prizes. Sign in to spin for real."
+        footnote={userId ? "Free spins are simulated and award no prizes. Refill to spin for real." : "Demo spins are simulated and award no prizes. Sign in to spin for real."}
         onNoSpins={guideToRefill}
         onReveal={(r) =>
           setRevealedSpins((xs) => {
             const next = [...xs, { prize_name: r.prize_name, rarity: r.rarity, points: r.points }].slice(-5);
             try {
-              localStorage.setItem(DEMO_PULLS_KEY, JSON.stringify(next));
+              localStorage.setItem(pullsKey, JSON.stringify(next));
             } catch {
               /* storage unavailable */
             }
             return next;
           })
         }
-        onBusyChange={setInPlay}
+        onBusyChange={(b) => {
+          setInPlay(b);
+          onBusyChange?.(b);
+        }}
         demo
       />
     </div>
