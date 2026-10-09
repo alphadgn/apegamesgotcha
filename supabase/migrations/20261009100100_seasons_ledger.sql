@@ -87,7 +87,7 @@ declare
   intpat constant text := '^(0|[1-9][0-9]{0,17})$';
 begin
   if _rules is null or jsonb_typeof(_rules) <> 'object' then return array['rules must be an object']; end if;
-  if (_rules ->> 'schema') is distinct from '1' then errs := errs || 'schema must be 1'; end if;
+  if (_rules ->> 'schema') is distinct from '1' then errs := errs || text 'schema must be 1'; end if;
   foreach k in array array['nft_snapshot_per_token', 'participation_per_spin', 'x_share'] loop
     if coalesce(_rules #>> array['points', k], '') !~ intpat then errs := errs || format('points.%s must be a non-negative integer string', k); end if;
   end loop;
@@ -95,22 +95,22 @@ begin
     if coalesce(_rules #>> array['points', 'rarity_bonus', k], '') !~ intpat then errs := errs || format('points.rarity_bonus.%s must be a non-negative integer string', k); end if;
   end loop;
   if jsonb_typeof(_rules #> '{points,prize_bonus_overrides}') is distinct from 'object' then
-    errs := errs || 'points.prize_bonus_overrides must be an object of prize_id -> integer string';
+    errs := errs || text 'points.prize_bonus_overrides must be an object of prize_id -> integer string';
   else
     for k, v in select * from jsonb_each(_rules #> '{points,prize_bonus_overrides}') loop
       if k !~ '^[0-9a-f-]{36}$' then errs := errs || format('prize_bonus_overrides key %s is not a prize id', k); end if;
       if jsonb_typeof(v) <> 'string' or (v #>> '{}') !~ intpat then errs := errs || format('prize_bonus_overrides.%s must be an integer string (0 allowed)', k); end if;
     end loop;
   end if;
-  if coalesce(_rules #>> '{limits,spins_rolling_24h}', '') !~ '^[1-9][0-9]{0,3}$' then errs := errs || 'limits.spins_rolling_24h must be 1-9999'; end if;
-  if coalesce(_rules #>> '{limits,spins_per_season}', '') !~ '^[1-9][0-9]{0,5}$' then errs := errs || 'limits.spins_per_season must be 1-999999'; end if;
-  if coalesce(_rules #>> '{limits,x_shares_per_utc_day}', '') !~ '^[0-9]$' then errs := errs || 'limits.x_shares_per_utc_day must be 0-9'; end if;
+  if coalesce(_rules #>> '{limits,spins_rolling_24h}', '') !~ '^[1-9][0-9]{0,3}$' then errs := errs || text 'limits.spins_rolling_24h must be 1-9999'; end if;
+  if coalesce(_rules #>> '{limits,spins_per_season}', '') !~ '^[1-9][0-9]{0,5}$' then errs := errs || text 'limits.spins_per_season must be 1-999999'; end if;
+  if coalesce(_rules #>> '{limits,x_shares_per_utc_day}', '') !~ '^[0-9]$' then errs := errs || text 'limits.x_shares_per_utc_day must be 0-9'; end if;
   if jsonb_typeof(_rules -> 'eligible_credit_sources') is distinct from 'array'
      or exists (select 1 from jsonb_array_elements_text(_rules -> 'eligible_credit_sources') s where s not in ('purchase', 'burn', 'grant', 'free_entry')) then
-    errs := errs || 'eligible_credit_sources must list purchase/burn/grant/free_entry';
+    errs := errs || text 'eligible_credit_sources must list purchase/burn/grant/free_entry';
   end if;
-  if (_rules -> 'referrals_enabled') is distinct from 'false'::jsonb then errs := errs || 'referrals are not supported (referrals_enabled must be false)'; end if;
-  if jsonb_typeof(_rules -> 'historical_backfill_enabled') is distinct from 'boolean' then errs := errs || 'historical_backfill_enabled must be true or false'; end if;
+  if (_rules -> 'referrals_enabled') is distinct from 'false'::jsonb then errs := errs || text 'referrals are not supported (referrals_enabled must be false)'; end if;
+  if jsonb_typeof(_rules -> 'historical_backfill_enabled') is distinct from 'boolean' then errs := errs || text 'historical_backfill_enabled must be true or false'; end if;
   return errs;
 end
 $$;
@@ -567,6 +567,11 @@ declare
   v_rules_hash text;
 begin
   select coalesce(max(version), 0) + 1 into v_version from public.season_standings_versions where season_id = _season;
+  -- Every ranked player needs a profile (for the opaque public id).
+  insert into public.profiles (id)
+  select sc.user_id from public.season_scores sc
+   where sc.season_id = _season and not exists (select 1 from public.profiles p where p.id = sc.user_id)
+  on conflict (id) do nothing;
   select coalesce(max(id), 0) into v_watermark from public.points_ledger where season_id = _season;
   select rules_hash into v_rules_hash from public.seasons where id = _season;
 
