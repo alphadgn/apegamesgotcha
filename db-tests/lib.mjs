@@ -8,6 +8,25 @@ import pg from "pg";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS_DIR = join(here, "..", "supabase", "migrations");
+const DRIZZLE_DIR = join(here, "..", "drizzle", "migrations");
+const DRIZZLE_BEFORE = "20261009";
+
+async function applyDrizzle(c) {
+  let files = [];
+  try {
+    files = readdirSync(DRIZZLE_DIR).filter((f) => f.endsWith(".sql")).sort();
+  } catch {
+    return;
+  }
+  for (const f of files) {
+    const sql = readFileSync(join(DRIZZLE_DIR, f), "utf8").split("--> statement-breakpoint").join("\n");
+    try {
+      await c.query(sql);
+    } catch (e) {
+      throw new Error(`Drizzle migration ${f} failed: ${e.message}`);
+    }
+  }
+}
 const BASELINE = join(here, "supabase_baseline.sql");
 
 export const PG = {
@@ -48,7 +67,14 @@ export async function createDatabase(name, { filter = () => true, after } = {}) 
   await c.connect();
   try {
     await c.query(readFileSync(BASELINE, "utf8"));
+    let drizzleDone = false;
     for (const f of migrationFiles().filter(filter)) {
+      // Tables Lovable creates through drizzle (e.g. contact_messages) already exist in production
+      // before the season migrations; apply them at the same point here.
+      if (!drizzleDone && f >= DRIZZLE_BEFORE) {
+        await applyDrizzle(c);
+        drizzleDone = true;
+      }
       try {
         await c.query(readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
       } catch (e) {
@@ -65,6 +91,7 @@ export async function applyMigrations(name, filter) {
   const c = new pg.Client({ ...PG, database: name });
   await c.connect();
   try {
+    if (migrationFiles().filter(filter).some((f) => f >= DRIZZLE_BEFORE)) await applyDrizzle(c);
     for (const f of migrationFiles().filter(filter)) {
       try {
         await c.query(readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
