@@ -9,16 +9,19 @@ import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/V
 ///         from the published prize pool. The app server can request draws (it holds the off-chain spin
 ///         credits) but can never see, choose or re-roll the random number.
 /// @dev Roles:
-///      - owner (ConfirmedOwner, from VRFConsumerBaseV2Plus): VRF config, operator, cancellations.
+///      - owner (ConfirmedOwner, from VRFConsumerBaseV2Plus): VRF config, operator, pausing new requests.
 ///      - operator (the app's server wallet): requests draws, publishes the prize pool.
 ///      The pool cannot change while any draw is pending, so odds can't be swapped mid-draw.
+///      Following Chainlink's VRF security guidance there is NO cancellation or re-request: once a
+///      request is made, only its Chainlink fulfillment can settle it. A request that is never
+///      fulfilled (e.g. an unfunded subscription) stays pending until the subscription is funded.
+///      Pausing stops NEW requests only; callbacks for requests already made always complete.
 contract GotchaVRF is VRFConsumerBaseV2Plus {
     // ---------------------------------------------------------------- types
     enum Status {
         None,
         Pending,
-        Fulfilled,
-        Cancelled
+        Fulfilled
     }
 
     struct Prize {
@@ -49,6 +52,7 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
     uint256 public pendingRequests;
 
     address public operator;
+    bool public requestsPaused;
 
     uint256 public subscriptionId;
     bytes32 public keyHash;
@@ -60,7 +64,7 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
     // ---------------------------------------------------------------- events
     event SpinRequested(bytes32 indexed spinId, uint256 indexed requestId);
     event SpinFulfilled(bytes32 indexed spinId, uint256 indexed requestId, uint256 randomWord, uint8 prizeIndex);
-    event RequestCancelled(uint256 indexed requestId);
+    event RequestsPaused(bool paused);
     event PoolUpdated(uint256 indexed version, uint32[] weights, uint32[] remaining);
     event OperatorUpdated(address operator);
     event VrfConfigUpdated(uint256 subscriptionId, bytes32 keyHash, uint16 confirmations, uint32 gasBase, uint32 gasPerSpin, bool nativePayment);
@@ -73,7 +77,7 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
     error EmptyPool();
     error PoolLocked();
     error BadPool();
-    error UnknownRequest();
+    error Paused();
 
     constructor(
         address coordinator,
@@ -96,6 +100,7 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
     /// @param spinIds Unique ids from the app database (bytes32-encoded UUIDs). Each can be used once.
     function requestSpins(bytes32[] calldata spinIds) external returns (uint256 requestId) {
         if (msg.sender != operator) revert NotOperator();
+        if (requestsPaused) revert Paused();
         uint256 n = spinIds.length;
         if (n == 0 || n > MAX_BATCH) revert BadBatch();
         if (_pool.length == 0) revert EmptyPool();
@@ -130,7 +135,7 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
     function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
         bytes32[] storage ids = _requestSpins[requestId];
         uint256 n = ids.length;
-        if (n == 0) return; // cancelled or unknown
+        if (n == 0) return; // unknown request id
         --pendingRequests;
         for (uint256 i; i < n && i < randomWords.length; ++i) {
             bytes32 id = ids[i];
@@ -181,15 +186,10 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
         emit PoolUpdated(++poolVersion, weights, remaining);
     }
 
-    /// @notice Escape hatch if a request is never fulfilled (e.g. subscription ran dry).
-    function cancelRequest(uint256 requestId) external onlyOwner {
-        bytes32[] storage ids = _requestSpins[requestId];
-        uint256 n = ids.length;
-        if (n == 0) revert UnknownRequest();
-        for (uint256 i; i < n; ++i) _spins[ids[i]].status = Status.Cancelled;
-        delete _requestSpins[requestId];
-        --pendingRequests;
-        emit RequestCancelled(requestId);
+    /// @notice Stop (or resume) NEW draw requests. Pending requests are still fulfilled by Chainlink.
+    function setRequestsPaused(bool paused) external onlyOwner {
+        requestsPaused = paused;
+        emit RequestsPaused(paused);
     }
 
     function setOperator(address operator_) external onlyOwner {
