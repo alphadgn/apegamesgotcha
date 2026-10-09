@@ -1,0 +1,12 @@
+{
+  "name": "apegames-gotcha-db-tests",
+  "private": true,
+  "type": "module",
+  "description": "Real-Postgres migration, RPC and RLS tests for the Supabase schema",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 --test-reporter=spec ./*.test.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
