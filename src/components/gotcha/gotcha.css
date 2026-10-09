@@ -652,3 +652,8 @@
   font-size: 14px; font-weight: 600; text-decoration: none;
 }
 .gm-share-grid a:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+.gm-share-main a, .gm-share-main button { font-size: 1rem; font-weight: 700; padding: 14px 10px; }
+.gm-share-hint { margin-top: 10px; font-size: 0.85rem; color: #c9d4ff; text-align: center; }
+.gm-share-more { margin-top: 12px; }
+.gm-share-more summary { cursor: pointer; text-align: center; font-size: 0.9rem; color: #c9d4ff; margin-bottom: 8px; }
