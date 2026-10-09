@@ -6,7 +6,8 @@ export async function adminDb() {
   return supabaseAdmin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
-export async function getConfig<T = any>(key: string): Promise<T> { // eslint-disable-line @typescript-eslint/no-explicit-any
+export async function getConfig<T = any>(key: string): Promise<T> {
+  // eslint-disable-line @typescript-eslint/no-explicit-any
   const db = await adminDb();
   const { data, error } = await db.from("app_config").select("value").eq("key", key).maybeSingle();
   if (error) throw new Error(`Couldn't read config ${key}: ${error.message}`);
@@ -37,23 +38,39 @@ export async function assertAdmin(userId: string) {
 }
 
 /** Calls a Postgres function and surfaces the real database error. */
-export async function rpc<T = any>(fn: string, args: Record<string, unknown> = {}): Promise<T> { // eslint-disable-line @typescript-eslint/no-explicit-any
+export async function rpc<T = any>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
+  // eslint-disable-line @typescript-eslint/no-explicit-any
   const db = await adminDb();
   const { data, error } = await db.rpc(fn, args);
   if (error) throw new Error(error.message);
   return data as T;
 }
 
-export async function raiseAlert(kind: string, subject: string, severity: "info" | "warning" | "critical", message: string, details: unknown = {}) {
+export async function raiseAlert(
+  kind: string,
+  subject: string,
+  severity: "info" | "warning" | "critical",
+  message: string,
+  details: unknown = {},
+) {
   try {
-    await rpc("raise_alert", { _kind: kind, _subject: subject, _severity: severity, _message: message, _details: details });
+    await rpc("raise_alert", {
+      _kind: kind,
+      _subject: subject,
+      _severity: severity,
+      _message: message,
+      _details: details,
+    });
   } catch (e) {
     console.error("[alert] failed to record", kind, subject, (e as Error).message);
   }
 }
 
 /** Throws unless the query succeeded; returns rows. */
-export function must<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
+export function must<T>(
+  res: { data: T | null; error: { message: string } | null },
+  what: string,
+): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`);
   return (res.data ?? ([] as unknown)) as T;
 }
@@ -61,7 +78,9 @@ export function must<T>(res: { data: T | null; error: { message: string } | null
 /** Formula-safe CSV cell (prevents spreadsheet formula injection). */
 export function csvCell(v: unknown): string {
   let s = v == null ? "" : String(v);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  // Plain integers/decimals (e.g. negative ledger amounts) stay numeric; anything else that a
+  // spreadsheet could treat as a formula is prefixed with a quote.
+  if (!/^-?\d+(\.\d+)?$/.test(s) && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

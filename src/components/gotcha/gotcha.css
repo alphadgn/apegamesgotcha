@@ -652,3 +652,10 @@
   font-size: 14px; font-weight: 600; text-decoration: none;
 }
 .gm-share-grid a:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* Verified X share (inside the share window) */
+.gm-rf-verify { margin-top: 14px; border-top: 1px solid rgba(246, 195, 67, 0.35); padding-top: 12px; text-align: left; }
+.gm-rf-verify-row { display: flex; gap: 8px; margin-top: 8px; }
+.gm-rf-verify-row input { flex: 1; min-width: 0; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(0, 0, 0, 0.35); color: #fff6e3; padding: 8px 10px; font-size: 13px; }
+.gm-rf-verify-row button { border: 0; border-radius: 10px; padding: 8px 12px; background: #f6c343; color: #0c1b3d; font-weight: 700; cursor: pointer; }
+.gm-rf-verify-row button:disabled { opacity: 0.6; cursor: default; }

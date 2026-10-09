@@ -15,7 +15,15 @@ export type SeasonRules = {
   historical_backfill_enabled: boolean;
 };
 
-export type PoolPrize = { id: string; name: string; rarity: string; weight: number; inventory: number | null; active: boolean; onchain_index?: number | null };
+export type PoolPrize = {
+  id: string;
+  name: string;
+  rarity: string;
+  weight: number;
+  inventory: number | null;
+  active: boolean;
+  onchain_index?: number | null;
+};
 
 /** The bonus a prize earns under the rules: explicit override (including "0") wins over the rarity default. */
 export function prizeBonus(rules: SeasonRules, prize: Pick<PoolPrize, "id" | "rarity">): bigint {
@@ -27,7 +35,13 @@ export function prizeBonus(rules: SeasonRules, prize: Pick<PoolPrize, "id" | "ra
 
 /** Prizes the next draw can actually land on (active, weighted, in stock). */
 export function availablePool(prizes: PoolPrize[]) {
-  return prizes.filter((p) => p.active && p.weight > 0 && (p.inventory == null || p.inventory > 0) && p.onchain_index !== null);
+  return prizes.filter(
+    (p) =>
+      p.active &&
+      p.weight > 0 &&
+      (p.inventory == null || p.inventory > 0) &&
+      p.onchain_index !== null,
+  );
 }
 
 /**
@@ -39,7 +53,13 @@ export function projectPerSpin(rules: SeasonRules, prizes: PoolPrize[]) {
   const pool = availablePool(prizes);
   const totalW = pool.reduce((s, p) => s + BigInt(p.weight), 0n);
   const part = BigInt(rules.points.participation_per_spin);
-  if (totalW === 0n) return { expectedBonus: "0.00", expectedTotal: "0.00", participation: part.toString(), odds: [] as { name: string; rarity: string; probability: number; bonus: string }[] };
+  if (totalW === 0n)
+    return {
+      expectedBonus: "0.00",
+      expectedTotal: "0.00",
+      participation: part.toString(),
+      odds: [] as { name: string; rarity: string; probability: number; bonus: string }[],
+    };
   const num = pool.reduce((s, p) => s + BigInt(p.weight) * prizeBonus(rules, p), 0n); // bonus * W
   const fmt = (n: bigint, d: bigint) => {
     const cents = (n * 100n + d / 2n) / d;
@@ -49,7 +69,12 @@ export function projectPerSpin(rules: SeasonRules, prizes: PoolPrize[]) {
     expectedBonus: fmt(num, totalW),
     expectedTotal: fmt(num + part * totalW, totalW),
     participation: part.toString(),
-    odds: pool.map((p) => ({ name: p.name, rarity: p.rarity, probability: Number(BigInt(p.weight) * 1_000_000n / totalW) / 1_000_000, bonus: prizeBonus(rules, p).toString() })),
+    odds: pool.map((p) => ({
+      name: p.name,
+      rarity: p.rarity,
+      probability: Number((BigInt(p.weight) * 1_000_000n) / totalW) / 1_000_000,
+      bonus: prizeBonus(rules, p).toString(),
+    })),
   };
 }
 

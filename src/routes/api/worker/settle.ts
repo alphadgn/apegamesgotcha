@@ -12,10 +12,16 @@ export const Route = createFileRoute("/api/worker/settle")({
         const { runSettlement } = await import("@/lib/settlement.server");
         try {
           const report = await runSettlement();
-          return new Response(JSON.stringify(report), { status: 200, headers: { "content-type": "application/json" } });
+          return new Response(JSON.stringify(report), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         } catch (e) {
           console.error("[worker/settle] failed", e);
-          return new Response(JSON.stringify({ error: (e as Error).message }), { status: 500, headers: { "content-type": "application/json" } });
+          return new Response(JSON.stringify({ error: (e as Error).message }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
         }
       },
     },

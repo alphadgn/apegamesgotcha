@@ -5,7 +5,12 @@ import { createPublicClient, getAddress, http, type Hex, type PublicClient } fro
 import { createSiweMessage, generateSiweNonce } from "viem/siwe";
 import { adminDb, getConfigOr, rpc } from "./helpers.server";
 
-export type SiweCfg = { allowed_origins?: string[]; statement?: string; ttl_minutes?: number; chains?: Record<string, string> };
+export type SiweCfg = {
+  allowed_origins?: string[];
+  statement?: string;
+  ttl_minutes?: number;
+  chains?: Record<string, string>;
+};
 
 export async function siweClient(chainId: number): Promise<PublicClient> {
   const cfg = await getConfigOr<SiweCfg>("siwe", {});
@@ -19,15 +24,25 @@ export async function resolveOrigin(requestOrigin: string | null | undefined) {
   const cfg = await getConfigOr<SiweCfg>("siwe", {});
   const allowed = (cfg.allowed_origins ?? []).map((o) => o.replace(/\/$/, ""));
   const origin = (requestOrigin ?? "").replace(/\/$/, "");
-  if (!allowed.length) throw new Error("Wallet verification isn't set up yet (Admin → Configuration → siwe.allowed_origins)");
-  if (!allowed.includes(origin)) throw new Error("This site address isn't allowed to request wallet signatures");
+  if (!allowed.length)
+    throw new Error(
+      "Wallet verification isn't set up yet (Admin → Configuration → siwe.allowed_origins)",
+    );
+  if (!allowed.includes(origin))
+    throw new Error("This site address isn't allowed to request wallet signatures");
   return { origin, domain: new URL(origin).host };
 }
 
-export async function createChallenge(userId: string, address: string, chainId: number, requestOrigin: string | null) {
+export async function createChallenge(
+  userId: string,
+  address: string,
+  chainId: number,
+  requestOrigin: string | null,
+) {
   const cfg = await getConfigOr<SiweCfg>("siwe", {});
   const { origin, domain } = await resolveOrigin(requestOrigin);
-  if (!cfg.chains?.[String(chainId)]) throw new Error(`Chain ${chainId} isn't supported for wallet verification`);
+  if (!cfg.chains?.[String(chainId)])
+    throw new Error(`Chain ${chainId} isn't supported for wallet verification`);
   const nonce = generateSiweNonce();
   const issuedAt = new Date();
   const ttl = Math.min(Math.max(cfg.ttl_minutes ?? 10, 1), 30);
@@ -45,8 +60,15 @@ export async function createChallenge(userId: string, address: string, chainId: 
   });
   const db = await adminDb();
   const { error } = await db.from("wallet_challenges").insert({
-    nonce, user_id: userId, address: address.toLowerCase(), chain_id: chainId, domain, uri: origin, message,
-    issued_at: issuedAt.toISOString(), expires_at: expirationTime.toISOString(),
+    nonce,
+    user_id: userId,
+    address: address.toLowerCase(),
+    chain_id: chainId,
+    domain,
+    uri: origin,
+    message,
+    issued_at: issuedAt.toISOString(),
+    expires_at: expirationTime.toISOString(),
   });
   if (error) throw new Error(error.message);
   return { nonce, message };
@@ -54,10 +76,22 @@ export async function createChallenge(userId: string, address: string, chainId: 
 
 export async function verifyChallenge(userId: string, nonce: string, signature: Hex) {
   // Consume first (atomic, once): a replayed or concurrent submission fails here.
-  const ch = await rpc<{ address: string; chain_id: number; domain: string; message: string; nonce: string }>("consume_wallet_challenge", { _nonce: nonce, _user: userId });
+  const ch = await rpc<{
+    address: string;
+    chain_id: number;
+    domain: string;
+    message: string;
+    nonce: string;
+  }>("consume_wallet_challenge", { _nonce: nonce, _user: userId });
   const client = await siweClient(ch.chain_id);
   const address = getAddress(ch.address);
-  const valid = await client.verifySiweMessage({ message: ch.message, signature, address, domain: ch.domain, nonce: ch.nonce });
+  const valid = await client.verifySiweMessage({
+    message: ch.message,
+    signature,
+    address,
+    domain: ch.domain,
+    nonce: ch.nonce,
+  });
   if (!valid) throw new Error("The signature doesn't match this wallet");
   const code = await client.getCode({ address }).catch(() => undefined);
   const isContract = !!code && code !== "0x";
