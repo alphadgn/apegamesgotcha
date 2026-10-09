@@ -1,11 +1,12 @@
 // Gotcha machine jukebox — party music that plays while the machine spins.
 //
 // Built-in: six ORIGINAL instrumental tracks in 80s / 90s / 2000s party styles, synthesized live with
-// WebAudio (no files, nothing to license). Each spin picks the next track from a shuffled bag.
+// WebAudio (no files, nothing to license), plus the featured clip(s) below. Each spin picks the next
+// track from one shuffled bag, and every track is level-matched (trimDb) so none is louder than the rest.
 //
 // Licensed clips: drop audio files you have the rights to into /public/music and list them in
 // /public/music/tracks.json, e.g. ["/music/clip-1.mp3", "/music/clip-2.mp3"]. When that list exists,
-// the jukebox shuffles those clips instead of the built-in tracks.
+// the jukebox shuffles only those clips instead of the built-in tracks + featured clips.
 import { sharedAudio } from "./sound";
 
 type Era = "80s" | "90s" | "2000s";
@@ -33,12 +34,28 @@ type Track = {
   key: string; // e.g. "A" — hook offsets are relative to this (octave 4)
   pump?: boolean; // sidechain-style pumping on the pads
   gatedSnare?: boolean; // big 80s snare
+  /** Loudness trim so every track plays at the same level (measured RMS → target, see LEVEL_TARGET_DB). */
+  trimDb?: number;
 };
+
+/**
+ * Loudness target for the jukebox, as RMS in dBFS at full volume. Built-in tracks were rendered offline and
+ * measured (Oct 2026): -20.2, -19.7, -17.4, -17.4, -17.7, -19.0 dB; each gets a trim to this target.
+ */
+const LEVEL_TARGET_DB = -18.5;
+
+/** Audio files mixed into the shuffle with the built-in tracks (served from /public/music). */
+const FEATURED_CLIPS: { title: string; url: string; trimDb: number }[] = [
+  // Measured mean -14.4 dB (ffmpeg volumedetect) → -4.1 dB trim to sit level with the built-in tracks.
+  { title: "My Dead Friends (fade)", url: "/music/my-dead-friends.mp3", trimDb: LEVEL_TARGET_DB - -14.4 },
+];
+
+const dbToGain = (db: number | undefined) => Math.pow(10, (db ?? 0) / 20);
 
 // ---------------------------------------------------------------- the tracks (all original)
 const TRACKS: Track[] = [
   {
-    title: "Neon Arcade",
+    title: "Neon Arcade", trimDb: LEVEL_TARGET_DB - -20.2,
     era: "80s",
     bpm: 118,
     key: "A",
@@ -54,7 +71,7 @@ const TRACKS: Track[] = [
     gatedSnare: true,
   },
   {
-    title: "Miami Nights Drive",
+    title: "Miami Nights Drive", trimDb: LEVEL_TARGET_DB - -19.7,
     era: "80s",
     bpm: 108,
     key: "D",
@@ -72,7 +89,7 @@ const TRACKS: Track[] = [
     gatedSnare: true,
   },
   {
-    title: "Rave Signal",
+    title: "Rave Signal", trimDb: LEVEL_TARGET_DB - -17.35,
     era: "90s",
     bpm: 126,
     key: "E",
@@ -88,7 +105,7 @@ const TRACKS: Track[] = [
     pad: false,
   },
   {
-    title: "Hands Up Saturday",
+    title: "Hands Up Saturday", trimDb: LEVEL_TARGET_DB - -17.4,
     era: "90s",
     bpm: 134,
     key: "A",
@@ -104,7 +121,7 @@ const TRACKS: Track[] = [
     hookWave: "square",
   },
   {
-    title: "Millennium Bounce",
+    title: "Millennium Bounce", trimDb: LEVEL_TARGET_DB - -17.65,
     era: "2000s",
     bpm: 128,
     key: "F",
@@ -121,7 +138,7 @@ const TRACKS: Track[] = [
     arpWave: "sawtooth",
   },
   {
-    title: "Y2K Rooftop",
+    title: "Y2K Rooftop", trimDb: LEVEL_TARGET_DB - -19.0,
     era: "2000s",
     bpm: 122,
     swing: 0.16,
@@ -157,13 +174,17 @@ function chordNotes(name: string) {
 type Voice = { master: GainNode; stop: (fade: number) => void };
 
 function playTrack(ctx: BaseAudioContext, track: Track, volume: number): Voice {
+  // master = fade envelope (into the compressor); out = player volume × level trim (after it), so the
+  // measured trims stay exact at any volume.
   const master = ctx.createGain();
   master.gain.setValueAtTime(0.0001, ctx.currentTime);
-  master.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.35);
+  master.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 0.35);
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -16;
   comp.ratio.value = 4;
-  master.connect(comp).connect(ctx.destination);
+  const out = ctx.createGain();
+  out.gain.value = volume * dbToGain(track.trimDb);
+  master.connect(comp).connect(out).connect(ctx.destination);
 
   // reverb send (generated impulse — no files)
   const verb = ctx.createConvolver();
@@ -333,6 +354,7 @@ function playTrack(ctx: BaseAudioContext, track: Track, volume: number): Voice {
         clearInterval(timer);
         try {
           master.disconnect();
+          out.disconnect();
         } catch {
           /* already gone */
         }
@@ -341,7 +363,8 @@ function playTrack(ctx: BaseAudioContext, track: Track, volume: number): Voice {
   };
 }
 
-function playClip(ctx: AudioContext, url: string, volume: number): Voice {
+function playClip(ctx: AudioContext, url: string, volume: number, trimDb = 0): Voice {
+  volume *= dbToGain(trimDb);
   const audio = new Audio(url);
   audio.loop = true;
   audio.crossOrigin = "anonymous";
@@ -430,7 +453,14 @@ export function createJukebox(volume = 0.7) {
       const ctx = sharedAudio();
       if (!ctx) return;
       current?.stop(0.4);
-      current = clips.length ? playClip(ctx, clips[nextIndex(clips.length)]!, volume) : playTrack(ctx, TRACKS[nextIndex(TRACKS.length)]!, volume);
+      if (clips.length) {
+        current = playClip(ctx, clips[nextIndex(clips.length)]!, volume);
+        return;
+      }
+      // One shuffled bag: the built-in tracks followed by the featured clips.
+      const i = nextIndex(TRACKS.length + FEATURED_CLIPS.length);
+      const featured = FEATURED_CLIPS[i - TRACKS.length];
+      current = featured ? playClip(ctx, featured.url, volume, featured.trimDb) : playTrack(ctx, TRACKS[i]!, volume);
     },
     /** Fade the music out (never a hard cut). */
     stop(fade = 1) {
@@ -444,6 +474,7 @@ export function createJukebox(volume = 0.7) {
 }
 
 export const BUILT_IN_TRACKS = TRACKS.map((t) => ({ title: t.title, era: t.era, bpm: t.bpm }));
+export const FEATURED_TRACKS = FEATURED_CLIPS.map((c) => ({ title: c.title, url: c.url, trimDb: c.trimDb }));
 
 /** Render a built-in track into an OfflineAudioContext (used for previews and tests). */
 export function renderBuiltInTrack(ctx: OfflineAudioContext, index: number, volume = 0.5) {

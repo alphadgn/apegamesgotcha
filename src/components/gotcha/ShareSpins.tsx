@@ -179,6 +179,7 @@ export function ShareSpinsButton({
   const [copied, setCopied] = useState(false);
   const [postUrl, setPostUrl] = useState("");
   const [earnState, setEarnState] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
   const card = useRef<Blob | null>(null);
   const key = last5.map((s) => `${s.id ?? ""}|${s.prize_name}|${s.rarity}|${s.points}`).join(",");
 
@@ -210,6 +211,7 @@ export function ShareSpinsButton({
     try {
       const blob = card.current ?? (artHost.current ? await renderCard(last5, demo, artHost.current) : null);
       card.current = blob;
+      setHint(null);
       setMenu({ text, url, image: blob ? URL.createObjectURL(blob) : null });
     } finally {
       setBusy(false);
@@ -217,16 +219,50 @@ export function ShareSpinsButton({
   };
 
   const nav = (typeof navigator !== "undefined" ? navigator : undefined) as (Navigator & { canShare?: (d: ShareData) => boolean }) | undefined;
-  const deviceShare = async () => {
-    if (!menu || !nav?.share) return;
-    const blob = card.current;
-    const file = blob ? new File([blob], "apegames-gotcha-pulls.png", { type: "image/png" }) : null;
+  const cardFile = () => (card.current ? new File([card.current], "apegames-gotcha-pulls.png", { type: "image/png" }) : null);
+  const canShareImage = () => {
+    const f = cardFile();
+    return !!(f && nav?.share && nav.canShare?.({ files: [f] }));
+  };
+
+  /** The device's own share sheet (lists the X, Facebook, Instagram, Messages… apps installed on this phone). */
+  const deviceShare = async (withImage = true) => {
+    if (!menu || !nav?.share) return false;
+    const file = withImage ? cardFile() : null;
     try {
       if (file && nav.canShare?.({ files: [file] })) await nav.share({ files: [file], title: "ApeGames Gotcha", text: `${menu.text}\n${menu.url}` });
       else await nav.share({ title: "ApeGames Gotcha", text: menu.text, url: menu.url });
-    } catch {
-      /* cancelled */
+      return true;
+    } catch (e) {
+      return (e as Error).name === "AbortError"; // cancelled by the player counts as handled
     }
+  };
+
+  /**
+   * Facebook and Instagram only take pictures from the phone's share sheet (neither accepts a prefilled caption),
+   * so we copy the caption first, hand the card image to the sheet, and fall back to the web when that isn't possible.
+   */
+  const shareToApp = async (app: "facebook" | "instagram") => {
+    if (!menu) return;
+    const caption = `${menu.text}\n${menu.url}`;
+    void navigator.clipboard?.writeText(caption).then(() => setCopied(true)).catch(() => {});
+    if (canShareImage()) {
+      setHint(`Caption copied. Pick ${app === "facebook" ? "Facebook" : "Instagram"} in the share sheet and paste it.`);
+      if (await deviceShare(true)) return;
+    }
+    if (app === "facebook") {
+      window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(menu.url)}`, "_blank", "noopener");
+      return;
+    }
+    // Instagram has no web share link: save the card so it can be posted from the Instagram app.
+    if (menu.image) {
+      const a = document.createElement("a");
+      a.href = menu.image;
+      a.download = "apegames-gotcha-pulls.png";
+      a.click();
+    }
+    setHint("Image saved and caption copied. Open Instagram, add the image to a post or story, and paste the caption.");
+    window.open("https://www.instagram.com/", "_blank", "noopener");
   };
 
   const enc = encodeURIComponent;
@@ -253,33 +289,20 @@ export function ShareSpinsButton({
               </button>
             </div>
             {menu.image && <img src={menu.image} alt="Your last five pulls" className="gm-share-preview" />}
-            <div className="gm-share-grid">
-              {nav?.share && (
-                <button type="button" onClick={() => void deviceShare()}>
-                  More on this device…
-                </button>
-              )}
-              <a href={`https://twitter.com/intent/tweet?text=${enc(menu.text)}&url=${enc(menu.url)}`} target="_blank" rel="noreferrer">X</a>
-              <a href={`https://www.facebook.com/sharer/sharer.php?u=${enc(menu.url)}&quote=${enc(menu.text)}`} target="_blank" rel="noreferrer">Facebook</a>
-              <a href={`https://wa.me/?text=${enc(`${menu.text}\n${menu.url}`)}`} target="_blank" rel="noreferrer">WhatsApp</a>
-              <a href={`https://t.me/share/url?url=${enc(menu.url)}&text=${enc(menu.text)}`} target="_blank" rel="noreferrer">Telegram</a>
-              <a href={`https://www.reddit.com/submit?url=${enc(menu.url)}&title=${enc(menu.text.split("\n")[0] ?? "")}`} target="_blank" rel="noreferrer">Reddit</a>
-              <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(menu.url)}`} target="_blank" rel="noreferrer">LinkedIn</a>
-              <a href={`sms:?&body=${enc(`${menu.text}\n${menu.url}`)}`}>Text message</a>
-              <button
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(`${menu.text}\n${menu.url}`).then(() => setCopied(true));
-                }}
-              >
-                {copied ? "Copied!" : "Copy text"}
+            <div className="gm-share-grid gm-share-main">
+              {/* Links to x.com and sms: open the X and Messages apps on phones (universal link / native handler). */}
+              <a href={`https://x.com/intent/post?text=${enc(menu.text)}&url=${enc(menu.url)}`} target="_blank" rel="noreferrer">
+                X (Twitter)
+              </a>
+              <button type="button" onClick={() => void shareToApp("facebook")}>
+                Facebook
               </button>
-              {menu.image && (
-                <a href={menu.image} download="apegames-gotcha-pulls.png">
-                  Save image (Instagram / TikTok)
-                </a>
-              )}
+              <button type="button" onClick={() => void shareToApp("instagram")}>
+                Instagram
+              </button>
+              <a href={`sms:?&body=${enc(`${menu.text}\n${menu.url}`)}`}>Text message</a>
             </div>
+            {hint && <p className="gm-share-hint" role="status">{hint}</p>}
             {earn && last5.some((s) => s.id) && (
               <form
                 className="gm-share-earn"
@@ -299,6 +322,33 @@ export function ShareSpinsButton({
                 {earnState && <p role="status">{earnState}</p>}
               </form>
             )}
+            <details className="gm-share-more">
+              <summary>More ways to share</summary>
+              <div className="gm-share-grid">
+                {nav?.share && (
+                  <button type="button" onClick={() => void deviceShare(true)}>
+                    Share sheet…
+                  </button>
+                )}
+                <a href={`https://wa.me/?text=${enc(`${menu.text}\n${menu.url}`)}`} target="_blank" rel="noreferrer">WhatsApp</a>
+                <a href={`https://t.me/share/url?url=${enc(menu.url)}&text=${enc(menu.text)}`} target="_blank" rel="noreferrer">Telegram</a>
+                <a href={`https://www.reddit.com/submit?url=${enc(menu.url)}&title=${enc(menu.text.split("\n")[0] ?? "")}`} target="_blank" rel="noreferrer">Reddit</a>
+                <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(menu.url)}`} target="_blank" rel="noreferrer">LinkedIn</a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(`${menu.text}\n${menu.url}`).then(() => setCopied(true));
+                  }}
+                >
+                  {copied ? "Copied!" : "Copy text"}
+                </button>
+                {menu.image && (
+                  <a href={menu.image} download="apegames-gotcha-pulls.png">
+                    Save image
+                  </a>
+                )}
+              </div>
+            </details>
           </div>
         </div>
       )}

@@ -659,3 +659,7 @@
 .gm-share-earn button { padding: 10px 12px; border-radius: 10px; background: #f6c343; color: #0c1b3d; font-weight: 700; }
 .gm-share-earn button:disabled { opacity: 0.6; }
 .gm-share-earn p { font-size: 0.85rem; color: #fff6e3; }
+.gm-share-main a, .gm-share-main button { font-size: 1rem; font-weight: 700; padding: 14px 10px; }
+.gm-share-hint { margin-top: 10px; font-size: 0.85rem; color: #c9d4ff; text-align: center; }
+.gm-share-more { margin-top: 12px; }
+.gm-share-more summary { cursor: pointer; text-align: center; font-size: 0.9rem; color: #c9d4ff; margin-bottom: 8px; }
