@@ -29,6 +29,13 @@
       "when": 1791600000003,
       "tag": "0003_demo_leaderboard_admin_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791627354619,
+      "tag": "0004_ensure_grant_deletion_ready",
+      "breakpoints": true
     }
   ]
 }

@@ -143,6 +143,71 @@ export type Database = {
         }
         Relationships: []
       }
+      demo_spins: {
+        Row: {
+          created_at: string
+          id: string
+          points: number
+          prize_id: string | null
+          prize_name: string
+          rarity: string
+          source: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          points?: number
+          prize_id?: string | null
+          prize_name: string
+          rarity: string
+          source: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          points?: number
+          prize_id?: string | null
+          prize_name?: string
+          rarity?: string
+          source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "demo_spins_prize_id_fkey"
+            columns: ["prize_id"]
+            isOneToOne: false
+            referencedRelation: "prizes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_knowledge: {
+        Row: {
+          content: string
+          fetched_at: string
+          source: string
+          title: string | null
+          url: string
+        }
+        Insert: {
+          content: string
+          fetched_at?: string
+          source?: string
+          title?: string | null
+          url: string
+        }
+        Update: {
+          content?: string
+          fetched_at?: string
+          source?: string
+          title?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
       guide_messages: {
         Row: {
           created_at: string
@@ -303,28 +368,75 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          grant_id: string | null
           id: string
+          kind: string
           ref: string | null
           source: string
+          used_at: string | null
           used_spin_id: string | null
           user_id: string
         }
         Insert: {
           created_at?: string
           created_by?: string | null
+          grant_id?: string | null
           id?: string
+          kind?: string
           ref?: string | null
           source: string
+          used_at?: string | null
           used_spin_id?: string | null
           user_id: string
         }
         Update: {
           created_at?: string
           created_by?: string | null
+          grant_id?: string | null
           id?: string
+          kind?: string
           ref?: string | null
           source?: string
+          used_at?: string | null
           used_spin_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spin_credits_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "spin_grants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spin_grants: {
+        Row: {
+          count: number
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          note: string
+          user_id: string
+        }
+        Insert: {
+          count: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind: string
+          note?: string
+          user_id: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          note?: string
           user_id?: string
         }
         Relationships: []
@@ -377,6 +489,8 @@ export type Database = {
           contract_address: string | null
           created_at: string
           credit_id: string
+          delivered_at: string | null
+          delivered_by: string | null
           fulfilled_at: string | null
           id: string
           points: number | null
@@ -396,6 +510,8 @@ export type Database = {
           contract_address?: string | null
           created_at?: string
           credit_id: string
+          delivered_at?: string | null
+          delivered_by?: string | null
           fulfilled_at?: string | null
           id?: string
           points?: number | null
@@ -415,6 +531,8 @@ export type Database = {
           contract_address?: string | null
           created_at?: string
           credit_id?: string
+          delivered_at?: string | null
+          delivered_by?: string | null
           fulfilled_at?: string | null
           id?: string
           points?: number | null
@@ -507,6 +625,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_delete_grant: {
+        Args: { _actor: string; _grant_id: string }
+        Returns: number
+      }
+      admin_grant_spins: {
+        Args: {
+          _actor: string
+          _count: number
+          _kind: string
+          _note: string
+          _user_id: string
+        }
+        Returns: string
+      }
       begin_spins: {
         Args: { _count: number; _user_id: string }
         Returns: string[]
@@ -545,6 +677,8 @@ export type Database = {
           contract_address: string | null
           created_at: string
           credit_id: string
+          delivered_at: string | null
+          delivered_by: string | null
           fulfilled_at: string | null
           id: string
           points: number | null
@@ -582,7 +716,12 @@ export type Database = {
         }
         Returns: boolean
       }
+      leaderboard_mode: { Args: never; Returns: string }
       refund_spins: { Args: { _ids: string[] }; Returns: number }
+      use_demo_spins: {
+        Args: { _count: number; _user_id: string }
+        Returns: number
+      }
       user_id_by_email: { Args: { _email: string }; Returns: string }
     }
     Enums: {
