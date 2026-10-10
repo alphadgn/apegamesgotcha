@@ -80,7 +80,13 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
       };
     },
     // Spins an administrator grants show up within seconds, without a reload.
-    refetchInterval: inPlay || freeInPlay ? false : 15_000,
+    // Grants show up within seconds without a reload: every 5s while the player has nothing to spin.
+    refetchInterval: (q) =>
+      inPlay || freeInPlay
+        ? false
+        : (q.state.data?.credits ?? 0) + (q.state.data?.demoGrants ?? 0) === 0
+          ? 5_000
+          : 15_000,
     refetchOnWindowFocus: true,
   });
 
@@ -152,14 +158,23 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
       }
     : undefined;
 
-  // Out of real spins: the same free practice spin every 30 minutes (no prizes or points).
-  if (data && ((credits === 0 && data.pendingIds.length === 0 && !inPlay) || freeInPlay)) {
+  // Spins the player can use, in order: real spins (draw open) → granted demo spins (right away) →
+  // the free practice spin every 30 minutes (only once the others are used up). While the draw is
+  // closed, real spins stay saved and granted demo spins remain playable; the countdown never blocks them.
+  const drawClosed = !!closedReason;
+  const idle = !inPlay && (data?.pendingIds.length ?? 0) === 0;
+  const demoFirst = !!data && idle && (credits === 0 || (drawClosed && data.demoGrants > 0));
+  if (data && (demoFirst || freeInPlay)) {
     return (
       <DemoGotchaMachine
         prizes={prizes}
         userId={userId}
-        grantedSpins={data?.demoGrants ?? 0}
-        onBusyChange={setFreeInPlay}
+        grantedSpins={data.demoGrants}
+        savedRealSpins={credits}
+        onBusyChange={(busy) => {
+          setFreeInPlay(busy);
+          if (!busy) void refresh();
+        }}
       />
     );
   }
