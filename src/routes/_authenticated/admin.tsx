@@ -156,7 +156,7 @@ function ConfigEditor({ row }: { row: { key: string; value: unknown; version: nu
 type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "legendary"; weight: number; points: number; inventory: number | null; active: boolean; image_url?: string | null; is_physical?: boolean };
 
 /** Prize images live in a private bucket; `image_url` stores the file path and is shown via a signed link. */
-function PrizeImage({ path, onChange }: { path?: string | null; onChange: (p: string | null) => void }) {
+function PrizeImage({ path, onChange }: { path?: string | null | undefined; onChange: (p: string | null) => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
