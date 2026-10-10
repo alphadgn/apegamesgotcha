@@ -9,8 +9,14 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 export default defineConfig({
   vite: {
     resolve: {
-      // Keep viem's optional socket transport compatible with the server runtime.
-      alias: { isows: new URL("./src/lib/native-websocket.ts", import.meta.url).pathname },
+      alias: {
+        // Keep viem's optional socket transport compatible with the server runtime.
+        isows: new URL("./src/lib/native-websocket.ts", import.meta.url).pathname,
+        // Stub pngjs everywhere: Privy's QR module eagerly loads qrcode's server
+        // entry, and pngjs's top-level util.inherits(...) crashes the deployed
+        // worker runtime. Browser QR codes use the canvas renderer, not pngjs.
+        pngjs: new URL("./src/lib/pngjs-server-stub.ts", import.meta.url).pathname,
+      },
     },
   },
   tanstackStart: {
