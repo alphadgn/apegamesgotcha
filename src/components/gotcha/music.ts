@@ -48,6 +48,12 @@ const LEVEL_TARGET_DB = -18.5;
 const FEATURED_CLIPS: { title: string; url: string; trimDb: number }[] = [
   // Measured mean -14.4 dB (ffmpeg volumedetect) → -4.1 dB trim to sit level with the built-in tracks.
   { title: "My Dead Friends (fade)", url: "/music/my-dead-friends.mp3", trimDb: LEVEL_TARGET_DB - -14.4 },
+  // Same artist. Levels measured against the clip above over the same window (ffmpeg astats RMS):
+  // 2 is 0.94 dB quieter, 3 is 0.75 dB, 4 is 0.33 dB, 5 is 1.5 dB — trimmed up by that much.
+  { title: "My Dead Friends II (fade)", url: "/music/my-dead-friends-2.mp3", trimDb: LEVEL_TARGET_DB - -15.35 },
+  { title: "My Dead Friends III (fade)", url: "/music/my-dead-friends-3.mp3", trimDb: LEVEL_TARGET_DB - -15.15 },
+  { title: "My Dead Friends IV (fade)", url: "/music/my-dead-friends-4.mp3", trimDb: LEVEL_TARGET_DB - -14.75 },
+  { title: "My Dead Friends V (fade)", url: "/music/my-dead-friends-5.mp3", trimDb: LEVEL_TARGET_DB - -15.9 },
 ];
 
 const dbToGain = (db: number | undefined) => Math.pow(10, (db ?? 0) / 20);
