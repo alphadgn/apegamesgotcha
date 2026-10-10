@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { checkDraw, startDraw } from "@/lib/app.functions";
+import { checkDraw, getMySpinBalance, startDraw } from "@/lib/app.functions";
 import { openRefill } from "@/components/wallet/walletUi";
 import { readPendingPurchase, usePurchaseConfirmer } from "@/components/wallet/CheckoutPanel";
 import { GotchaMachine, type GotchaPrize } from "./GotchaMachine";
@@ -28,21 +28,21 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
   const [inPlay, setInPlay] = useState(false);
   const [freeInPlay, setFreeInPlay] = useState(false);
 
+  const balanceFn = useServerFn(getMySpinBalance);
   const { data } = useQuery({
     queryKey: ["machine", userId],
     queryFn: async (): Promise<MachineData> => {
       // Untyped: the generated database types can lag behind applied migrations.
       const db = supabase as unknown as SupabaseClient;
-      const [credits, demoGrants, prizes, pending, recent] = await Promise.all([
-        db.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("kind", "real").is("used_spin_id", null),
-        db.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("kind", "demo").is("used_spin_id", null).is("used_at", null),
+      const [balance, prizes, pending, recent] = await Promise.all([
+        balanceFn(), // real + granted demo spins (works before and after the grant migration)
         db.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at"),
         db.from("spins").select("id").eq("user_id", userId).eq("status", "pending"),
         db.from("spins").select("prize_name, rarity, points").eq("user_id", userId).eq("status", "fulfilled").order("created_at", { ascending: false }).limit(5),
       ]);
       return {
-        credits: credits.count ?? 0,
-        demoGrants: demoGrants.count ?? 0,
+        credits: balance.real,
+        demoGrants: balance.demo,
         prizes: (prizes.data ?? []) as GotchaPrize[],
         pendingIds: ((pending.data ?? []) as { id: string }[]).map((s) => s.id),
         lastFive: ((recent.data ?? []) as ShareSpin[]).filter((s) => s.prize_name).reverse(),

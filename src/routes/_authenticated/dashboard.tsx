@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getWalletNonce, linkWallet, syncNfts, claimBurn, setDefaultWallet } from "@/lib/app.functions";
+import { getWalletNonce, linkWallet, syncNfts, claimBurn, setDefaultWallet, getMySpinBalance } from "@/lib/app.functions";
 import { requestLinkWallet } from "@/components/wallet/walletUi";
 import { usePrivyPublicConfig } from "@/components/wallet/WalletHost";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ type DashboardSpin = {
 type WalletRow = { id: string; address: string; is_default?: boolean; kind?: string };
 
 function useMyData() {
+  const balanceFn = useServerFn(getMySpinBalance);
   return useQuery({
     queryKey: ["me"],
     queryFn: async () => {
@@ -54,7 +55,7 @@ function useMyData() {
         supabase.from("wallets").select("*").eq("user_id", uid),
         supabase.from("nft_holdings").select("*").eq("user_id", uid).order("token_id"),
         supabase.from("points_ledger").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
-        supabase.from("spin_credits").select("*").eq("user_id", uid).is("used_spin_id", null).is("used_at", null),
+        balanceFn(),
         supabase.from("spins").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(20),
         supabase.from("app_config").select("value").eq("key", "nft").single(),
         supabase.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at"),
@@ -63,7 +64,7 @@ function useMyData() {
         wallets: wallets.data ?? [],
         holdings: holdings.data ?? [],
         ledger: ledger.data ?? [],
-        credits: credits.data ?? [],
+        credits,
         spins: (spins.data ?? []) as unknown as DashboardSpin[],
         prizes: prizes.data ?? [],
         nft: (nftCfg.data?.value ?? {}) as { burn_min_level?: number; burn_address?: string; opensea_url?: string },
@@ -135,10 +136,10 @@ function Dashboard() {
         <Stat label="Campaign points" value={total.toLocaleString()} />
         <Stat
           label="Spins available"
-          value={String(data.credits.filter((c) => (c as { kind?: string }).kind !== "demo").length)}
+          value={String(data.credits.real)}
           accent
-          {...(data.credits.some((c) => (c as { kind?: string }).kind === "demo")
-            ? { sub: `+ ${data.credits.filter((c) => (c as { kind?: string }).kind === "demo").length} free practice spins (no prizes)` }
+          {...(data.credits.demo > 0
+            ? { sub: `+ ${data.credits.demo} free practice spin${data.credits.demo === 1 ? "" : "s"} (no prizes)` }
             : {})}
         />
         <Stat label="NFTs synced" value={String(data.holdings.filter((h) => !h.burned).length)} />

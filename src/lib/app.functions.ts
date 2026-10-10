@@ -298,14 +298,8 @@ export const adminGrant = createServerFn({ method: "POST" })
     const user = await userByEmail(db, data.email);
     if (!user) throw new Error("No user with that email");
     if (data.spins > 0) {
-      const { error } = await db.rpc("admin_grant_spins", {
-        _user_id: user.id,
-        _count: data.spins,
-        _kind: data.kind,
-        _note: data.note,
-        _actor: context.userId,
-      });
-      if (error) throw new Error(`Couldn't grant spins: ${error.message}`);
+      const { grantSpins } = await import("./grants.server");
+      await grantSpins(db, { userId: user.id, count: data.spins, kind: data.kind, note: data.note, actor: context.userId });
     }
     if (data.points !== 0) {
       const { error } = await db.from("points_ledger").insert({ user_id: user.id, amount: data.points, reason: "admin_adjustment", created_by: context.userId });
@@ -316,10 +310,10 @@ export const adminGrant = createServerFn({ method: "POST" })
   });
 
 async function userByEmail(db: any, email: string): Promise<{ id: string; email?: string } | undefined> {
-  const want = email.toLowerCase();
+  const want = email.trim().toLowerCase();
   for (let page = 1; page <= 50; page++) {
     const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(`Couldn't look up players: ${error.message}`);
     const users = (data?.users ?? []) as { id: string; email?: string }[];
     const hit = users.find((u) => u.email?.toLowerCase() === want);
     if (hit || users.length < 1000) return hit;
@@ -327,58 +321,23 @@ async function userByEmail(db: any, email: string): Promise<{ id: string; email?
   return undefined;
 }
 
-export type SpinGrantRow = {
-  id: string;
-  created_at: string;
-  kind: "real" | "demo";
-  count: number;
-  used: number;
-  note: string;
-  player: string;
-  granted_by: string;
-};
+export type SpinGrantRow = import("./grants.server").SpinGrantRow;
 
 /** Every admin spin grant with how many of its spins have been used, newest first. */
 export const adminListGrants = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<SpinGrantRow[]> => {
+  .handler(async ({ context }) => {
     await assertAdmin(context);
-    const db = await admin();
-    const { data: grants, error } = await db
-      .from("spin_grants")
-      .select("id, created_at, kind, count, note, user_id, created_by")
-      .order("created_at", { ascending: false })
-      .limit(500);
-    if (error) throw new Error(error.message);
-    const rows = (grants ?? []) as { id: string; created_at: string; kind: "real" | "demo"; count: number; note: string; user_id: string; created_by: string | null }[];
-    const ids = rows.map((g) => g.id);
-    const used = new Map<string, number>();
-    for (let i = 0; i < ids.length; i += 100) {
-      const { data: credits, error: e2 } = await db
-        .from("spin_credits")
-        .select("grant_id, used_spin_id, used_at")
-        .in("grant_id", ids.slice(i, i + 100));
-      if (e2) throw new Error(e2.message);
-      for (const c of (credits ?? []) as { grant_id: string; used_spin_id: string | null; used_at: string | null }[])
-        if (c.used_spin_id || c.used_at) used.set(c.grant_id, (used.get(c.grant_id) ?? 0) + 1);
-    }
-    const emails = new Map<string, string>();
-    for (let page = 1; page <= 50; page++) {
-      const { data } = await db.auth.admin.listUsers({ page, perPage: 1000 });
-      const users = (data?.users ?? []) as { id: string; email?: string }[];
-      for (const u of users) emails.set(u.id, u.email ?? u.id);
-      if (users.length < 1000) break;
-    }
-    return rows.map((g) => ({
-      id: g.id,
-      created_at: g.created_at,
-      kind: g.kind,
-      count: g.count,
-      used: used.get(g.id) ?? 0,
-      note: g.note,
-      player: emails.get(g.user_id) ?? g.user_id,
-      granted_by: g.created_by ? (emails.get(g.created_by) ?? g.created_by) : "—",
-    }));
+    const { listGrants } = await import("./grants.server");
+    return listGrants(await admin());
+  });
+
+/** The signed-in player's spins: real (on-chain draws) and demo (granted practice spins). */
+export const getMySpinBalance = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { spinBalance } = await import("./grants.server");
+    return spinBalance(await admin(), context.userId);
   });
 
 /** Use granted demo spins on the demo machine (simulated, no prizes). Returns how many were available. */
@@ -386,10 +345,8 @@ export const redeemDemoSpins = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ count: z.number().int().min(1).max(10) }).parse(d))
   .handler(async ({ data, context }) => {
-    const db = await admin();
-    const { data: used, error } = await db.rpc("use_demo_spins", { _user_id: context.userId, _count: data.count });
-    if (error) throw new Error(error.message);
-    return { used: Number(used ?? 0) };
+    const { useDemoSpins } = await import("./grants.server");
+    return { used: await useDemoSpins(await admin(), context.userId, data.count) };
   });
 
 export const adminSetLevel = createServerFn({ method: "POST" })
@@ -558,10 +515,34 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     const isAddr = (a: unknown) => typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a);
     const cfg = async (key: string) => (await db.from("app_config").select("value").eq("key", key).maybeSingle()).data?.value ?? null;
 
-    // Database
-    const purchasesTable = await db.from("spin_purchases").select("id", { head: true, count: "exact" });
-    const spinsStatus = await db.from("spins").select("status", { head: true, count: "exact" });
-    items.push({ group: "Database", label: "Migrations applied (Chainlink draws + purchases)", ok: !purchasesTable.error && !spinsStatus.error, detail: purchasesTable.error?.message ?? spinsStatus.error?.message ?? "Tables are in place", where: "Lovable: apply pending Supabase migrations" });
+    // Connections: Supabase (Lovable Cloud) from this server
+    const envSet = (k: string) => !!process.env[k];
+    const sbEnv = ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SERVICE_ROLE_KEY"];
+    const sbMissing = sbEnv.filter((k) => !envSet(k));
+    items.push({ group: "Connections", label: "Supabase (Lovable Cloud) settings on the server", ok: !sbMissing.length, detail: sbMissing.length ? `Missing: ${sbMissing.join(", ")}` : "URL, publishable key and service key are set", where: "Lovable → Cloud is enabled for this project (these are set automatically; reconnect Cloud if any are missing)" });
+    const ping = await db.from("app_config").select("key").limit(1);
+    items.push({ group: "Connections", label: "Database reachable", ok: !ping.error, detail: ping.error ? ping.error.message || `HTTP ${ping.status}` : "Connected", where: "Lovable → Cloud → Database" });
+    const authPing = await db.auth.admin.listUsers({ page: 1, perPage: 1 });
+    items.push({ group: "Connections", label: "Player accounts (Supabase Auth) reachable", ok: !authPing.error, detail: authPing.error ? authPing.error.message : "Connected", where: "Lovable → Cloud → Users" });
+    items.push({ group: "Connections", label: "Lovable AI key (guide chat)", ok: envSet("LOVABLE_API_KEY"), detail: envSet("LOVABLE_API_KEY") ? "Set" : "Not set — the guide can't answer", where: "Lovable → Cloud → AI (sets LOVABLE_API_KEY automatically)" });
+
+    // Database: each feature's tables (a missing one means its migration hasn't been applied yet)
+    const has = async (table: string, cols = "*") => {
+      const r = await db.from(table).select(cols).limit(1);
+      return r.error ? r.error.message || `HTTP ${r.status}` : null;
+    };
+    const applyHint = (file: string) => `In Lovable chat, ask: “Apply the Supabase migration in supabase/migrations/${file} exactly as written.”`;
+    const dbChecks: { label: string; err: string | null; file: string; optional?: boolean; okDetail: string }[] = [
+      { label: "Chainlink draws + spin purchases", err: (await has("spin_purchases", "id")) ?? (await has("spins", "status")), file: "20261006173505_… and 20261006173526_…", okDetail: "Tables are in place" },
+      { label: "Privy sign-in", err: await has("privy_accounts", "privy_did"), file: "20261007100000_privy_sign_in_default_wallet.sql", okDetail: "Tables are in place" },
+      { label: "Guide chat history", err: await has("guide_messages", "id"), file: "20261006182624_b05bdd69-529e-4952-92bb-d4f7f9811eaa.sql", okDetail: "Tables are in place" },
+      { label: "Guide ApeFest info cache", err: await has("event_knowledge", "url"), file: "20261008190000_event_knowledge.sql", optional: true, okDetail: "Tables are in place" },
+    ];
+    const { grantSchemaReady } = await import("./grants.server");
+    const grantsReady = await grantSchemaReady(db).catch(() => false);
+    for (const c of dbChecks)
+      items.push({ group: "Database", label: c.label, ok: !c.err, ...(c.optional ? { optional: true } : {}), detail: c.err ?? c.okDetail, where: applyHint(c.file) });
+    items.push({ group: "Database", label: "Admin spin grants (demo vs paid-equivalent tracking)", ok: grantsReady, optional: true, detail: grantsReady ? "Tables are in place" : "Not applied yet — grants still work (compatibility mode) and move over automatically once it is", where: applyHint("20261010010000_admin_spin_grants.sql") });
 
     // Chainlink VRF draw
     const vrf = (await cfg("vrf")) as { enabled?: boolean; contract?: string; rpc_url?: string; chain_id?: number } | null;
