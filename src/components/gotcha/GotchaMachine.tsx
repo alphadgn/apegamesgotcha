@@ -235,7 +235,6 @@ export function GotchaMachine({
 
   useEffect(() => {
     jukebox.current ??= createJukebox();
-    jukebox.current.preload();
   }, []);
 
   useEffect(() => {
