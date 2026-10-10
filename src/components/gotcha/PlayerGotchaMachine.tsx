@@ -10,6 +10,7 @@ import { readPendingPurchase, usePurchaseConfirmer } from "@/components/wallet/C
 import { GotchaMachine, type GotchaPrize } from "./GotchaMachine";
 import { DemoGotchaMachine } from "./DemoGotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
+import { useMyIrlPrizes } from "@/components/IrlPrizes";
 
 type MachineData = {
   credits: number;
@@ -86,6 +87,10 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
   });
   const closedReason = vrfOpen === false ? "The on-chain prize draw is being switched on. Your spins are saved." : undefined;
 
+  // Real-world prizes won on-chain that still need the player's delivery details.
+  const { data: irl } = useMyIrlPrizes();
+  const unclaimed = (irl ?? []).filter((w) => !w.claim).length;
+
   const credits = data?.credits ?? 0;
   const showShare = credits === 0 && !inPlay && (data?.lastFive.length ?? 0) > 0;
 
@@ -127,6 +132,11 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
           </button>
         </span>
       </div>
+      {unclaimed > 0 && !inPlay && (
+        <a href="#irl" className="mb-2 block rounded border border-primary bg-primary/15 px-3 py-2 text-center text-sm font-bold text-primary">
+          🎁 You won {unclaimed === 1 ? "an IRL prize" : `${unclaimed} IRL prizes`} — claim {unclaimed === 1 ? "it" : "them"} now
+        </a>
+      )}
       <GotchaMachine
         credits={credits}
         prizes={data?.prizes ?? []}

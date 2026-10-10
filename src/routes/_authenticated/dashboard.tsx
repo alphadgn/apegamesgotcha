@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
 import { useAuth } from "@/hooks/useAuth";
 import { SafeSection } from "@/components/SafeSection";
+import { IrlPrizes } from "@/components/IrlPrizes";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -172,6 +173,13 @@ function Dashboard() {
             : {})}
         />
         <Stat label="NFTs synced" value={String(data.holdings.filter((h) => !h.burned).length)} />
+      </div>
+
+      {/* IRL prizes waiting to be claimed */}
+      <div className="mt-6">
+        <SafeSection label="IRL prizes">
+          <IrlPrizes />
+        </SafeSection>
       </div>
 
       {/* Gotcha machine */}

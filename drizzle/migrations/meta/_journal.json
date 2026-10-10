@@ -43,6 +43,13 @@
       "when": 1791663890292,
       "tag": "0005_prize_images_physical",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791663950292,
+      "tag": "0006_irl_prize_claims",
+      "breakpoints": true
     }
   ]
 }

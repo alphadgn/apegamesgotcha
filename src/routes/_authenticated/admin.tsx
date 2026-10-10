@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Leaderboard, useLeaderboardMode } from "@/components/Leaderboard";
+import { adminListIrlClaims, adminUpdateClaim, type ClaimStatus } from "@/lib/claims.functions";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -168,10 +169,11 @@ function PrizeImage({ path, onChange }: { path?: string | null | undefined; onCh
   return (
     <label className="relative flex h-12 w-12 cursor-pointer items-center justify-center overflow-hidden rounded border border-dashed border-border bg-background text-[10px] text-muted-foreground" title={path ? "Replace image" : "Upload image"}>
       {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : busy ? "…" : "+ img"}
-      <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={async (e) => {
         const f = e.target.files?.[0];
         e.target.value = "";
         if (!f) return;
+        if (!/^image\/(jpeg|png|webp|gif)$/.test(f.type)) { toast.error("Use a JPEG, PNG, WebP or GIF picture"); return; }
         if (f.size > 5 * 1024 * 1024) { toast.error("Image must be under 5 MB"); return; }
         setBusy(true);
         const ext = f.name.split(".").pop()?.toLowerCase() || "png";
@@ -796,6 +798,99 @@ function BoardPanel() {
           ))}
         </ul>
       </div>
+      <IrlClaimsCard />
+    </div>
+  );
+}
+
+const CLAIM_STATUSES: ClaimStatus[] = ["submitted", "approved", "shipped", "delivered", "rejected"];
+
+/** IRL prizes won in real draws and the delivery details each winner sent. */
+function IrlClaimsCard() {
+  const list = useServerFn(adminListIrlClaims);
+  const update = useServerFn(adminUpdateClaim);
+  const [filter, setFilter] = useState<"open" | "all">("open");
+  const { data, error, isFetching, refetch } = useQuery({ queryKey: ["irl-claims"], queryFn: () => list() });
+  const [edits, setEdits] = useState<Record<string, { status: ClaimStatus; note: string; tracking: string }>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const rows = (data?.rows ?? []).filter((r) => filter === "all" || !r.claim || !["delivered", "rejected"].includes(r.claim.status));
+  const waiting = (data?.rows ?? []).filter((r) => !r.claim).length;
+
+  const save = async (claimId: string) => {
+    const e = edits[claimId];
+    if (!e) return;
+    setBusy(claimId);
+    try {
+      await update({ data: { claimId, status: e.status, adminNote: e.note, tracking: e.tracking } });
+      toast.success("Claim updated");
+      setEdits(({ [claimId]: _, ...rest }) => rest);
+      await refetch();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded border border-border bg-card p-4 text-left md:col-span-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-bold">IRL prize claims</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <select className="h-10 rounded border border-border bg-background px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+            <option value="open">Open</option>
+            <option value="all">All</option>
+          </select>
+          <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Loading…" : "Refresh"}</Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Physical prizes (marked IRL) won in real draws. Winners send their contact details and choose pickup at ApeFest or shipping; you're emailed for each claim.
+        {waiting > 0 && <b className="text-destructive"> {waiting} winner{waiting === 1 ? " hasn't" : "s haven't"} claimed yet.</b>}
+      </p>
+      {data && !data.ready && <p className="text-sm text-destructive">Claims turn on after the database update (publish to apply it).</p>}
+      {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
+      {data && !rows.length && <p className="text-sm text-muted-foreground">Nothing here.</p>}
+      <ul className="divide-y divide-border text-sm">
+        {rows.map((r) => {
+          const c = r.claim;
+          const e = c ? (edits[c.id] ?? { status: c.status, note: c.admin_note ?? "", tracking: c.tracking ?? "" }) : null;
+          const setE = (patch: Partial<NonNullable<typeof e>>) => c && e && setEdits({ ...edits, [c.id]: { ...e, ...patch } });
+          const a = c?.address;
+          return (
+            <li key={r.spin_id} className="grid gap-2 py-3">
+              <div>
+                <b>{r.prize}</b> <span className="text-xs uppercase text-muted-foreground">{r.rarity}</span>
+                <span className="block break-all text-xs text-muted-foreground">{r.player} · won {new Date(r.won_at).toLocaleString()}</span>
+              </div>
+              {!c ? (
+                <p className="text-xs text-destructive">Not claimed yet: the winner sees a "Claim prize" prompt on their dashboard.</p>
+              ) : (
+                <>
+                  <div className="grid gap-1 rounded bg-muted/40 p-2 text-xs sm:grid-cols-2">
+                    <span><b>{c.full_name}</b> · <a className="underline" href={`mailto:${c.email}`}>{c.email}</a>{c.phone ? ` · ${c.phone}` : ""}</span>
+                    <span>{c.delivery === "pickup" ? "Pick up at ApeFest Charleston" : "Ship it"}</span>
+                    {a && (
+                      <span className="whitespace-pre-line sm:col-span-2">
+                        {[a["line1"], a["line2"], `${a["city"] ?? ""}${a["region"] ? `, ${a["region"]}` : ""} ${a["postal"] ?? ""}`, a["country"]].filter(Boolean).join("\n")}
+                      </span>
+                    )}
+                    {c.notes && <span className="sm:col-span-2">Note: {c.notes}</span>}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]">
+                    <select className="h-10 rounded border border-border bg-background px-2 text-sm" value={e!.status} onChange={(ev) => setE({ status: ev.target.value as ClaimStatus })}>
+                      {CLAIM_STATUSES.map((s) => <option key={s} value={s}>{s[0]!.toUpperCase() + s.slice(1)}</option>)}
+                    </select>
+                    <Input placeholder="Note to the winner (optional)" value={e!.note} onChange={(ev) => setE({ note: ev.target.value })} maxLength={1000} />
+                    <Input placeholder="Tracking number (optional)" value={e!.tracking} onChange={(ev) => setE({ tracking: ev.target.value })} maxLength={200} />
+                    <Button size="sm" disabled={busy === c.id || !edits[c.id]} onClick={() => void save(c.id)}>{busy === c.id ? "Saving…" : "Save"}</Button>
+                  </div>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
