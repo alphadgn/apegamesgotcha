@@ -260,6 +260,15 @@ function GrantsPanel() {
   const [g, setG] = useState<{ email: string; spins: number; kind: GrantKind; points: number; note: string }>({ email: "", spins: 1, kind: "real", points: 0, note: "" });
   const [busy, setBusy] = useState(false);
   const [lv, setLv] = useState({ tokenId: "", level: "" });
+  // Paid-equivalent spins are real on-chain draws, so they can only be played while the draw is switched on.
+  const { data: drawOpen } = useQuery({
+    queryKey: ["grant-draw-open"],
+    queryFn: async () => {
+      const { data: row } = await supabase.from("app_config").select("value").eq("key", "vrf").maybeSingle();
+      const v = (row?.value ?? {}) as { enabled?: boolean; contract?: string };
+      return !!v.enabled && /^0x[0-9a-fA-F]{40}$/.test(v.contract ?? "");
+    },
+  });
   return (
     <div className="mt-4 space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
@@ -283,6 +292,12 @@ function GrantsPanel() {
               ))}
             </div>
           </fieldset>
+          {g.kind === "real" && drawOpen === false && (
+            <p className="rounded border border-destructive/60 bg-destructive/10 p-2 text-left text-xs">
+              The on-chain draw is switched off right now, so players will see paid-equivalent spins as “saved” but can’t
+              spin them until you turn it on (Chainlink VRF tab). Demo spins work straight away.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <label className="text-left text-xs text-muted-foreground">
               Spins

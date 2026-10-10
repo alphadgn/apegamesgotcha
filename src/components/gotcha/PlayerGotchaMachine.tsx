@@ -48,8 +48,10 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
         lastFive: ((recent.data ?? []) as ShareSpin[]).filter((s) => s.prize_name).reverse(),
       };
     },
-    // Spins an administrator grants show up within seconds, without a reload.
-    refetchInterval: inPlay || freeInPlay ? false : 15_000,
+    // Spins an administrator grants show up within seconds, without a reload: check every 5s while the
+    // player has nothing to spin (so the countdown gives way at once), every 15s otherwise.
+    refetchInterval: (q) =>
+      inPlay || freeInPlay ? false : (q.state.data?.credits ?? 0) + (q.state.data?.demoGrants ?? 0) === 0 ? 5_000 : 15_000,
     refetchOnWindowFocus: true,
   });
 
@@ -87,9 +89,28 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
   const credits = data?.credits ?? 0;
   const showShare = credits === 0 && !inPlay && (data?.lastFive.length ?? 0) > 0;
 
-  // Out of real spins: the same free practice spin every 30 minutes (no prizes or points).
-  if (data && ((credits === 0 && data.pendingIds.length === 0 && !inPlay) || freeInPlay)) {
-    return <DemoGotchaMachine prizes={data.prizes} userId={userId} grantedSpins={data.demoGrants} onBusyChange={setFreeInPlay} />;
+  // Which spins the player can use right now, in this order:
+  //   1. real spins (purchased or granted paid-equivalent) — when the on-chain draw is open
+  //   2. demo spins the team granted — straight away, no countdown
+  //   3. the free practice spin every 30 minutes — only once 1 and 2 are used up
+  // So the countdown never stands in front of spins the player holds. While the on-chain draw is closed,
+  // real spins stay saved and granted demo spins are still playable.
+  const drawClosed = vrfOpen === false;
+  const idle = !inPlay && (data?.pendingIds.length ?? 0) === 0;
+  const demoFirst = !!data && idle && (credits === 0 || (drawClosed && data.demoGrants > 0));
+  if (data && (demoFirst || freeInPlay)) {
+    return (
+      <DemoGotchaMachine
+        prizes={data.prizes}
+        userId={userId}
+        grantedSpins={data.demoGrants}
+        savedRealSpins={credits}
+        onBusyChange={(busy) => {
+          setFreeInPlay(busy);
+          if (!busy) void refresh(); // session over: re-check which spins the player has left
+        }}
+      />
+    );
   }
 
   return (

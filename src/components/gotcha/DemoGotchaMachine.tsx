@@ -64,6 +64,7 @@ export function DemoGotchaMachine({
   prizes,
   userId,
   grantedSpins = 0,
+  savedRealSpins = 0,
   onBusyChange,
 }: {
   prizes?: GotchaPrize[] | undefined;
@@ -71,6 +72,8 @@ export function DemoGotchaMachine({
   userId?: string | undefined;
   /** Practice spins an administrator granted this player: usable right away, no cooldown. */
   grantedSpins?: number | undefined;
+  /** Real spins the player holds that wait for the on-chain draw to open (shown, never blocked by the timer). */
+  savedRealSpins?: number | undefined;
   onBusyChange?: ((busy: boolean) => void) | undefined;
 }) {
   const lastKey = userId ? `${DEMO_KEY}:${userId}` : DEMO_KEY;
@@ -101,7 +104,9 @@ export function DemoGotchaMachine({
   }, [lastKey, pullsKey]);
 
   const wait = Math.max(0, lastSpin + DEMO_COOLDOWN_MS - now);
-  const credits = granted + (wait === 0 ? 1 : 0);
+  // Granted spins are usable immediately; the every-30-minutes free spin only counts once they're gone.
+  // While real spins are saved for the on-chain draw, the player isn't out of spins, so no free-spin timer.
+  const credits = granted > 0 ? granted : savedRealSpins > 0 ? 0 : wait === 0 ? 1 : 0;
 
   const guideToRefill = useCallback(() => {
     const button = refillRef.current;
@@ -120,14 +125,14 @@ export function DemoGotchaMachine({
   const onDraw = useCallback(
     async (count: number) => {
       let n = 0;
-      // Granted spins first, so the free every-30-minutes spin is kept for later.
+      // Granted spins first; the free every-30-minutes spin is only used once they're all gone.
       const fromGrant = Math.min(count, granted);
       if (fromGrant > 0) {
         const { used } = await redeem({ data: { count: fromGrant } });
         setGrantedUsed((u) => u + used);
         n += used;
       }
-      if (n < count && Date.now() >= lastSpin + DEMO_COOLDOWN_MS) {
+      if (n === 0 && granted === 0 && Date.now() >= lastSpin + DEMO_COOLDOWN_MS) {
         const at = Date.now();
         try {
           localStorage.setItem(lastKey, String(at));
@@ -169,8 +174,20 @@ export function DemoGotchaMachine({
               {granted} free practice spin{granted === 1 ? "" : "s"} from the ApeGames team, ready now.{" "}
             </b>
           ) : null}
-          Demo: 1 free spin every 30 minutes · no prizes or points.{" "}
-          {credits === 0 && !inPlay ? <b>Next demo spin in {fmt(wait)}.</b> : null} {userId ? "Refill to play for real." : "Sign in to play for real."}
+          {savedRealSpins > 0 ? (
+            <>
+              {savedRealSpins} real spin{savedRealSpins === 1 ? "" : "s"} saved for when the on-chain draw opens.{" "}
+            </>
+          ) : null}
+          {granted > 0 || savedRealSpins > 0 ? (
+            granted > 0 ? "Practice spins: no prizes or points. " : null
+          ) : (
+            <>
+              Demo: 1 free spin every 30 minutes · no prizes or points.{" "}
+              {credits === 0 && !inPlay ? <b>Next demo spin in {fmt(wait)}.</b> : null}{" "}
+            </>
+          )}
+          {userId ? "Refill to play for real." : "Sign in to play for real."}
         </span>
         <span className="gm-bar-actions">
           {showShare && <ShareSpinsButton spins={revealedSpins} demo />}
