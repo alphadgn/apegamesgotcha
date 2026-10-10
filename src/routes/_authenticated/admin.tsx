@@ -4,7 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminRestockPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminReconcilePublication, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
+import { SeasonsPanel, SnapshotsPanel, SharesPanel, LedgerPanel, EconomicsPanel, OpsPanel } from "@/components/admin/SeasonAdmin";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,12 @@ function Admin() {
       <Tabs defaultValue="setup" className="mt-6">
         <TabsList className="h-auto flex-wrap justify-center gap-1">
           <TabsTrigger value="setup">Setup checklist</TabsTrigger>
+          <TabsTrigger value="seasons">Seasons</TabsTrigger>
+          <TabsTrigger value="snapshots">Snapshots</TabsTrigger>
+          <TabsTrigger value="shares">Shares</TabsTrigger>
+          <TabsTrigger value="ledger">Ledger</TabsTrigger>
+          <TabsTrigger value="economics">Economics</TabsTrigger>
+          <TabsTrigger value="ops">Operations</TabsTrigger>
           <TabsTrigger value="config">Configuration</TabsTrigger>
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
           <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>
@@ -43,6 +50,12 @@ function Admin() {
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="setup"><SetupPanel /></TabsContent>
+        <TabsContent value="seasons"><SeasonsPanel /></TabsContent>
+        <TabsContent value="snapshots"><SnapshotsPanel /></TabsContent>
+        <TabsContent value="shares"><SharesPanel /></TabsContent>
+        <TabsContent value="ledger"><LedgerPanel /></TabsContent>
+        <TabsContent value="economics"><EconomicsPanel /></TabsContent>
+        <TabsContent value="ops"><OpsPanel /></TabsContent>
         <TabsContent value="config"><ConfigPanel /></TabsContent>
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
         <TabsContent value="vrf"><VrfPanel /></TabsContent>
@@ -60,7 +73,7 @@ function SetupPanel() {
   const missing = (data ?? []).filter((i) => !i.ok && !i.optional).length;
   return (
     <div className="mt-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           {data ? (missing ? `${missing} required item${missing === 1 ? "" : "s"} left before real spins and purchases work.` : "Everything required is in place.") : "Checking…"}
         </p>
@@ -111,7 +124,7 @@ function EventInfoCard({ onRefreshed }: { onRefreshed: () => void }) {
   };
   return (
     <div className="rounded border border-border bg-card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-bold">ApeFest 2026 pages the guide reads</h3>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void run()}>{busy ? "Fetching…" : "Refresh ApeFest info"}</Button>
       </div>
@@ -149,39 +162,62 @@ function ConfigEditor({ row }: { row: { key: string; value: unknown; version: nu
   );
 }
 
-type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "legendary"; weight: number; points: number; inventory: number | null; active: boolean };
+type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "legendary"; weight: number; inventory: number | null; active: boolean; fulfillment_type: "unclassified" | "points_only" | "digital_free" | "fulfillment_required"; onchain_index?: number | null };
 
 function PrizesPanel() {
   const qc = useQueryClient();
   const save = useServerFn(adminUpsertPrize);
+  const restock = useServerFn(adminRestockPrize);
   const { data } = useQuery({ queryKey: ["prizes-admin"], queryFn: async () => (await supabase.from("prizes").select("*").order("created_at")).data ?? [] });
   const [rows, setRows] = useState<Prize[]>([]);
-  useEffect(() => { if (data) setRows(data as Prize[]); }, [data]);
+  useEffect(() => { if (data) setRows(data as unknown as Prize[]); }, [data]);
   const total = rows.filter((r) => r.active && (r.inventory == null || r.inventory > 0)).reduce((s, r) => s + r.weight, 0);
   const upd = (i: number, p: Partial<Prize>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
   return (
     <div className="mt-4 overflow-x-auto rounded border border-border bg-card p-4">
-      <p className="mb-2 text-xs text-muted-foreground sm:hidden">Swipe sideways to see every column.</p>
-      <div className="grid min-w-[720px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] gap-2 font-mono text-xs uppercase text-muted-foreground">
-        <span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>Active</span><span />
+      <p className="mb-3 text-sm text-muted-foreground">
+        Season points for prizes come from the season rules (rarity bonus or per-prize override), not from this table. Unlimited stock is only allowed for
+        points-only or cost-free digital prizes. Stock of a published prize only goes up through an audited restock. Publish on-chain after changes.
+      </p>
+      <div className="grid min-w-[760px] grid-cols-[2fr_1fr_1fr_1fr_1.4fr_70px_50px_150px] gap-2 font-mono text-xs uppercase text-muted-foreground">
+        <span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Type</span><span>Stock</span><span>On</span><span />
       </div>
       {rows.map((r, i) => (
-        <div key={r.id ?? i} className="mt-2 grid min-w-[720px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] items-center gap-2">
+        <div key={r.id ?? i} className="mt-2 grid min-w-[760px] grid-cols-[2fr_1fr_1fr_1fr_1.4fr_70px_50px_150px] items-center gap-2">
           <Input value={r.name} onChange={(e) => upd(i, { name: e.target.value })} />
           <select className="h-9 rounded border border-input bg-background px-2 text-sm" value={r.rarity} onChange={(e) => upd(i, { rarity: e.target.value as Prize["rarity"] })}>
             {["common", "rare", "epic", "legendary"].map((x) => <option key={x}>{x}</option>)}
           </select>
           <Input type="number" value={r.weight} onChange={(e) => upd(i, { weight: +e.target.value })} />
           <span className="font-mono text-sm">{total && r.active ? ((r.weight / total) * 100).toFixed(2) : "0"}%</span>
-          <Input type="number" value={r.points} onChange={(e) => upd(i, { points: +e.target.value })} />
+          <select className="h-9 rounded border border-input bg-background px-2 text-sm" value={r.fulfillment_type} onChange={(e) => upd(i, { fulfillment_type: e.target.value as Prize["fulfillment_type"] })}>
+            <option value="unclassified">unclassified</option>
+            <option value="points_only">points only</option>
+            <option value="digital_free">cost-free digital</option>
+            <option value="fulfillment_required">needs fulfilment</option>
+          </select>
           <Input placeholder="∞" value={r.inventory ?? ""} onChange={(e) => upd(i, { inventory: e.target.value === "" ? null : +e.target.value })} />
           <input type="checkbox" checked={r.active} onChange={(e) => upd(i, { active: e.target.checked })} />
-          <Button size="sm" onClick={async () => {
-            try { await save({ data: r }); toast.success("Saved"); qc.invalidateQueries({ queryKey: ["prizes-admin"] }); } catch (e) { toast.error((e as Error).message); }
-          }}>Save</Button>
+          <span className="flex gap-1">
+            <Button size="sm" onClick={async () => {
+              try {
+                await save({ data: { ...(r.id ? { id: r.id } : {}), name: r.name, rarity: r.rarity, weight: r.weight, inventory: r.inventory, active: r.active, fulfillment_type: r.fulfillment_type } });
+                toast.success("Saved");
+                void qc.invalidateQueries({ queryKey: ["prizes-admin"] });
+              } catch (e) { toast.error((e as Error).message); }
+            }}>Save</Button>
+            {r.id && r.inventory != null && (
+              <Button size="sm" variant="outline" onClick={async () => {
+                const qty = Number(window.prompt("Units to add (audited restock):") ?? "0");
+                const evidence = qty > 0 ? window.prompt("Evidence (delivery note, invoice…):") : null;
+                if (!qty || !evidence) return;
+                try { await restock({ data: { prizeId: r.id!, quantity: qty, evidence } }); toast.success("Restocked"); void qc.invalidateQueries({ queryKey: ["prizes-admin"] }); } catch (e) { toast.error((e as Error).message); }
+              }}>+Stock</Button>
+            )}
+          </span>
         </div>
       ))}
-      <Button variant="outline" size="sm" className="mt-4" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", weight: 1, points: 0, inventory: null, active: false }])}>Add prize</Button>
+      <Button variant="outline" size="sm" className="mt-4" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", weight: 1, inventory: null, active: false, fulfillment_type: "unclassified" }])}>Add prize</Button>
     </div>
   );
 }
@@ -190,6 +226,7 @@ function VrfPanel() {
   const status = useServerFn(adminVrfStatus);
   const publish = useServerFn(adminPublishPool);
   const settle = useServerFn(adminSettleDraws);
+  const reconcile = useServerFn(adminReconcilePublication);
   const qc = useQueryClient();
   const { data, error, isFetching } = useQuery({ queryKey: ["vrf-status"], queryFn: () => status() });
   const [busy, setBusy] = useState<string | null>(null);
@@ -198,7 +235,7 @@ function VrfPanel() {
     try { toast.success(await fn()); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); qc.invalidateQueries({ queryKey: ["vrf-status"] }); }
   };
   const Row = ({ k, v, warn }: { k: string; v: ReactNode; warn?: boolean }) => (
-    <div className="flex justify-between gap-3 border-b border-border py-2 text-left text-sm"><span className="text-muted-foreground">{k}</span><span className={`break-all text-right ${warn ? "text-destructive" : ""}`}>{v}</span></div>
+    <div className="flex justify-between border-b border-border py-2 text-sm"><span className="text-muted-foreground">{k}</span><span className={warn ? "text-destructive" : ""}>{v}</span></div>
   );
   return (
     <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -214,7 +251,10 @@ function VrfPanel() {
               <Row k="Odds in sync with contract" v={data.oddsInSync ? "yes" : "no — publish"} warn={!data.oddsInSync} />
               <Row k="Pool version" v={data.poolVersion} />
               <Row k="Draws pending on-chain" v={data.pendingOnChain} />
+              <Row k="New requests paused on-chain" v={data.requestsPaused ? "yes" : "no"} warn={data.requestsPaused} />
+              <Row k="VRF subscription" v={"error" in data.subscription ? data.subscription.error : `${data.subscription.balance} wei${data.subscription.isConsumer ? "" : " · NOT a consumer"}`} warn={"error" in data.subscription || !data.subscription.isConsumer || data.subscription.balance === "0"} />
             </>}
+            {data.lastPublication && <Row k="Last publication" v={`${data.lastPublication.status}${data.lastPublication.pool_version ? ` v${data.lastPublication.pool_version}` : ""}`} warn={data.lastPublication.status !== "confirmed"} />}
             <Row k="Spins pending in app" v={data.pendingDb} />
             {data.unpublished > 0 && <Row k="Prizes not yet on-chain" v={data.unpublished} warn />}
           </div>
@@ -224,13 +264,16 @@ function VrfPanel() {
       <div className="space-y-4 rounded border border-border bg-card p-4">
         <div>
           <h3 className="font-bold">Publish odds on-chain</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Sends the current prize weights and stock to the contract. Spins stay blocked while the app's odds differ from the contract's. The contract refuses changes while a draw is pending.</p>
-          <Button className="mt-2" disabled={!!busy} onClick={() => act("publish", async () => { const r = await publish(); return `Published (${r.txHash.slice(0, 10)}…)`; })}>{busy === "publish" ? "Publishing…" : "Publish prize pool"}</Button>
+          <p className="mt-1 text-sm text-muted-foreground">Reconciles stock with the contract, sends the weights and stock, then confirms by reading the contract back. Needs every draw settled; new draws wait while it runs.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button disabled={!!busy} onClick={() => act("publish", async () => { const r = await publish(); return `Publication ${r.status} (${r.txHash.slice(0, 10)}…)`; })}>{busy === "publish" ? "Publishing…" : "Publish prize pool"}</Button>
+            <Button variant="outline" disabled={!!busy} onClick={() => act("reconcile", async () => `Publication: ${(await reconcile()).status}`)}>Reconcile open publication</Button>
+          </div>
         </div>
         <div>
           <h3 className="font-bold">Settle pending draws</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Records results Chainlink has delivered for players who left mid-draw, and returns credits for requests that never reached the chain.</p>
-          <Button variant="secondary" className="mt-2" disabled={!!busy} onClick={() => act("settle", async () => { const r = await settle(); return `Settled ${r.before - r.after} of ${r.before}`; })}>{busy === "settle" ? "Settling…" : "Settle now"}</Button>
+          <p className="mt-1 text-sm text-muted-foreground">Runs one pass of the settlement worker now (it also runs on its schedule): confirms requests, resends stored transactions and records Chainlink results. It never refunds on a timeout.</p>
+          <Button variant="secondary" className="mt-2" disabled={!!busy} onClick={() => act("settle", async () => { const r = await settle(); return `Worker pass: ${Object.entries(r).map(([k, v]) => `${k} ${v}`).join(", ") || "nothing to do"}`; })}>{busy === "settle" ? "Settling…" : "Run settlement pass"}</Button>
         </div>
       </div>
     </div>
@@ -246,6 +289,7 @@ function GrantsPanel() {
     <div className="mt-4 grid gap-4 md:grid-cols-2">
       <div className="space-y-2 rounded border border-border bg-card p-4">
         <h3 className="font-bold">Grant spins / adjust points</h3>
+        <p className="text-sm text-muted-foreground">Granted spins draw from a funded “grant” budget (Economics). Point adjustments apply to the active season and are audited. A reason is required.</p>
         <Input placeholder="user email" value={g.email} onChange={(e) => setG({ ...g, email: e.target.value })} />
         <div className="grid grid-cols-2 gap-2">
           <Input type="number" placeholder="spins" value={g.spins} onChange={(e) => setG({ ...g, spins: +e.target.value })} />
@@ -272,7 +316,7 @@ function AuditPanel() {
   return (
     <div className="mt-4 rounded border border-border bg-card font-mono text-xs">
       {data?.map((a) => (
-        <div key={a.id} className="grid gap-1 border-b border-border px-4 py-2 text-left sm:grid-cols-[170px_160px_1fr] sm:gap-3">
+        <div key={a.id} className="grid gap-1 sm:grid-cols-[170px_160px_1fr] sm:gap-3 border-b border-border px-4 py-2">
           <span className="text-muted-foreground">{new Date(a.created_at).toLocaleString()}</span>
           <span className="text-primary">{a.action}</span>
           <span className="break-all sm:truncate">{JSON.stringify(a.details)}</span>

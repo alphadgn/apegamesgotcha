@@ -133,3 +133,16 @@ export async function fetchPrivyIdentity(did: string, appId: string): Promise<Pr
 
   return { did, email: email ? email.toLowerCase() : null, wallets };
 }
+
+/**
+ * Which existing player a Privy login belongs to. Candidates come from the verified Privy link (DID), the
+ * verified email and wallets already linked. If they point at different players we refuse rather than
+ * merge accounts or move points — the player must contact support.
+ */
+export function resolvePrivyUser(c: { byDid: string | null; byEmail: string | null; byWallets: string[] }): string | null {
+  const ids = new Set<string>([c.byDid, c.byEmail, ...c.byWallets].filter((x): x is string => !!x));
+  if (ids.size > 1) {
+    throw new Error("This sign-in is connected to more than one ApeGames account. Nothing was merged — contact support to sort it out.");
+  }
+  return [...ids][0] ?? null;
+}

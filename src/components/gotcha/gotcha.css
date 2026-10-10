@@ -653,6 +653,12 @@
 }
 .gm-share-grid a:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
+.gm-share-earn { display: grid; gap: 8px; margin-top: 12px; text-align: center; }
+.gm-share-earn label { font-size: 0.85rem; color: #c9d4ff; }
+.gm-share-earn input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #3b4d80; background: #0c1b3d; color: #fff6e3; }
+.gm-share-earn button { padding: 10px 12px; border-radius: 10px; background: #f6c343; color: #0c1b3d; font-weight: 700; }
+.gm-share-earn button:disabled { opacity: 0.6; }
+.gm-share-earn p { font-size: 0.85rem; color: #fff6e3; }
 .gm-share-main a, .gm-share-main button { font-size: 1rem; font-weight: 700; padding: 14px 10px; }
 .gm-share-hint { margin-top: 10px; font-size: 0.85rem; color: #c9d4ff; text-align: center; }
 .gm-share-more { margin-top: 12px; }

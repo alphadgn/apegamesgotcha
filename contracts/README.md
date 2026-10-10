@@ -16,7 +16,29 @@ ApeGames NFTs stay on ApeChain; only the random draw lives on Base.
 - **No re-rolls.** Each spin id can be requested once, ever.
 - **Odds can't change mid-draw.** `setPool` reverts while any draw is pending.
 - **Only the coordinator can fulfil**, and only the operator can request.
-- If a request is never fulfilled, the owner can `cancelRequest`. The app then refunds those spins.
+- **No cancellation or re-request.** Following Chainlink's VRF security guidance, a requested spin can only
+  leave `Pending` through Chainlink's answer. If a request is slow (e.g. the subscription ran low), top up the
+  subscription; the app keeps the player's credit reserved and settles the spin when the answer arrives.
+- **Pause is for new requests only.** `setRequestsPaused(true)` (owner) stops new draws; callbacks for draws
+  already requested are always processed.
+
+### Trust assumptions
+
+- The **owner** can change the VRF coordinator (`setCoordinator`, inherited from Chainlink's
+  `VRFConsumerBaseV2Plus`), the VRF config and the operator. Keep the owner on a multisig/hardware wallet and
+  watch for `CoordinatorSet`, `VrfConfigUpdated` and `OperatorUpdated` events.
+- The **operator** (app server) can request draws and publish the pool, but cannot choose outcomes.
+
+## Replacing an existing deployment (required for this version)
+
+Contract source changes do **not** change contracts that are already deployed. Earlier versions of GotchaVRF
+had an owner `cancelRequest` escape hatch; this version removes it. If an older GotchaVRF was ever deployed:
+
+1. Pause it (old versions: stop the app from requesting by setting `vrf.enabled: false`).
+2. Wait until every pending request is fulfilled and settled (Admin → Operations shows the settlement queue).
+3. Deploy this version, add it as a consumer, publish the pool to it, then point `vrf.contract` at it.
+4. Optionally remove the old consumer from the subscription. Keep `vrf.rpc_by_chain` covering any chain that
+   still has unsettled spins: settlement always uses each spin's captured chain and contract.
 
 ## Setup
 
@@ -24,7 +46,7 @@ ApeGames NFTs stay on ApeChain; only the random draw lives on Base.
 cd contracts
 npm install                                  # @chainlink/contracts
 forge install foundry-rs/forge-std --no-git  # test library (lib/ is git-ignored)
-forge test -vv                               # 14 tests incl. callback-gas and fuzz
+forge test -vv                               # 16 tests incl. callback-gas, pause and fuzz
 ```
 
 1. **Create a server wallet** (the *operator*) and fund it with a little Base ETH for gas.
@@ -41,11 +63,14 @@ forge test -vv                               # 14 tests incl. callback-gas and f
 5. **App secrets:** add `VRF_OPERATOR_PRIVATE_KEY` (the operator's key) to the project's server secrets in Lovable/Supabase.
 6. **App config:** in Admin → Configuration, edit `vrf`: set `contract`, and for mainnet set
    `chain_id: 8453`, `rpc_url`, `explorer_url: "https://basescan.org"`.
-7. **Admin → Chainlink VRF → Publish prize pool.** This writes the prize weights and stock on-chain.
-8. Set `vrf.enabled: true`. Spins are live.
+7. **Fund the subscription** enough for expected volume (Admin → Setup shows the balance check) and record
+   measured gas/VRF costs in Admin → Economics.
+8. **Admin → Chainlink VRF → Publish prize pool.** The app first reconciles stock with the contract, then
+   writes weights and stock on-chain and confirms them by reading the contract back.
+9. Set `vrf.enabled: true` only when the setup checklist is green. (Not done automatically.)
 
-Whenever you change prize weights, stock or active status, publish again. Spins pause automatically while
-the app's odds differ from the contract's, so the odds players see are always the odds used.
+Whenever you change prize weights, stock or active status, publish again. New draws pause while a
+publication is in flight, so the odds players see are always the odds used.
 
 ## Verifying a draw
 

@@ -1,7 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { prizeArt } from "./icons";
+import { prizeArt, TorchEmblem } from "./icons";
 
-export type ShareSpin = { prize_name: string; rarity: string; points: number };
+/** A revealed result. `id` is the real spin id (fulfilled spins only); points split into participation + bonus when scored. */
+export type ShareSpin = {
+  id?: string | undefined;
+  prize_name: string;
+  rarity: string;
+  points: number;
+  participation_points?: number | null | undefined;
+  bonus_points?: number | null | undefined;
+};
+
+/** Short code printed on the card and in the post text (matches the server's spin_share_code). */
+export function shareCode(spinId: string) {
+  return `AGG-${spinId.replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+}
+
+const TAGLINE = "The Games Are Calling. Take Your Spin.";
 
 const RARITY: Record<string, { label: string; color: string }> = {
   common: { label: "Common", color: "#cbd5e1" },
@@ -12,11 +27,14 @@ const RARITY: Record<string, { label: string; color: string }> = {
 
 function shareText(spins: ShareSpin[], demo: boolean) {
   const total = spins.reduce((s, x) => s + x.points, 0);
-  const lines = spins.map((s, i) => `${i + 1}. ${s.prize_name} (${RARITY[s.rarity]?.label ?? s.rarity})${demo ? "" : ` +${s.points}`}`);
+  const lines = spins.map(
+    (s, i) => `${i + 1}. ${s.prize_name} (${RARITY[s.rarity]?.label ?? s.rarity})${demo ? "" : ` +${s.points}`}${!demo && s.id ? ` · ${shareCode(s.id)}` : ""}`,
+  );
   return [
     `My last ${spins.length === 1 ? "" : `${spins.length} `}ApeGames Gotcha ${demo ? "demo " : ""}pull${spins.length === 1 ? "" : "s"} 🎰`,
     ...lines,
     demo ? "" : `Total: +${total} pts`,
+    TAGLINE,
     "#GoApeGames2026 @goApeGames",
   ]
     .filter(Boolean)
@@ -50,6 +68,14 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   g.fillRect(0, H - 116, W, 6);
 
   g.textAlign = "center";
+  // ApeGames torch emblem (logo)
+  const logo = artHost.querySelector("svg[data-logo]");
+  if (logo) {
+    const img = new Image();
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(logo));
+    await img.decode().catch(() => {});
+    if (img.complete && img.naturalWidth) g.drawImage(img, 70, 34, 96, 96);
+  }
   g.fillStyle = "#f6c343";
   g.font = `700 44px ${display}`;
   g.fillText("GO APEGAMES 2026", W / 2, 96);
@@ -59,7 +85,7 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   const what = n === 1 ? (demo ? "MY LAST DEMO PULL" : "MY LAST PULL") : `MY LAST ${n} ${demo ? "DEMO " : ""}PULLS`;
   g.fillText(what, W / 2, 176);
 
-  const arts = Array.from(artHost.querySelectorAll("svg"));
+  const arts = Array.from(artHost.querySelectorAll("svg[data-prize]"));
   const rowH = 168, top = 228;
   for (let i = 0; i < spins.length; i++) {
     const s = spins[i]!;
@@ -102,7 +128,18 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
       g.textAlign = "right";
       g.fillStyle = "#f6c343";
       g.font = `700 42px ${display}`;
-      g.fillText(`+${s.points}`, W - 110, y + 92);
+      g.fillText(`+${s.points}`, W - 110, y + 80);
+      if (s.participation_points != null && s.bonus_points != null) {
+        g.font = `500 22px ${display}`;
+        g.fillStyle = "#c9d4ff";
+        g.fillText(`${s.participation_points} spin + ${s.bonus_points} bonus`, W - 110, y + 112);
+      }
+      if (s.id) {
+        g.textAlign = "left";
+        g.font = `500 20px ${display}`;
+        g.fillStyle = "#c9d4ff";
+        g.fillText(shareCode(s.id), 345, y + 136);
+      }
     }
     g.textAlign = "center";
   }
@@ -110,10 +147,11 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   g.fillStyle = "#fff6e3";
   g.font = `700 46px ${display}`;
   const total = spins.reduce((s, x) => s + x.points, 0);
-  g.fillText(demo ? "THE GAMES ARE CALLING" : `TOTAL +${total} PTS`, W / 2, H - 42);
+  g.font = `700 40px ${display}`;
+  g.fillText(TAGLINE.toUpperCase(), W / 2, H - 42);
   g.font = `500 26px ${display}`;
   g.fillStyle = "#c9d4ff";
-  g.fillText(demo ? "Demo spins · no prizes" : "Drawn on-chain by Chainlink VRF", W / 2, H - 140);
+  g.fillText(demo ? "Demo spins · no prizes" : `Total +${total} pts · drawn on-chain by Chainlink VRF`, W / 2, H - 140);
 
   return new Promise((res) => c.toBlob((b) => res(b), "image/png"));
 }
@@ -122,15 +160,28 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
  * Share the player's previous five spins. Uses the device's share sheet (Instagram, TikTok, Facebook,
  * Messages… whatever the phone offers) with an image card; falls back to links on desktop.
  */
-export function ShareSpinsButton({ spins, demo = false, className = "" }: { spins: ShareSpin[]; demo?: boolean; className?: string }) {
+export function ShareSpinsButton({
+  spins,
+  demo = false,
+  className = "",
+  earn,
+}: {
+  spins: ShareSpin[];
+  demo?: boolean;
+  className?: string;
+  /** Only when share rewards are on this season: verified X posts can earn points (never a click). */
+  earn?: { points: number; submit: (spinId: string, postUrl: string) => Promise<string> } | undefined;
+}) {
   const last5 = spins.slice(-5);
   const artHost = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ text: string; url: string; image: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [postUrl, setPostUrl] = useState("");
+  const [earnState, setEarnState] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const card = useRef<Blob | null>(null);
-  const key = last5.map((s) => `${s.prize_name}|${s.rarity}|${s.points}`).join(",");
+  const key = last5.map((s) => `${s.id ?? ""}|${s.prize_name}|${s.rarity}|${s.points}`).join(",");
 
   useEffect(() => () => void (menu?.image && URL.revokeObjectURL(menu.image)), [menu]);
 
@@ -222,9 +273,10 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
       </button>
       {/* hidden prize art, drawn into the share image */}
       <div ref={artHost} aria-hidden style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
+        <TorchEmblem width={128} height={128} data-logo="" />
         {last5.map((s, i) => {
           const Art = prizeArt(s.prize_name, s.rarity);
-          return <Art key={i} width={128} height={128} />;
+          return <Art key={i} width={128} height={128} data-prize="" />;
         })}
       </div>
       {menu && (
@@ -251,6 +303,25 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
               <a href={`sms:?&body=${enc(`${menu.text}\n${menu.url}`)}`}>Text message</a>
             </div>
             {hint && <p className="gm-share-hint" role="status">{hint}</p>}
+            {earn && last5.some((s) => s.id) && (
+              <form
+                className="gm-share-earn"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const spin = [...last5].reverse().find((s) => s.id);
+                  if (!spin?.id) return;
+                  setEarnState("Submitting…");
+                  earn.submit(spin.id, postUrl.trim()).then(setEarnState, (err: Error) => setEarnState(err.message));
+                }}
+              >
+                <label htmlFor="gm-post-url">
+                  Posted on X? Paste your post link to earn +{earn.points} once it's verified (one rewarded share per UTC day).
+                </label>
+                <input id="gm-post-url" type="url" inputMode="url" placeholder="https://x.com/you/status/…" value={postUrl} onChange={(e) => setPostUrl(e.target.value)} />
+                <button type="submit" disabled={!postUrl.trim() || earnState === "Submitting…"}>Submit for verification</button>
+                {earnState && <p role="status">{earnState}</p>}
+              </form>
+            )}
             <details className="gm-share-more">
               <summary>More ways to share</summary>
               <div className="gm-share-grid">

@@ -9,7 +9,12 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit -p .",
+    "test:unit": "tsx --test tests/unit/*.test.ts",
+    "test:db": "tsx --test --test-concurrency=1 supabase/tests/db/*.test.ts",
+    "test:chain": "tsx --test --test-concurrency=1 tests/chain/*.test.ts",
+    "test:contracts": "cd contracts && forge test"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -108,7 +113,8 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "8.1.5"
+    "vite": "8.1.5",
+    "tsx": "^4.23.15"
   },
   "pnpm": {
     "overrides": {

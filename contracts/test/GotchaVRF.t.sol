@@ -202,18 +202,56 @@ contract GotchaVRFTest is Test {
         gotcha.setOperator(stranger);
         vm.prank(operator);
         vm.expectRevert("Only callable by owner");
-        gotcha.cancelRequest(1);
+        gotcha.setRequestsPaused(true);
     }
 
-    function test_CancelThenLateFulfillmentIsIgnored() public {
-        bytes32[] memory ids = _ids(2, 10);
+    function test_NoCancellationOrReRequestExists() public {
+        // The production contract exposes no way to cancel or re-request a draw.
+        (bool ok,) = address(gotcha).call(abi.encodeWithSignature("cancelRequest(uint256)", uint256(1)));
+        assertFalse(ok, "cancelRequest must not exist");
+        bytes32[] memory ids = _ids(1, 10);
         uint256 req = _request(ids);
-        gotcha.cancelRequest(req); // test contract is owner
-        assertEq(uint8(gotcha.getSpin(ids[0]).status), uint8(GotchaVRF.Status.Cancelled));
-        assertEq(gotcha.pendingRequests(), 0);
-        assertTrue(_fulfill(req, _twoWords()));
-        assertEq(uint8(gotcha.getSpin(ids[1]).status), uint8(GotchaVRF.Status.Cancelled));
-        assertEq(gotcha.getSpin(ids[1]).randomWord, 0);
+        // Re-requesting the same spin ids is impossible while pending...
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(GotchaVRF.SpinExists.selector, ids[0]));
+        gotcha.requestSpins(ids);
+        // ...and the only way out of Pending is Chainlink's answer.
+        assertEq(uint8(gotcha.getSpin(ids[0]).status), uint8(GotchaVRF.Status.Pending));
+        assertTrue(_fulfill(req, _one(3)));
+        assertEq(uint8(gotcha.getSpin(ids[0]).status), uint8(GotchaVRF.Status.Fulfilled));
+    }
+
+    function test_PauseBlocksNewRequestsButNotCallbacks() public {
+        bytes32[] memory ids = _ids(2, 12);
+        uint256 req = _request(ids);
+        gotcha.setRequestsPaused(true); // test contract is owner
+        vm.prank(operator);
+        vm.expectRevert(GotchaVRF.RequestsPaused.selector);
+        gotcha.requestSpins(_ids(1, 13));
+        assertTrue(_fulfill(req, _twoWords()), "callbacks still settle while paused");
+        assertEq(uint8(gotcha.getSpin(ids[1]).status), uint8(GotchaVRF.Status.Fulfilled));
+        gotcha.setRequestsPaused(false);
+        _request(_ids(1, 14));
+        assertEq(gotcha.pendingRequests(), 1);
+    }
+
+    function test_UnderfundedSubscriptionRevertsRequestWithoutState() public {
+        // A fresh, unfunded subscription: the coordinator mock refuses the request; nothing is recorded,
+        // so the app's pre-broadcast simulation fails and the credits are refunded safely.
+        uint256 dry = coord.createSubscription();
+        GotchaVRF g2 = new GotchaVRF(address(coord), dry, KEY, 3, 100_000, 100_000, false, operator);
+        coord.addConsumer(dry, address(g2));
+        uint32[] memory w = new uint32[](1);
+        uint32[] memory r = new uint32[](1);
+        (w[0], r[0]) = (1, U);
+        vm.prank(operator);
+        g2.setPool(w, r);
+        bytes32[] memory ids = _ids(1, 15);
+        vm.prank(operator);
+        uint256 req = g2.requestSpins(ids); // the v2.5 mock charges at fulfilment, not at request
+        vm.expectRevert();
+        coord.fulfillRandomWordsWithOverride(req, address(g2), _one(1));
+        assertEq(uint8(g2.getSpin(ids[0]).status), uint8(GotchaVRF.Status.Pending), "stays pending (never refunded by timeout)");
     }
 
     function test_OnlyCoordinatorCanFulfill() public {
