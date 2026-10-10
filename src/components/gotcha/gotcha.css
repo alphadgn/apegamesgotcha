@@ -513,17 +513,17 @@
   .gm-plate { padding: 8px 10px; }
   .gm-plate-row { gap: 8px; }
   .gm-plate-sub { font-size: 13px; }
-  .gm-plate-pill { margin-top: 6px !important; font-size: 11px; }
+  .gm-plate-pill { margin-top: 6px !important; font-size: 12px; }
   .gm-spinner { width: 28px; height: 28px; }
   .gm-spinner i { width: 6px; height: 6px; transform: rotate(calc(var(--i) * 45deg)) translateY(-10px); }
   .gm-body { gap: 8px; padding: 18px 8px 12px; }
   .gm-tray { gap: 5px; padding: 7px 9px 14px; }
-  .gm-slot-ball { width: 34px; }
+  .gm-slot-ball { width: clamp(34px, 10.5vw, 42px); }
   .gm-modes { gap: 6px; }
   .gm-switch-row { gap: 7px; font-size: 12px; }
   .gm-cta { max-width: 280px; padding: 9px 14px; font-size: 18px; }
   .gm-tools { gap: 6px; margin-top: 10px; }
-  .gm-tool { padding: 6px 10px; font-size: 12px; }
+  .gm-tool { padding: 6px 10px; font-size: 12px; min-height: 40px; }
 }
 
 /* ---------- keyframes ---------- */
@@ -603,7 +603,7 @@
   background: rgba(3, 8, 22, 0.72); backdrop-filter: blur(3px);
 }
 .gm-rf-panel {
-  width: min(440px, 100%); max-height: calc(100vh - 32px); overflow: auto;
+  width: min(440px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto; overscroll-behavior: contain;
   border-radius: 20px; padding: 20px;
   background: linear-gradient(180deg, #13295a, #070f26);
   color: #fff6e3;
@@ -657,3 +657,10 @@
 .gm-share-hint { margin-top: 10px; font-size: 0.85rem; color: #c9d4ff; text-align: center; }
 .gm-share-more { margin-top: 12px; }
 .gm-share-more summary { cursor: pointer; text-align: center; font-size: 0.9rem; color: #c9d4ff; margin-bottom: 8px; }
+
+/* Phones: the 48×26 switches keep their look but get a 44px-tall touch area. */
+.gm-switch::before { content: ""; position: absolute; inset: -10px -6px; }
+@media (max-width: 639px) {
+  .gm-reveal-vrf { font-size: 12px; }
+  .gm-rf-bundle small { font-size: 12px; }
+}

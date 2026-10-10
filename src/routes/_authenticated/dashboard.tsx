@@ -130,7 +130,7 @@ function Dashboard() {
   const minLevel = data.nft.burn_min_level ?? 4;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
       <div className="grid gap-4 md:grid-cols-3">
         <Stat label="Campaign points" value={total.toLocaleString()} />
         <Stat label="Spins available" value={String(data.credits.length)} accent />
@@ -147,8 +147,8 @@ function Dashboard() {
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         {/* Wallet & NFTs */}
         <section className="contents">
-          <div className="rounded border border-border bg-card p-6">
-            <div className="flex items-center justify-between">
+          <div className="rounded border border-border bg-card p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-xl font-bold">Wallets</h2>
               <Button size="sm" variant="outline" onClick={addWallet} disabled={!!busy}>{busy === "wallet" ? "Waiting…" : "Add wallet"}</Button>
             </div>
@@ -158,9 +158,9 @@ function Dashboard() {
                   <li key={w.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border px-3 py-2">
                     <span className="min-w-0 break-all font-mono text-xs">{w.address}</span>
                     <span className="flex shrink-0 items-center gap-2">
-                      {w.kind === "privy" && <span className="rounded bg-muted px-2 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">Privy wallet</span>}
+                      {w.kind === "privy" && <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] uppercase text-muted-foreground">Privy wallet</span>}
                       {w.is_default ? (
-                        <span className="rounded bg-primary px-2 py-0.5 font-mono text-[10px] uppercase text-primary-foreground">Default</span>
+                        <span className="rounded bg-primary px-2 py-0.5 font-mono text-[11px] uppercase text-primary-foreground">Default</span>
                       ) : (
                         <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={!!busy} onClick={() => makeDefault(w.address)}>
                           {busy === `default:${w.address}` ? "Saving…" : "Make default"}
@@ -174,8 +174,8 @@ function Dashboard() {
             <p className="mt-3 text-xs text-muted-foreground">Your default wallet is used to pay for spins. Wallets you add also count for NFT holding points.</p>
           </div>
 
-          <div className="rounded border border-border bg-card p-6">
-            <div className="flex items-center justify-between">
+          <div className="rounded border border-border bg-card p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-xl font-bold">My ApeGames NFTs</h2>
               <Button size="sm" onClick={doSync} disabled={!data.wallets.length || !!busy}>{busy === "sync" ? "Syncing…" : "Sync NFTs"}</Button>
             </div>
@@ -194,7 +194,7 @@ function Dashboard() {
             </div>
           </div>
 
-          <div className="rounded border border-accent/60 bg-card p-6">
+          <div className="rounded border border-accent/60 bg-card p-4 sm:p-6">
             <h2 className="text-xl font-bold">Burn for a free spin</h2>
             <p className="mt-2 text-sm text-muted-foreground">
               Level {minLevel}+ only. Transfer the NFT from your linked wallet to <span className="break-all font-mono">{data.nft.burn_address}</span>, then paste the transaction hash. This is permanent.
@@ -218,19 +218,19 @@ function Dashboard() {
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="rounded border border-border bg-card p-5">
+    <div className="min-w-0 rounded border border-border bg-card p-4 sm:p-5">
       <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
-      <p className={`mt-1 font-display text-4xl font-bold ${accent ? "text-primary" : ""}`}>{value}</p>
+      <p className={`mt-1 break-all font-display text-3xl font-bold sm:text-4xl ${accent ? "text-primary" : ""}`}>{value}</p>
     </div>
   );
 }
 
 function History({ title, rows }: { title: string; rows: { k: string; l: string; r: string; c?: string | undefined }[] }) {
   return (
-    <div className="rounded border border-border bg-card p-6">
+    <div className="rounded border border-border bg-card p-4 sm:p-6">
       <h3 className="text-lg font-bold">{title}</h3>
       <ul className="mt-3 divide-y divide-border font-mono text-sm">
-        {rows.map((r) => <li key={r.k} className="flex justify-between py-2"><span className={r.c}>{r.l}</span><span>{r.r}</span></li>)}
+        {rows.map((r) => <li key={r.k} className="flex justify-between gap-3 py-2 text-left"><span className={r.c}>{r.l}</span><span className="max-w-[60%] break-all text-right">{r.r}</span></li>)}
         {!rows.length && <li className="py-2 text-muted-foreground">Nothing yet.</li>}
       </ul>
     </div>

@@ -13,8 +13,8 @@ export const Route = createFileRoute("/leaderboard")({
     ],
   }),
   component: () => (
-    <main className="mx-auto max-w-3xl px-4 py-12">
-      <h1 className="text-4xl font-bold">Global leaderboard</h1>
+    <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+      <h1 className="text-3xl font-bold sm:text-4xl">Global leaderboard</h1>
       <p className="mt-2 mb-8 text-muted-foreground">Campaign points from holdings, spins and verified adjustments.</p>
       <Leaderboard limit={200} />
     </main>

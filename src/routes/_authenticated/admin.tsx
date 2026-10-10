@@ -31,10 +31,10 @@ function Admin() {
   if (loading) return null;
   if (!isAdmin) return <main className="mx-auto max-w-3xl px-4 py-16 text-muted-foreground">Admins only.</main>;
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-4xl font-bold">Admin console</h1>
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
+      <h1 className="text-3xl font-bold sm:text-4xl">Admin console</h1>
       <Tabs defaultValue="setup" className="mt-6">
-        <TabsList>
+        <TabsList className="h-auto flex-wrap justify-center gap-1">
           <TabsTrigger value="setup">Setup checklist</TabsTrigger>
           <TabsTrigger value="config">Configuration</TabsTrigger>
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
@@ -60,7 +60,7 @@ function SetupPanel() {
   const missing = (data ?? []).filter((i) => !i.ok && !i.optional).length;
   return (
     <div className="mt-4 space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {data ? (missing ? `${missing} required item${missing === 1 ? "" : "s"} left before real spins and purchases work.` : "Everything required is in place.") : "Checking…"}
         </p>
@@ -111,7 +111,7 @@ function EventInfoCard({ onRefreshed }: { onRefreshed: () => void }) {
   };
   return (
     <div className="rounded border border-border bg-card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-bold">ApeFest 2026 pages the guide reads</h3>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void run()}>{busy ? "Fetching…" : "Refresh ApeFest info"}</Button>
       </div>
@@ -160,12 +160,13 @@ function PrizesPanel() {
   const total = rows.filter((r) => r.active && (r.inventory == null || r.inventory > 0)).reduce((s, r) => s + r.weight, 0);
   const upd = (i: number, p: Partial<Prize>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
   return (
-    <div className="mt-4 rounded border border-border bg-card p-4">
-      <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] gap-2 font-mono text-xs uppercase text-muted-foreground">
+    <div className="mt-4 overflow-x-auto rounded border border-border bg-card p-4">
+      <p className="mb-2 text-xs text-muted-foreground sm:hidden">Swipe sideways to see every column.</p>
+      <div className="grid min-w-[720px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] gap-2 font-mono text-xs uppercase text-muted-foreground">
         <span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>Active</span><span />
       </div>
       {rows.map((r, i) => (
-        <div key={r.id ?? i} className="mt-2 grid grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] items-center gap-2">
+        <div key={r.id ?? i} className="mt-2 grid min-w-[720px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] items-center gap-2">
           <Input value={r.name} onChange={(e) => upd(i, { name: e.target.value })} />
           <select className="h-9 rounded border border-input bg-background px-2 text-sm" value={r.rarity} onChange={(e) => upd(i, { rarity: e.target.value as Prize["rarity"] })}>
             {["common", "rare", "epic", "legendary"].map((x) => <option key={x}>{x}</option>)}
@@ -197,7 +198,7 @@ function VrfPanel() {
     try { toast.success(await fn()); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); qc.invalidateQueries({ queryKey: ["vrf-status"] }); }
   };
   const Row = ({ k, v, warn }: { k: string; v: ReactNode; warn?: boolean }) => (
-    <div className="flex justify-between border-b border-border py-2 text-sm"><span className="text-muted-foreground">{k}</span><span className={warn ? "text-destructive" : ""}>{v}</span></div>
+    <div className="flex justify-between gap-3 border-b border-border py-2 text-left text-sm"><span className="text-muted-foreground">{k}</span><span className={`break-all text-right ${warn ? "text-destructive" : ""}`}>{v}</span></div>
   );
   return (
     <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -271,10 +272,10 @@ function AuditPanel() {
   return (
     <div className="mt-4 rounded border border-border bg-card font-mono text-xs">
       {data?.map((a) => (
-        <div key={a.id} className="grid grid-cols-[170px_160px_1fr] gap-3 border-b border-border px-4 py-2">
+        <div key={a.id} className="grid gap-1 border-b border-border px-4 py-2 text-left sm:grid-cols-[170px_160px_1fr] sm:gap-3">
           <span className="text-muted-foreground">{new Date(a.created_at).toLocaleString()}</span>
           <span className="text-primary">{a.action}</span>
-          <span className="truncate">{JSON.stringify(a.details)}</span>
+          <span className="break-all sm:truncate">{JSON.stringify(a.details)}</span>
         </div>
       ))}
     </div>

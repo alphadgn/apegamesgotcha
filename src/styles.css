@@ -170,6 +170,60 @@
   }
 }
 
+/* ---------- Mobile: no sideways scrolling, readable text, thumb-sized controls ---------- */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  /* Long unbroken strings (wallet addresses, tx hashes, big point totals) wrap instead of widening the page. */
+  body {
+    overflow-wrap: anywhere;
+  }
+  img,
+  video,
+  canvas {
+    max-width: 100%;
+  }
+  /* Pages sit in a flex column; mx-auto would otherwise shrink <main> to its content and let long
+     content push it wider than the screen. */
+  main {
+    width: 100%;
+  }
+  /* Flex/grid children may shrink below their content width (the usual cause of mobile overflow). */
+  :where(main, footer, [role="dialog"]) :where(.flex, .grid, .inline-flex) > * {
+    min-width: 0;
+  }
+}
+@media (max-width: 639px) {
+  /* iOS Safari zooms the page when a field's text is under 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  /* Room under the last section so the floating guide button never covers it. */
+  footer {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+}
+@media (pointer: coarse) {
+  /* 44px touch targets (Apple HIG / WCAG 2.5.5). The gotcha machine, its dialogs and the guide widget size their own. */
+  :where(main, header, [role="dialog"], [role="menu"])
+    :is(button, select, summary, [role="tab"], [role="menuitem"], input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"])):not(
+      :where(.gm *, .gm-rf-panel *, .gw *)
+    ) {
+    min-height: 44px;
+  }
+  :where(main, header, [role="dialog"]) button:not(:where(.gm *, .gm-rf-panel *, .gw *)) {
+    min-width: 44px;
+  }
+  :where(main, [role="dialog"]) :is(input[type="checkbox"], input[type="radio"]) {
+    width: 22px;
+    height: 22px;
+  }
+}
+
 @keyframes capsule-shake {
   0%, 100% { transform: rotate(0); }
   25% { transform: rotate(-8deg); }
