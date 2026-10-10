@@ -11,13 +11,13 @@ export const Route = createFileRoute("/auth")({
       {
         name: "description",
         content:
-          "Sign in with email, Google or your wallet. New players get a wallet automatically.",
+          "Sign in with Glyph, the ApeChain wallet. New to Glyph? You can create one in the sign-in window.",
       },
       { property: "og:title", content: "Sign in — ApeGames Gotcha" },
       {
         property: "og:description",
         content:
-          "Sign in with email, Google or your wallet. New players get a wallet automatically.",
+          "Sign in with Glyph, the ApeChain wallet. New to Glyph? You can create one in the sign-in window.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -42,11 +42,11 @@ function AuthPage() {
       <div className="mx-auto max-w-sm rounded border border-border bg-background/80 p-6 shadow-2xl backdrop-blur-sm">
         <h1 className="text-3xl font-bold">Sign in</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          Use email, Google or your wallet. If you don't have a Web3 wallet yet, one is created for
-          you and becomes your default wallet — you can add or change wallets later in My Machine.
+          Sign in with Glyph, the ApeChain wallet. New to Glyph? Create one in the sign-in window. Your
+          Glyph wallet becomes your default wallet for buying spins.
         </p>
         <Button className="mt-6 w-full" onClick={() => openSignIn()} disabled={loading}>
-          Sign in
+          Sign in with Glyph
         </Button>
       </div>
     </main>

@@ -879,19 +879,20 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     const price = Number(pc?.price_usd_per_spin ?? pc?.price_ape_per_spin ?? 0);
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Treasury wallet (receives APE)", ok: isAddr(pc?.treasury), detail: pc?.treasury && isAddr(pc.treasury) ? pc.treasury : "Not set — use a regular wallet address, not a Safe/contract", where: "Admin → Configuration → purchase → treasury" });
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Price per spin", ok: price > 0, detail: price > 0 ? (pc?.price_usd_per_spin ? `$${price} USD in APE per spin` : `${price} APE per spin`) : "Not set", where: "Admin → Configuration → purchase → price_usd_per_spin" });
-    items.push({ group: "Sign-in (Privy)", label: "Privy App ID", ok: !!pc?.privy_app_id, detail: pc?.privy_app_id ? "Set" : "Not set — sign-in falls back to email/password and only browser-extension wallets can pay", where: "dashboard.privy.io → App settings → App ID → Admin → Configuration → purchase → privy_app_id. In Privy also: add your published + preview domains under Allowed origins; turn on Email, Google and Wallet login; turn on Ethereum embedded wallets" });
+    items.push({ group: "Sign-in (Login with Glyph)", label: "Privy App ID (Glyph runs through it)", ok: !!pc?.privy_app_id, detail: pc?.privy_app_id ? "Set" : "Not set — nobody can sign in", where: "dashboard.privy.io → App settings → App ID → Admin → Configuration → purchase → privy_app_id. In Privy also: User management → Global wallet → Integrations → turn ON Glyph; turn OFF Email, Google, X, Apple and Web3 wallet login (Glyph offers those); add your published + preview domains under Allowed origins" });
     const privySecret = !!process.env["PRIVY_APP_SECRET"];
     const firecrawl = !!process.env["FIRECRAWL_API_KEY"];
     const { data: ekRows } = await db.from("event_knowledge").select("fetched_at").order("fetched_at", { ascending: false }).limit(1);
     const lastFetch = (ekRows?.[0]?.fetched_at as string | undefined) ?? null;
     items.push({ group: "Guide: ApeFest 2026 info", label: "Firecrawl API key (secret)", ok: firecrawl, detail: firecrawl ? `Set${lastFetch ? ` · BAYC pages last fetched ${new Date(lastFetch).toLocaleString("en-US", { timeZone: "America/New_York" })} ET` : " · not fetched yet (use “Refresh ApeFest info” below)"}` : "Not set — the guide only knows the basic event facts", where: "Lovable → Connectors → Firecrawl (sets FIRECRAWL_API_KEY), or firecrawl.dev → API keys → Lovable → Cloud → Secrets → FIRECRAWL_API_KEY" });
-    items.push({ group: "Sign-in (Privy)", label: "Privy App Secret (secret)", ok: privySecret, detail: privySecret ? "Set" : "Not set — Privy sign-in can't finish without it", where: "dashboard.privy.io → App settings → API keys → App secret → Lovable → Cloud → Secrets → PRIVY_APP_SECRET" });
+    items.push({ group: "Sign-in (Login with Glyph)", label: "Privy App Secret (secret)", ok: privySecret, detail: privySecret ? "Set" : "Not set — Glyph sign-in can't finish without it", where: "dashboard.privy.io → App settings → API keys → App secret → Lovable → Cloud → Secrets → PRIVY_APP_SECRET" });
     items.push({ group: "Spin purchases (APE on ApeChain)", label: "Purchases switched on", ok: !!pc?.enabled, detail: pc?.enabled ? "On" : "Off — Refill shows “purchases open soon”", where: "Admin → Chainlink VRF → Spin purchases → Switch purchases on (after real spins are on)" });
     return items;
   });
 
 // ---------- Privy sign-in & default wallet ----------
-// Privy is the sign-in window (email, Google or wallet) and creates an embedded wallet for players who
+// Login with Glyph (a Privy cross-app login through the app's Privy app) is the sign-in window; the player's
+// Glyph wallet is linked as their default wallet. (Older Privy logins with email or an embedded wallet for players who
 // don't have one. The server verifies the Privy session, maps it to a Supabase account (same Privy login,
 // same verified email, or same linked wallet) and hands back a one-time token the browser swaps for a
 // normal Supabase session. Supabase stays the source of truth for the app; Privy is the front door.
@@ -937,7 +938,7 @@ async function syncPrivyWallets(userId: string, identity: import("./privy.server
   const rows = (mine ?? []) as { address: string; kind: string; is_default: boolean }[];
   if (rows.length && !rows.some((r) => r.is_default)) {
     // The wallet Privy created is the default; otherwise the wallet they signed in with; otherwise the oldest.
-    const pick = rows.find((r) => r.kind === "privy") ?? rows.find((r) => identity.wallets.some((w) => w.address === r.address)) ?? rows[0]!;
+    const pick = rows.find((r) => r.kind === "glyph") ?? rows.find((r) => r.kind === "privy") ?? rows.find((r) => identity.wallets.some((w) => w.address === r.address)) ?? rows[0]!;
     await db.from("wallets").update({ is_default: true }).eq("user_id", userId).eq("address", pick.address);
   }
   return { skipped };

@@ -79,7 +79,7 @@ export async function verifyPrivyAccessToken(token: string, appId: string): Prom
 export type PrivyIdentity = {
   did: string;
   email: string | null;
-  wallets: { address: string; kind: "privy" | "external" }[];
+  wallets: { address: string; kind: "privy" | "external" | "glyph" }[];
 };
 
 type LinkedAccount = {
@@ -90,6 +90,10 @@ type LinkedAccount = {
   wallet_client_type?: string;
   wallet_client?: string;
   connector_type?: string;
+  /** "cross_app" accounts (Login with Glyph): the Glyph wallet(s) the player signed in with. */
+  embedded_wallets?: { address?: string }[];
+  smart_wallets?: { address?: string }[];
+  provider_app?: { id?: string; name?: string };
 };
 
 /** Reads the user's email and Ethereum wallets from Privy (needs the PRIVY_APP_SECRET secret). */
@@ -117,7 +121,7 @@ export async function fetchPrivyIdentity(did: string, appId: string): Promise<Pr
       ?.email ??
     null;
 
-  const wallets = accounts
+  const wallets: PrivyIdentity["wallets"] = accounts
     .filter(
       (a) =>
         a.type === "wallet" &&
@@ -130,6 +134,15 @@ export async function fetchPrivyIdentity(did: string, appId: string): Promise<Pr
         ? "privy"
         : "external") as "privy" | "external",
     }));
+
+  // Login with Glyph is a Privy cross-app account: its wallet lives on the Glyph side and comes through here.
+  const isAddr = (a?: string): a is string => /^0x[0-9a-fA-F]{40}$/.test(a ?? "");
+  for (const a of accounts.filter((x) => x.type === "cross_app")) {
+    for (const w of [...(a.embedded_wallets ?? []), ...(a.smart_wallets ?? [])]) {
+      const address = w.address?.toLowerCase();
+      if (isAddr(address) && !wallets.some((x) => x.address === address)) wallets.push({ address, kind: "glyph" });
+    }
+  }
 
   return { did, email: email ? email.toLowerCase() : null, wallets };
 }

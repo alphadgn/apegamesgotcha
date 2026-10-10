@@ -1,5 +1,6 @@
 // Mounted once in the root shell. Renders the sign-in window and the Refill (payment) window for the
-// whole app, inside Privy when a Privy App ID is configured, with an email/browser-wallet fallback otherwise.
+// whole app. Sign-in is Login with Glyph (through the app's Privy app); payments fall back to a
+// browser-extension wallet if Glyph can't load.
 import { Component, lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -13,10 +14,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { EmailSignInForm } from "./EmailSignInForm";
 import { RefillDialog } from "./RefillDialog";
 import { BurnDialog } from "./BurnDialog";
-import { closeBurn, closeRefill, closeSignIn, getWalletUi, openRefill, useWalletUi } from "./walletUi";
+import { closeBurn, closeRefill, closeSignIn, useWalletUi } from "./walletUi";
 
 const PrivyLayer = lazy(() => import("./PrivyLayer"));
 
@@ -70,7 +70,7 @@ export function WalletHost() {
   }, [qc]);
 
   const privyUnavailable = useCallback(() => {
-    console.warn("[Privy] not ready after 10s — using email sign-in and browser wallets instead");
+    console.warn("[Glyph] not ready after 10s — sign-in unavailable; Refill falls back to browser wallets");
     setPrivyFailed(true);
   }, []);
 
@@ -94,8 +94,7 @@ export function WalletHost() {
       <PrivyBoundary
         onError={() => {
           setPrivyFailed(true);
-          if (getWalletUi().signIn)
-            toast.error("Wallet sign-in isn't available right now — use email instead.");
+          toast.error("Glyph sign-in isn't available right now. Please try again in a moment.");
         }}
       >
         <Suspense fallback={null}>
@@ -107,7 +106,8 @@ export function WalletHost() {
     );
   }
 
-  // No Privy (not configured, or it failed to load): email/Google sign-in and browser-extension wallets.
+  // Glyph isn't available (not configured, or it failed to load). Sign-in is Glyph only, so say so plainly;
+  // Refill still works for signed-in players through a browser-extension wallet.
   const waiting = !cfg && !isError && !privyFailed;
   return (
     <>
@@ -115,22 +115,15 @@ export function WalletHost() {
       <Dialog open={ui.signIn && !user} onOpenChange={(o) => !o && closeSignIn()}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Sign in</DialogTitle>
+            <DialogTitle>Sign in with Glyph</DialogTitle>
             <DialogDescription>
-              Sign in to buy spins, win real prizes and earn leaderboard points.
+              {waiting
+                ? "Loading Glyph…"
+                : !cfg?.privy_app_id
+                  ? "Glyph sign-in isn't set up yet. Please check back soon."
+                  : "Glyph sign-in couldn't load right now. Check your connection and try again in a moment."}
             </DialogDescription>
           </DialogHeader>
-          {waiting ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
-          ) : (
-            <EmailSignInForm
-              onSignedIn={() => {
-                const then = getWalletUi().afterSignIn;
-                closeSignIn();
-                if (then === "refill") openRefill();
-              }}
-            />
-          )}
         </DialogContent>
       </Dialog>
     </>
