@@ -58,6 +58,8 @@ type Props = {
   onBusyChange?: (busy: boolean) => void;
   /** Demo mode: prizes are shown but never awarded, so no points are displayed. */
   demo?: boolean;
+  /** Demo spins that count on the demo leaderboard: show their demo points (still no real prize). */
+  demoPoints?: boolean;
   /** When set, real spins aren't open yet (e.g. the on-chain draw isn't switched on); shown instead of pulling. */
   closedReason?: string | undefined;
 };
@@ -124,6 +126,7 @@ export function GotchaMachine({
   onReveal,
   onBusyChange,
   demo = false,
+  demoPoints = false,
   closedReason,
 }: Props) {
   const pool = prizes.length ? prizes : FALLBACK_PRIZES;
@@ -677,12 +680,12 @@ export function GotchaMachine({
         return active
           ? {
               t: `${RARITY_LABEL[active.rarity] ?? active.rarity}!`,
-              s: demo ? `${active.prize_name} · demo, no prize awarded` : `${active.prize_name} · +${active.points} pts`,
+              s: demo ? (demoPoints ? `${active.prize_name} · +${active.points} demo pts, no real prize` : `${active.prize_name} · demo, no prize awarded`) : `${active.prize_name} · +${active.points} pts`,
               pill: remaining > 0 ? `${plural(remaining, "sealed capsule")} left` : link(active.verify_url ?? requestUrl, "Verify this draw on-chain"),
             }
           : { t: "", s: "", pill: "" };
       case "complete":
-        return { t: "Session complete", s: demo ? `${plural(drawn, "capsule")} · demo` : `${plural(drawn, "capsule")} · +${sessionPts} pts`, pill: link(results[0]?.verify_url ?? requestUrl, "Verify these draws on-chain") };
+        return { t: "Session complete", s: demo ? (demoPoints ? `${plural(drawn, "capsule")} · +${sessionPts} demo pts` : `${plural(drawn, "capsule")} · demo`) : `${plural(drawn, "capsule")} · +${sessionPts} pts`, pill: link(results[0]?.verify_url ?? requestUrl, "Verify these draws on-chain") };
     }
   })();
 
@@ -747,7 +750,7 @@ export function GotchaMachine({
           <div className="gm-big">{credits}</div>
           <p className="gm-card-label">spin{credits === 1 ? "" : "s"} available</p>
           <hr />
-          <div className="gm-kv"><span>This session</span><b>{demo ? "Demo" : `+${sessionPts} pts`}</b></div>
+          <div className="gm-kv"><span>This session</span><b>{demo ? (demoPoints ? `+${sessionPts} demo pts` : "Demo") : `+${sessionPts} pts`}</b></div>
           <div className="gm-kv"><span>Capsules opened</span><b>{revealed}/{sessionSize || count}</b></div>
           <hr />
           <p className="gm-vrf-badge">Chainlink VRF</p>
@@ -819,14 +822,14 @@ export function GotchaMachine({
                     })()}
                     <span className="gm-reveal-rarity">{RARITY_LABEL[active.rarity] ?? active.rarity}</span>
                     <span className="gm-reveal-name">{active.prize_name}</span>
-                    <span className="gm-reveal-pts">{demo ? "Demo · no prize" : `+${active.points} pts`}</span>
+                    <span className="gm-reveal-pts">{demo ? (demoPoints ? `+${active.points} demo pts` : "Demo · no prize") : `+${active.points} pts`}</span>
                     {word && <span className="gm-reveal-vrf">VRF {word}</span>}
                   </div>
                 )}
                 {phase === "complete" && (
                   <div className="gm-reveal gm-summary">
                     <span className="gm-reveal-rarity">Session total</span>
-                    <span className="gm-summary-pts">{demo ? drawn : `+${sessionPts}`}</span>
+                    <span className="gm-summary-pts">{demo && !demoPoints ? drawn : `+${sessionPts}`}</span>
                     <span className="gm-reveal-name">{plural(drawn, "capsule")} opened</span>
                   </div>
                 )}

@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { checkDraw, getMySpinBalance, startDraw } from "@/lib/app.functions";
+import { checkDraw, getDrawStatus, getMySpinBalance, startDraw } from "@/lib/app.functions";
 import { openRefill } from "@/components/wallet/walletUi";
 import { readPendingPurchase, usePurchaseConfirmer } from "@/components/wallet/CheckoutPanel";
 import { GotchaMachine, type GotchaPrize } from "./GotchaMachine";
@@ -15,6 +15,8 @@ type MachineData = {
   credits: number;
   /** Practice spins an administrator granted: playable right away on the demo machine. */
   demoGrants: number;
+  /** Server clock for the free demo spin (undefined until the demo board is set up). */
+  nextFreeAt?: string | null | undefined;
   prizes: GotchaPrize[];
   pendingIds: string[];
   lastFive: ShareSpin[]; // oldest → newest
@@ -43,6 +45,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
       return {
         credits: balance.real,
         demoGrants: balance.demo,
+        nextFreeAt: balance.nextFreeAt,
         prizes: (prizes.data ?? []) as GotchaPrize[],
         pendingIds: ((pending.data ?? []) as { id: string }[]).map((s) => s.id),
         lastFive: ((recent.data ?? []) as ShareSpin[]).filter((s) => s.prize_name).reverse(),
@@ -75,14 +78,11 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
   }, [confirm, refresh]);
 
   // Real spins need the on-chain draw switched on (Admin → Configuration → vrf).
+  const drawStatusFn = useServerFn(getDrawStatus);
   const { data: vrfOpen } = useQuery({
     queryKey: ["vrf-open"],
-    queryFn: async () => {
-      const { data: row } = await supabase.from("app_config").select("value").eq("key", "vrf").maybeSingle();
-      const v = (row?.value ?? {}) as { enabled?: boolean; contract?: string };
-      return !!v.enabled && /^0x[0-9a-fA-F]{40}$/.test(v.contract ?? "");
-    },
-    staleTime: 60_000,
+    queryFn: async () => (await drawStatusFn()).open,
+    staleTime: 30_000,
   });
   const closedReason = vrfOpen === false ? "The on-chain prize draw is being switched on. Your spins are saved." : undefined;
 
@@ -105,6 +105,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
         userId={userId}
         grantedSpins={data.demoGrants}
         savedRealSpins={credits}
+        nextFreeAt={data.nextFreeAt}
         onBusyChange={(busy) => {
           setFreeInPlay(busy);
           if (!busy) void refresh(); // session over: re-check which spins the player has left

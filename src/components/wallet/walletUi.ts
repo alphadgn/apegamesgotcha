@@ -11,7 +11,11 @@ export type WalletUiState = {
   refill: boolean;
   /** Bumped each time a player asks to add a wallet from their account page. */
   linkRequest: number;
+  /** NFT the player is burning for a free spin (the burn window is open while set). */
+  burn: BurnTarget | null;
 };
+
+export type BurnTarget = { tokenId: string; owner: string; level: number | null };
 
 let state: WalletUiState = {
   activated: false,
@@ -19,6 +23,7 @@ let state: WalletUiState = {
   afterSignIn: null,
   refill: false,
   linkRequest: 0,
+  burn: null,
 };
 const listeners = new Set<() => void>();
 
@@ -59,4 +64,12 @@ export function closeRefill() {
 /** Account page: add another wallet to this account. */
 export function requestLinkWallet() {
   set({ activated: true, linkRequest: state.linkRequest + 1 });
+}
+
+/** Opens the burn window for one NFT (sends it to the burn address from the wallet that holds it). */
+export function openBurn(target: BurnTarget) {
+  set({ activated: true, burn: target, refill: false, signIn: false });
+}
+export function closeBurn() {
+  set({ burn: null });
 }

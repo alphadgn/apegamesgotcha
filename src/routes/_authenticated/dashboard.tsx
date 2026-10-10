@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getWalletNonce, linkWallet, syncNfts, claimBurn, setDefaultWallet, getMySpinBalance } from "@/lib/app.functions";
-import { requestLinkWallet } from "@/components/wallet/walletUi";
+import { openBurn, requestLinkWallet } from "@/components/wallet/walletUi";
+import { readPendingBurn, useBurnConfirmer } from "@/components/wallet/BurnPanel";
 import { usePrivyPublicConfig } from "@/components/wallet/WalletHost";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,11 +120,39 @@ function Dashboard() {
     refresh();
   });
 
+  // A burn that was still confirming when the page closed is finished here (the spin is added once it confirms).
+  const confirmBurn = useBurnConfirmer();
+  useEffect(() => {
+    const pending = readPendingBurn();
+    if (!pending) return;
+    let cancelled = false;
+    void confirmBurn(pending, () => cancelled)
+      .then((ok) => {
+        if (ok && !cancelled) {
+          toast.success("Burn confirmed — 1 free spin added");
+          refresh();
+        }
+      })
+      .catch((e) => toast.error((e as Error).message));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Manual fallback: the player already sent the NFT to the burn address themselves.
   const doBurn = () => run("burn", async () => {
-    await burnFn({ data: { txHash: burnTx.trim(), tokenId: burnToken.trim() } });
-    toast.success("Burn verified — free spin added!");
-    setBurnTx(""); setBurnToken("");
-    refresh();
+    for (let i = 0; i < 60; i++) {
+      const r = await burnFn({ data: { txHash: burnTx.trim(), tokenId: burnToken.trim() } });
+      if (r.status === "credited") {
+        toast.success("Burn verified — free spin added!");
+        setBurnTx(""); setBurnToken("");
+        refresh();
+        return;
+      }
+      await new Promise((res) => setTimeout(res, 2500)); // not mined yet
+    }
+    throw new Error("Still waiting for ApeChain to confirm that transaction. Try Verify again in a minute.");
   });
 
   if (!data) return <main className="mx-auto max-w-6xl px-4 py-12 font-mono text-muted-foreground">Loading…</main>;
@@ -190,12 +219,19 @@ function Dashboard() {
             <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
               {data.holdings.map((h) => {
                 const lvl = h.level_override ?? h.level;
+                const canBurn = !h.burned && lvl != null && lvl >= minLevel;
                 return (
-                  <button key={h.token_id} onClick={() => setBurnToken(h.token_id)} disabled={h.burned}
-                    className={`rounded border p-2 text-left font-mono text-xs ${h.burned ? "opacity-40" : "hover:border-primary"} ${burnToken === h.token_id ? "border-primary" : "border-border"}`}>
+                  <div key={h.token_id}
+                    className={`flex flex-col gap-1 rounded border p-2 text-left font-mono text-xs ${h.burned ? "opacity-40" : ""} ${burnToken === h.token_id ? "border-primary" : "border-border"}`}>
                     <div>#{h.token_id}</div>
-                    <div className={lvl != null && lvl >= minLevel ? "text-primary" : "text-muted-foreground"}>{h.burned ? "Burned" : `Lv ${lvl ?? "?"}`}</div>
-                  </button>
+                    <div className={canBurn ? "text-primary" : "text-muted-foreground"}>{h.burned ? "Burned" : `Lv ${lvl ?? "?"}`}</div>
+                    {canBurn && (
+                      <Button size="sm" className="mt-1 h-auto min-h-9 px-2 py-1 text-xs"
+                        onClick={() => openBurn({ tokenId: h.token_id, owner: h.owner_address, level: lvl })}>
+                        Burn → 1 spin
+                      </Button>
+                    )}
+                  </div>
                 );
               })}
               {!data.holdings.length && <p className="col-span-full text-sm text-muted-foreground">No NFTs synced yet.</p>}
@@ -205,7 +241,10 @@ function Dashboard() {
           <div className="rounded border border-accent/60 bg-card p-4 sm:p-6">
             <h2 className="text-xl font-bold">Burn for a free spin</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Level {minLevel}+ only. Transfer the NFT from your linked wallet to <span className="break-all font-mono">{data.nft.burn_address}</span>, then paste the transaction hash. This is permanent.
+              Level {minLevel}+ only, and permanent. Tap <b>Burn → 1 spin</b> on an eligible NFT above: your wallet sends it to the burn address and the free spin is added as soon as ApeChain confirms.
+            </p>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Already sent one to <span className="break-all font-mono">{data.nft.burn_address}</span> yourself? Paste the token ID and transaction hash:
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-[110px_1fr_auto]">
               <Input placeholder="Token ID" value={burnToken} onChange={(e) => setBurnToken(e.target.value)} />

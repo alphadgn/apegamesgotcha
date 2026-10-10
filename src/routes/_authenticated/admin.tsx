@@ -4,12 +4,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminListGrants, adminSetLevel, adminVrfStatus, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Leaderboard, useLeaderboardMode } from "@/components/Leaderboard";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -40,6 +41,7 @@ function Admin() {
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
           <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>
           <TabsTrigger value="grants">Grants & levels</TabsTrigger>
+          <TabsTrigger value="board">Leaderboard & prizes</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="setup"><SetupPanel /></TabsContent>
@@ -47,6 +49,7 @@ function Admin() {
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
         <TabsContent value="vrf"><VrfPanel /></TabsContent>
         <TabsContent value="grants"><GrantsPanel /></TabsContent>
+        <TabsContent value="board"><BoardPanel /></TabsContent>
         <TabsContent value="audit"><AuditPanel /></TabsContent>
       </Tabs>
     </main>
@@ -202,9 +205,11 @@ function VrfPanel() {
   );
   return (
     <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <DrawSetupCard enabled={!!data?.enabled} oddsInSync={!!(data && data.configured && data.oddsInSync)} />
+      <PurchasesCard drawOn={!!data?.enabled} />
       <div className="rounded border border-border bg-card p-4">
         <h3 className="font-bold">Draw contract</h3>
-        <p className="mt-1 text-sm text-muted-foreground">Every capsule is drawn by the GotchaVRF contract using Chainlink VRF. Edit the <span className="font-mono">vrf</span> config to point at your deployment.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Every capsule is drawn by the GotchaVRF contract using Chainlink VRF. Set it up with the button above.</p>
         {error && <p className="mt-3 text-sm text-destructive">{(error as Error).message}</p>}
         {data && (
           <div className="mt-3 font-mono">
@@ -233,6 +238,214 @@ function VrfPanel() {
           <Button variant="secondary" className="mt-2" disabled={!!busy} onClick={() => act("settle", async () => { const r = await settle(); return `Settled ${r.before - r.after} of ${r.before}`; })}>{busy === "settle" ? "Settling…" : "Settle now"}</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** One-click on-chain draw: set up (subscription + contract), fund, and switch real spins on/off. */
+function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: boolean }) {
+  const qc = useQueryClient();
+  const setup = useServerFn(adminVrfSetup);
+  const topUp = useServerFn(adminVrfTopUp);
+  const toggle = useServerFn(adminVrfSwitch);
+  const subFn = useServerFn(adminVrfSubscription);
+  const { data: sub, refetch } = useQuery({ queryKey: ["vrf-sub"], queryFn: () => subFn() });
+  const [network, setNetwork] = useState<"base" | "base-sepolia" | "custom">("base");
+  const [fundEth, setFundEth] = useState("0.01");
+  const [topEth, setTopEth] = useState("0.01");
+  const [custom, setCustom] = useState({ chain: "", chain_id: "", rpc_url: "", explorer_url: "", coordinator: "", key_hash: "" });
+  const [steps, setSteps] = useState<{ step: string; detail: string; url?: string | undefined }[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const done = () => {
+    setBusy(null);
+    void refetch();
+    void qc.invalidateQueries({ queryKey: ["vrf-status"] });
+    void qc.invalidateQueries({ queryKey: ["vrf-open"] });
+  };
+  const s = sub?.sub && !("error" in sub.sub) ? sub.sub : null;
+  const subError = sub?.sub && "error" in sub.sub ? sub.sub.error : null;
+  return (
+    <div className="space-y-3 rounded border border-primary/60 bg-card p-4 text-left md:col-span-2">
+      <h3 className="font-bold">Set up the on-chain draw</h3>
+      <p className="text-sm text-muted-foreground">
+        One button does the Chainlink side: it creates a VRF subscription paid in ETH, funds it, deploys the draw contract and connects the two,
+        using the operator wallet (server secret <span className="font-mono">VRF_OPERATOR_PRIVATE_KEY</span>). That wallet needs a little ETH on the
+        network you pick. If a step fails, press it again: finished steps are kept.
+      </p>
+      <p className="text-sm">
+        Operator wallet: <span className="break-all font-mono">{sub?.operator ?? "not set — add the secret first"}</span>
+        {s?.operator && <> · {Number(s.operator.eth).toFixed(5)} ETH</>}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-[1fr_140px_auto] sm:items-end">
+        <label className="text-xs text-muted-foreground">
+          Network
+          <select className="mt-1 h-10 w-full rounded border border-border bg-background px-2 text-sm text-foreground" value={network} onChange={(e) => setNetwork(e.target.value as typeof network)}>
+            <option value="base">Base (real)</option>
+            <option value="base-sepolia">Base Sepolia (test, free ETH from a faucet)</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <label className="text-xs text-muted-foreground">
+          Fund with (ETH)
+          <Input value={fundEth} inputMode="decimal" onChange={(e) => setFundEth(e.target.value)} />
+        </label>
+        <Button
+          disabled={!!busy || enabled || !sub?.operator}
+          onClick={async () => {
+            setBusy("setup");
+            setSteps([]);
+            try {
+              const r = await setup({
+                data: {
+                  network,
+                  fundEth,
+                  ...(network === "custom" ? { custom: { ...custom, chain_id: Number(custom.chain_id) } } : {}),
+                },
+              });
+              setSteps(r.steps);
+              toast.success("On-chain draw is set up. Publish the prize pool, then switch real spins on.");
+            } catch (e) {
+              toast.error((e as Error).message);
+            } finally {
+              done();
+            }
+          }}
+        >
+          {busy === "setup" ? "Setting up… (about a minute)" : "Set up"}
+        </Button>
+      </div>
+      {enabled && <p className="text-xs text-muted-foreground">Switch real spins off to change the network or redeploy.</p>}
+      {network === "custom" && (
+        <div className="grid gap-2 sm:grid-cols-3">
+          {(Object.keys(custom) as (keyof typeof custom)[]).map((k) => (
+            <Input key={k} placeholder={k} value={custom[k]} onChange={(e) => setCustom({ ...custom, [k]: e.target.value })} />
+          ))}
+        </div>
+      )}
+      {steps.length > 0 && (
+        <ol className="list-decimal space-y-1 pl-5 text-sm">
+          {steps.map((x, i) => (
+            <li key={i}>
+              <b>{x.step}</b> — <span className="break-all">{x.detail}</span>{" "}
+              {x.url && <a className="underline" href={x.url} target="_blank" rel="noreferrer">tx ↗</a>}
+            </li>
+          ))}
+        </ol>
+      )}
+      {subError && <p className="text-sm text-destructive">{subError}</p>}
+      {s && (
+        <div className="grid gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
+          <p className="text-sm">
+            Subscription on {sub?.network}: <b>{Number(s.nativeBalanceEth).toFixed(5)} ETH</b> left · {s.consumers.length} contract
+            {s.consumers.length === 1 ? "" : "s"} connected. Each draw is paid from this balance; keep it topped up.
+          </p>
+          <label className="text-xs text-muted-foreground">
+            Add (ETH)
+            <Input value={topEth} inputMode="decimal" onChange={(e) => setTopEth(e.target.value)} />
+          </label>
+          <Button
+            variant="outline"
+            disabled={!!busy}
+            onClick={async () => {
+              setBusy("top");
+              try {
+                await topUp({ data: { eth: topEth } });
+                toast.success(`Added ${topEth} ETH`);
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                done();
+              }
+            }}
+          >
+            {busy === "top" ? "Sending…" : "Top up"}
+          </Button>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+        <p className="text-sm">
+          Real spins are <b className={enabled ? "text-primary" : "text-destructive"}>{enabled ? "ON" : "OFF"}</b>
+          {!enabled && !oddsInSync ? " · publish the prize pool before switching on" : ""}
+        </p>
+        <Button
+          variant={enabled ? "outline" : "default"}
+          disabled={!!busy}
+          onClick={async () => {
+            setBusy("switch");
+            try {
+              const r = await toggle({ data: { enabled: !enabled } });
+              toast.success(r.enabled ? "Real spins are on — every spin is drawn by Chainlink VRF" : "Real spins are off");
+            } catch (e) {
+              toast.error((e as Error).message);
+            } finally {
+              done();
+            }
+          }}
+        >
+          {busy === "switch" ? "Saving…" : enabled ? "Switch real spins off" : "Switch real spins on"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** $APE spin purchases: on/off (only once the draw is on) and the latest purchases. */
+function PurchasesCard({ drawOn }: { drawOn: boolean }) {
+  const qc = useQueryClient();
+  const toggle = useServerFn(adminPurchaseSwitch);
+  const list = useServerFn(adminListPurchases);
+  const { data: cfg } = useQuery({
+    queryKey: ["purchase-config"],
+    queryFn: async () => ((await supabase.from("app_config").select("value").eq("key", "purchase").maybeSingle()).data?.value ?? {}) as { enabled?: boolean; treasury?: string; price_usd_per_spin?: string; price_ape_per_spin?: string },
+  });
+  const { data: rows, refetch } = useQuery({ queryKey: ["purchases"], queryFn: () => list() });
+  const [busy, setBusy] = useState(false);
+  const on = !!cfg?.enabled;
+  return (
+    <div className="space-y-3 rounded border border-border bg-card p-4 text-left md:col-span-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-bold">Spin purchases ($APE on ApeChain)</h3>
+        <Button
+          variant={on ? "outline" : "default"}
+          disabled={busy || (!on && !drawOn)}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const r = await toggle({ data: { enabled: !on } });
+              toast.success(r.enabled ? "Refill now charges APE and adds spins" : "Purchases are off");
+              await qc.invalidateQueries({ queryKey: ["purchase-config"] });
+              await qc.invalidateQueries({ queryKey: ["purchase-settings"] });
+            } catch (e) {
+              toast.error((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Saving…" : on ? "Switch purchases off" : "Switch purchases on"}
+        </Button>
+      </div>
+      <p className="text-sm">
+        Purchases are <b className={on ? "text-primary" : "text-destructive"}>{on ? "ON" : "OFF"}</b> · price{" "}
+        {cfg?.price_usd_per_spin ? `$${cfg.price_usd_per_spin} per spin (paid in APE at the live rate)` : `${cfg?.price_ape_per_spin ?? "?"} APE per spin`} · treasury{" "}
+        <span className="break-all font-mono">{cfg?.treasury || "not set"}</span>
+        {!drawOn && !on ? " · switch real spins on first" : ""}
+      </p>
+      {!!rows?.length && (
+        <ul className="max-h-64 divide-y divide-border overflow-y-auto text-sm">
+          {rows.map((r) => (
+            <li key={r.id} className="flex flex-wrap justify-between gap-2 py-2">
+              <span className="min-w-0 break-all">
+                {r.player} · {r.quantity} spins · {Number(r.ape).toFixed(4)} APE
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {r.status} · {new Date(r.at).toLocaleString()} {r.tx && <a className="underline" href={r.tx} target="_blank" rel="noreferrer">tx ↗</a>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button size="sm" variant="outline" onClick={() => void refetch()}>Refresh purchases</Button>
     </div>
   );
 }
@@ -345,6 +558,8 @@ function GrantsPanel() {
 function GrantLog() {
   const list = useServerFn(adminListGrants);
   const { data: res, error, isFetching, refetch } = useQuery({ queryKey: ["spin-grants"], queryFn: () => list() });
+  const del = useServerFn(adminDeleteGrant);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const data = res?.rows;
   const [filter, setFilter] = useState<"all" | GrantKind>("all");
   const rows = (data ?? []).filter((r) => filter === "all" || r.kind === filter);
@@ -396,7 +611,7 @@ function GrantLog() {
       {data && rows.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No grants yet.</p>}
       <ul className="mt-3 divide-y divide-border text-left text-sm">
         {rows.map((r) => (
-          <li key={r.id} className="grid gap-1 py-3 sm:grid-cols-[180px_110px_minmax(0,1fr)_130px] sm:items-center sm:gap-3">
+          <li key={r.id} className="grid gap-1 py-3 sm:grid-cols-[170px_100px_minmax(0,1fr)_minmax(130px,auto)] sm:items-center sm:gap-3">
             <span className="font-mono text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
             <span>
               <span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${GRANT_KINDS[r.kind].badge}`}>{GRANT_KINDS[r.kind].short}</span>
@@ -407,12 +622,132 @@ function GrantLog() {
                 {r.note || "No note"} · by {r.granted_by}
               </span>
             </span>
-            <span className="font-mono text-xs sm:text-right">
+            <span className="flex flex-wrap items-center gap-2 font-mono text-xs sm:justify-end">
               {r.used}/{r.count} used{r.count - r.used > 0 ? ` · ${r.count - r.used} left` : ""}
+              {r.count - r.used > 0 && /^[0-9a-f-]{36}$/.test(r.id) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-auto min-h-9 px-2 py-1 text-xs text-destructive"
+                  disabled={deleting === r.id}
+                  onClick={async () => {
+                    const left = r.count - r.used;
+                    if (!window.confirm(`Delete ${left} unused ${GRANT_KINDS[r.kind].label.toLowerCase()} spin${left === 1 ? "" : "s"} granted to ${r.player}? Spins already played stay.`)) return;
+                    setDeleting(r.id);
+                    try {
+                      const { removed } = await del({ data: { grantId: r.id } });
+                      toast.success(`Deleted ${removed} unused spin${removed === 1 ? "" : "s"}`);
+                      await refetch();
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    } finally {
+                      setDeleting(null);
+                    }
+                  }}
+                >
+                  {deleting === r.id ? "Deleting…" : "Delete unused"}
+                </Button>
+              )}
             </span>
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function BoardPanel() {
+  const qc = useQueryClient();
+  const setMode = useServerFn(adminSetLeaderboardMode);
+  const listWinners = useServerFn(adminListWinners);
+  const mark = useServerFn(adminMarkDelivered);
+  const { data: mode } = useLeaderboardMode();
+  const [minRarity, setMinRarity] = useState<"all" | "rare" | "epic" | "legendary">("rare");
+  const { data: winners, error, isFetching, refetch } = useQuery({ queryKey: ["winners", minRarity], queryFn: () => listWinners({ data: { minRarity } }) });
+  const [busy, setBusy] = useState<string | null>(null);
+  const switchTo = async (m: "demo" | "live") => {
+    setBusy("mode");
+    try {
+      await setMode({ data: { mode: m } });
+      toast.success(m === "demo" ? "The public leaderboard now shows demo spins" : "The public leaderboard now shows live (real) spins");
+      await qc.invalidateQueries({ queryKey: ["leaderboard-mode"] });
+      await qc.invalidateQueries({ queryKey: ["leaderboard"] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="space-y-3 rounded border border-border bg-card p-4 text-left">
+        <h3 className="font-bold">Public leaderboard</h3>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Leaderboard mode">
+          {(["live", "demo"] as const).map((m) => (
+            <Button key={m} variant={mode === m ? "default" : "outline"} aria-pressed={mode === m} disabled={!!busy} onClick={() => void switchTo(m)}>
+              {m === "live" ? "Live" : "Demo"}
+            </Button>
+          ))}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          <b>Live</b>: points from real spins drawn by Chainlink: purchased, paid-equivalent grants and NFT burns, plus your point adjustments.{" "}
+          <b>Demo</b>: points from signed-in players' demo spins (the free spin every 30 minutes and granted demo spins).
+        </p>
+        <p className="text-xs text-muted-foreground">Showing now:</p>
+        <Leaderboard limit={10} />
+      </div>
+      <div className="space-y-3 rounded border border-border bg-card p-4 text-left">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-bold">Prize winners</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="h-10 rounded border border-border bg-background px-2 text-sm" value={minRarity} onChange={(e) => setMinRarity(e.target.value as typeof minRarity)}>
+              <option value="all">All prizes</option>
+              <option value="rare">Rare and up</option>
+              <option value="epic">Epic and up</option>
+              <option value="legendary">Legendary only</option>
+            </select>
+            <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Loading…" : "Refresh"}</Button>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground">Real prizes drawn by Chainlink. Mark each one delivered once you've handed it over.</p>
+        {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
+        {winners && !winners.length && <p className="text-sm text-muted-foreground">No winners yet.</p>}
+        <ul className="divide-y divide-border text-sm">
+          {winners?.map((w) => (
+            <li key={w.id} className="grid gap-1 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3">
+              <span className="min-w-0">
+                <b>{w.prize}</b> <span className="text-xs uppercase text-muted-foreground">{w.rarity}</span>
+                <span className="block break-all text-xs text-muted-foreground">
+                  {w.player} · {new Date(w.at).toLocaleString()}
+                  {w.tx && <> · <a className="underline" href={w.tx} target="_blank" rel="noreferrer">draw ↗</a></>}
+                </span>
+              </span>
+              {w.trackable ? (
+                <Button
+                  size="sm"
+                  variant={w.delivered_at ? "outline" : "default"}
+                  disabled={busy === w.id}
+                  onClick={async () => {
+                    setBusy(w.id);
+                    try {
+                      await mark({ data: { spinId: w.id, delivered: !w.delivered_at } });
+                      await refetch();
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                >
+                  {w.delivered_at ? `Delivered ${new Date(w.delivered_at).toLocaleDateString()} · undo` : "Mark delivered"}
+                </Button>
+              ) : (
+                <span className="text-xs text-muted-foreground">Delivery tracking turns on after the database update</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

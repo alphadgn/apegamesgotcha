@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
-import { redeemDemoSpins } from "@/lib/app.functions";
+import { playDemoSpins, redeemDemoSpins } from "@/lib/app.functions";
 import { GotchaMachine, type DrawStatus, type GotchaPrize } from "./GotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 import { openRefill, openSignIn } from "@/components/wallet/walletUi";
@@ -65,6 +65,7 @@ export function DemoGotchaMachine({
   userId,
   grantedSpins = 0,
   savedRealSpins = 0,
+  nextFreeAt,
   onBusyChange,
 }: {
   prizes?: GotchaPrize[] | undefined;
@@ -74,6 +75,8 @@ export function DemoGotchaMachine({
   grantedSpins?: number | undefined;
   /** Real spins the player holds that wait for the on-chain draw to open (shown, never blocked by the timer). */
   savedRealSpins?: number | undefined;
+  /** Signed-in: when the server says the next free spin is due (null = now). Undefined = timed in this browser. */
+  nextFreeAt?: string | null | undefined;
   onBusyChange?: ((busy: boolean) => void) | undefined;
 }) {
   const lastKey = userId ? `${DEMO_KEY}:${userId}` : DEMO_KEY;
@@ -84,7 +87,10 @@ export function DemoGotchaMachine({
   const [refillAttention, setRefillAttention] = useState(false);
   const [revealedSpins, setRevealedSpins] = useState<ShareSpin[]>([]);
   const [inPlay, setInPlay] = useState(false);
-  const draws = useRef(new Map<string, { readyAt: number; word: bigint }>());
+  // Pending draws: simulated here (signed out) or already drawn by the server (signed in, counts on the demo board).
+  const draws = useRef(new Map<string, { readyAt: number; word?: bigint; result?: { prize_id: string | null; prize_name: string; rarity: string; points: number } }>());
+  const play = useServerFn(playDemoSpins);
+  const serverTimed = !!userId && nextFreeAt !== undefined;
   const refillRef = useRef<HTMLButtonElement>(null);
   const attentionTimer = useRef<number | undefined>(undefined);
   const redeem = useServerFn(redeemDemoSpins);
@@ -94,16 +100,17 @@ export function DemoGotchaMachine({
   const granted = userId ? Math.max(0, grantedSpins - grantedUsed) : 0;
 
   useEffect(() => {
-    setLastSpin(readLast(lastKey));
+    if (!serverTimed) setLastSpin(readLast(lastKey)); // signed in: the server keeps the free-spin clock
     setRevealedSpins(readPulls(pullsKey));
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       clearInterval(t);
       window.clearTimeout(attentionTimer.current);
     };
-  }, [lastKey, pullsKey]);
+  }, [lastKey, pullsKey, serverTimed]);
 
-  const wait = Math.max(0, lastSpin + DEMO_COOLDOWN_MS - now);
+  const serverNext = serverTimed && nextFreeAt ? Date.parse(nextFreeAt) : 0;
+  const wait = Math.max(0, Math.max(serverNext, lastSpin + DEMO_COOLDOWN_MS) - now);
   // Granted spins are usable immediately; the every-30-minutes free spin only counts once they're gone.
   // While real spins are saved for the on-chain draw, the player isn't out of spins, so no free-spin timer.
   const credits = granted > 0 ? granted : savedRealSpins > 0 ? 0 : wait === 0 ? 1 : 0;
@@ -122,24 +129,42 @@ export function DemoGotchaMachine({
     });
   }, []);
 
+  const useFreeSpinLocally = useCallback(() => {
+    const at = Date.now();
+    try {
+      localStorage.setItem(lastKey, String(at));
+    } catch {
+      /* storage unavailable */
+    }
+    setLastSpin(at);
+  }, [lastKey]);
+
   const onDraw = useCallback(
     async (count: number) => {
+      const freeDue = granted === 0 && savedRealSpins === 0 && Date.now() >= Math.max(serverNext, lastSpin + DEMO_COOLDOWN_MS);
+      // Signed in: the server draws and records the spins (granted first, then the free one) for the demo board.
+      if (userId) {
+        const r = await play({ data: { count: granted > 0 ? Math.min(count, granted) : 1 } });
+        if (!r.local) {
+          const fromGrant = Math.min(r.results.length, granted);
+          if (fromGrant) setGrantedUsed((u) => u + fromGrant);
+          if (r.results.length > fromGrant) setLastSpin(Date.now()); // the free spin was used
+          await new Promise((res) => setTimeout(res, 900));
+          const latency = 3500 + Math.random() * 3000;
+          for (const x of r.results) draws.current.set(x.id, { readyAt: Date.now() + latency, result: x });
+          return { spinIds: r.results.map((x) => x.id) };
+        }
+      }
+      // Signed out (or the demo board isn't set up yet): simulate in the browser.
       let n = 0;
-      // Granted spins first; the free every-30-minutes spin is only used once they're all gone.
       const fromGrant = Math.min(count, granted);
       if (fromGrant > 0) {
         const { used } = await redeem({ data: { count: fromGrant } });
         setGrantedUsed((u) => u + used);
         n += used;
       }
-      if (n === 0 && granted === 0 && Date.now() >= lastSpin + DEMO_COOLDOWN_MS) {
-        const at = Date.now();
-        try {
-          localStorage.setItem(lastKey, String(at));
-        } catch {
-          /* storage unavailable */
-        }
-        setLastSpin(at);
+      if (n === 0 && freeDue) {
+        useFreeSpinLocally();
         n += 1;
       }
       if (n === 0) throw new Error("No free spins left right now");
@@ -149,7 +174,7 @@ export function DemoGotchaMachine({
       for (const id of spinIds) draws.current.set(id, { readyAt: Date.now() + latency, word: randomWord() });
       return { spinIds };
     },
-    [granted, lastKey, lastSpin, redeem],
+    [granted, savedRealSpins, serverNext, lastSpin, userId, play, redeem, useFreeSpinLocally],
   );
 
   const onCheck = useCallback(
@@ -157,8 +182,9 @@ export function DemoGotchaMachine({
       ids.map((id) => {
         const d = draws.current.get(id);
         if (!d || Date.now() < d.readyAt) return { id, status: "pending", prize_name: null, rarity: null, points: null };
-        const p = pick(pool, d.word);
-        return { id, status: "fulfilled", prize_id: p.id, prize_name: p.name, rarity: p.rarity, points: p.points, random_word: d.word.toString() };
+        if (d.result) return { id, status: "fulfilled", prize_id: d.result.prize_id ?? id, prize_name: d.result.prize_name, rarity: d.result.rarity, points: d.result.points };
+        const p = pick(pool, d.word ?? 0n);
+        return { id, status: "fulfilled", prize_id: p.id, prize_name: p.name, rarity: p.rarity, points: p.points, random_word: (d.word ?? 0n).toString() };
       }),
     [pool],
   );
@@ -180,7 +206,7 @@ export function DemoGotchaMachine({
             </>
           ) : null}
           {granted > 0 || savedRealSpins > 0 ? (
-            granted > 0 ? "Practice spins: no prizes or points. " : null
+            granted > 0 ? (serverTimed ? "Demo spins: no real prizes; points count on the demo leaderboard. " : "Practice spins: no prizes or points. ") : null
           ) : (
             <>
               Demo: 1 free spin every 30 minutes · no prizes or points.{" "}
@@ -213,7 +239,13 @@ export function DemoGotchaMachine({
         onCheck={onCheck}
         pollMs={700}
         maxPerSession={5}
-        footnote={userId ? "Free spins are simulated and award no prizes. Refill to spin for real." : "Demo spins are simulated and award no prizes. Sign in to spin for real."}
+        footnote={
+          serverTimed
+            ? "Demo spins award no real prizes; their points count on the demo leaderboard. Refill to spin for real."
+            : userId
+              ? "Free spins are simulated and award no prizes. Refill to spin for real."
+              : "Demo spins are simulated and award no prizes. Sign in to spin for real."
+        }
         onNoSpins={guideToRefill}
         onReveal={(r) =>
           setRevealedSpins((xs) => {
@@ -231,6 +263,7 @@ export function DemoGotchaMachine({
           onBusyChange?.(b);
         }}
         demo
+        demoPoints={serverTimed}
       />
     </div>
   );

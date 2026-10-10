@@ -94,23 +94,55 @@ export const syncNfts = createServerFn({ method: "POST" })
 export const claimBurn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/), tokenId: z.string().regex(/^\d+$/) }).parse(d))
-  .handler(async ({ data, context }) => {
-    const { verifyBurnTx, fetchLevel } = await import("./nft.server");
+  .handler(async ({ data, context }): Promise<{ status: "pending" | "credited" }> => {
+    const { verifyBurnTx, fetchLevel, BurnPendingError } = await import("./nft.server");
     const db = await admin();
     const cfg = await getConfig("nft");
+    const txHash = data.txHash.toLowerCase();
+    // Already credited (e.g. the page retried after a slow network)?
+    const { data: done } = await db.from("burn_claims").select("user_id").eq("tx_hash", txHash).eq("token_id", data.tokenId).maybeSingle();
+    if (done) {
+      if (done.user_id !== context.userId) throw new Error("This NFT or transaction was already claimed");
+      return { status: "credited" };
+    }
     const { data: wallets } = await db.from("wallets").select("address").eq("user_id", context.userId);
     if (!wallets?.length) throw new Error("Link a wallet first");
-    await verifyBurnTx(cfg, data.txHash as `0x${string}`, BigInt(data.tokenId), wallets.map((w: { address: string }) => w.address));
+    try {
+      await verifyBurnTx(cfg, txHash as `0x${string}`, BigInt(data.tokenId), wallets.map((w: { address: string }) => w.address));
+    } catch (e) {
+      if (e instanceof BurnPendingError) return { status: "pending" };
+      throw e;
+    }
     const { data: h } = await db.from("nft_holdings").select("level, level_override").eq("token_id", data.tokenId).maybeSingle();
     const level = h?.level_override ?? h?.level ?? (await fetchLevel(cfg, BigInt(data.tokenId)));
     if (level == null) throw new Error("Could not read this NFT's level. Ask an admin to verify it.");
     if (level < Number(cfg.burn_min_level)) throw new Error(`Only Level ${cfg.burn_min_level}+ NFTs are eligible`);
-    const { error } = await db.from("burn_claims").insert({ user_id: context.userId, token_id: data.tokenId, tx_hash: data.txHash.toLowerCase(), level });
+    const { error } = await db.from("burn_claims").insert({ user_id: context.userId, token_id: data.tokenId, tx_hash: txHash, level });
     if (error) throw new Error("This NFT or transaction was already claimed");
-    await db.from("spin_credits").insert({ user_id: context.userId, source: "burn", ref: data.tokenId });
+    // The claim and the spin go together: if the spin can't be added, the claim is undone so it can be retried.
+    const { error: creditError } = await db.from("spin_credits").insert({ user_id: context.userId, source: "burn", ref: data.tokenId });
+    if (creditError) {
+      await db.from("burn_claims").delete().eq("tx_hash", txHash).eq("token_id", data.tokenId);
+      throw new Error(`Burn verified, but the free spin couldn't be added (${creditError.message}). Try again.`);
+    }
     await db.from("nft_holdings").upsert({ token_id: data.tokenId, owner_address: cfg.burn_address.toLowerCase(), user_id: context.userId, level, burned: true });
-    await audit(context.userId, "nft.burned", data);
-    return { ok: true };
+    await audit(context.userId, "nft.burned", { ...data, level });
+    return { status: "credited" };
+  });
+
+/** What the burn window needs (public NFT settings, no secrets). */
+export const getNftSettings = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const cfg = await getConfig("nft");
+    return {
+      contract: String(cfg.contract ?? ""),
+      chain_id: Number(cfg.chain_id ?? 33139),
+      rpc_url: String(cfg.rpc_url ?? ""),
+      explorer_url: String(cfg.explorer_url ?? "https://apescan.io"),
+      burn_address: String(cfg.burn_address ?? ""),
+      burn_min_level: Number(cfg.burn_min_level ?? 4),
+    };
   });
 
 // ---------- Spins (Chainlink VRF) ----------
@@ -340,6 +372,83 @@ export const getMySpinBalance = createServerFn({ method: "POST" })
     return spinBalance(await admin(), context.userId);
   });
 
+/** Play demo spins for a signed-in player (granted first, then the free one). Results count on the demo board. */
+export const playDemoSpins = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ count: z.number().int().min(1).max(10) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const g = await import("./grants.server");
+    return g.playDemoSpins(await admin(), context.userId, data.count);
+  });
+
+export const adminDeleteGrant = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ grantId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const g = await import("./grants.server");
+    return { removed: await g.deleteGrant(await admin(), data.grantId, context.userId) };
+  });
+
+/** Public leaderboard: "live" (real on-chain spins) or "demo" (signed-in players' demo spins). */
+export const adminSetLeaderboardMode = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ mode: z.enum(["demo", "live"]) }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    await mergeConfig("leaderboard", { mode: data.mode });
+    await audit(context.userId, "leaderboard.mode", { mode: data.mode });
+    return { mode: data.mode };
+  });
+
+/** Real prizes won (Chainlink draws), newest first, with who won them and whether they've been handed over. */
+export const adminListWinners = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ minRarity: z.enum(["all", "rare", "epic", "legendary"]).default("rare") }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const db = await admin();
+    const rarities = { all: null, rare: ["rare", "epic", "legendary"], epic: ["epic", "legendary"], legendary: ["legendary"] }[data.minRarity];
+    let q = db.from("spins").select("*").eq("status", "fulfilled").order("created_at", { ascending: false }).limit(500);
+    if (rarities) q = q.in("rarity", rarities);
+    const { data: rows, error } = await q;
+    if (error) throw new Error(error.message);
+    const vrf = (await getConfig("vrf")) as { explorer_url?: string };
+    const emails = new Map<string, string>();
+    for (const id of new Set(((rows ?? []) as { user_id: string }[]).map((r) => r.user_id))) {
+      const { data: u } = await db.auth.admin.getUserById(id);
+      emails.set(id, u?.user?.email ?? id);
+    }
+    type W = { id: string; user_id: string; created_at: string; fulfilled_at?: string | null; prize_name: string; rarity: string; points: number; delivered_at?: string | null; request_tx?: string | null };
+    return ((rows ?? []) as W[]).map((r) => ({
+      id: r.id as string,
+      at: r.fulfilled_at ?? r.created_at,
+      player: emails.get(r.user_id) ?? r.user_id,
+      prize: r.prize_name as string,
+      rarity: r.rarity as string,
+      points: r.points as number,
+      delivered_at: (r.delivered_at as string | null | undefined) ?? null,
+      trackable: "delivered_at" in r, // false until the database update adds the column
+      tx: r.request_tx && vrf.explorer_url ? `${vrf.explorer_url.replace(/\/$/, "")}/tx/${r.request_tx}` : null,
+    }));
+  });
+
+export const adminMarkDelivered = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ spinId: z.string().uuid(), delivered: z.boolean() }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const db = await admin();
+    const { error } = await db
+      .from("spins")
+      .update(data.delivered ? { delivered_at: new Date().toISOString(), delivered_by: context.userId } : { delivered_at: null, delivered_by: null })
+      .eq("id", data.spinId)
+      .eq("status", "fulfilled");
+    if (error) throw new Error(error.message);
+    await audit(context.userId, data.delivered ? "prize.delivered" : "prize.undelivered", { spin_id: data.spinId });
+    return { ok: true };
+  });
+
 /** Use granted demo spins on the demo machine (simulated, no prizes). Returns how many were available. */
 export const redeemDemoSpins = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -427,6 +536,154 @@ export const adminSettleDraws = createServerFn({ method: "POST" })
     const { count } = await db.from("spins").select("id", { count: "exact", head: true }).eq("status", "pending");
     await audit(context.userId, "vrf.settled", { before, after: count });
     return { before, after: count ?? 0 };
+  });
+
+/** Whether real (on-chain) spins are open right now. Players can't read the draw settings themselves. */
+export const getDrawStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const cfg = (await getConfig("vrf")) as { enabled?: boolean; contract?: string };
+    const open = !!cfg?.enabled && /^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "");
+    return { open };
+  });
+
+// ---------- Admin: one-click on-chain draw setup (Chainlink VRF on Base) ----------
+async function mergeConfig(key: string, patch: Record<string, unknown>) {
+  const db = await admin();
+  const { data } = await db.from("app_config").select("value").eq("key", key).maybeSingle();
+  const value = { ...((data?.value as Record<string, unknown> | null) ?? {}), ...patch };
+  const { error } = await db.from("app_config").upsert({ key, value, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Couldn't save ${key} settings: ${error.message}`);
+  return value;
+}
+
+const addr = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+export const adminVrfSetup = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        network: z.enum(["base", "base-sepolia", "custom"]),
+        fundEth: z.string().regex(/^\d+(\.\d{1,18})?$/),
+        /** Only for "custom" (another chain Chainlink supports, or a local test chain). */
+        custom: z
+          .object({ chain: z.string().min(1).max(40), chain_id: z.number().int().positive(), rpc_url: z.string().url(), explorer_url: z.string().max(200), coordinator: addr, key_hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) })
+          .optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const s = await import("./vrf-setup.server");
+    const net = data.network === "custom" ? data.custom : s.VRF_NETWORKS[data.network];
+    if (!net) throw new Error("Enter the custom network details");
+    const current = (await getConfig("vrf")) as import("./vrf-setup.server").VrfSetupState;
+    if (current.enabled) throw new Error("Switch real spins off before changing the on-chain draw.");
+    try {
+      const r = await s.setupOnChainDraw({ net, fundEth: data.fundEth, current, save: async (patch) => void (await mergeConfig("vrf", patch)) });
+      await audit(context.userId, "vrf.setup", { network: net.chain, steps: r.steps });
+      return { steps: r.steps.map((x) => ({ ...x, url: x.tx && net.explorer_url ? `${net.explorer_url.replace(/\/$/, "")}/tx/${x.tx}` : undefined })) };
+    } catch (e) {
+      const msg = (e as { shortMessage?: string }).shortMessage ?? (e as Error).message;
+      await audit(context.userId, "vrf.setup_failed", { network: net.chain, error: msg });
+      throw new Error(`${msg} — fix that and press Set up again; finished steps are kept.`);
+    }
+  });
+
+export const adminVrfTopUp = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ eth: z.string().regex(/^\d+(\.\d{1,18})?$/) }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const s = await import("./vrf-setup.server");
+    const hash = await s.topUpSubscription((await getConfig("vrf")) as import("./vrf-setup.server").VrfSetupState, data.eth);
+    await audit(context.userId, "vrf.topped_up", { eth: data.eth, tx: hash });
+    return { txHash: hash as string };
+  });
+
+/** Switch real (on-chain) spins on or off. Turning on checks the contract and odds first. */
+export const adminVrfSwitch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ enabled: z.boolean() }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    if (data.enabled) {
+      const vrf = await import("./vrf.server");
+      const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
+      if (!/^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "")) throw new Error("Set up the on-chain draw first");
+      if (!/^0x[0-9a-fA-F]{64}$/.test(process.env["VRF_OPERATOR_PRIVATE_KEY"] ?? "")) throw new Error("The server secret VRF_OPERATOR_PRIVATE_KEY is missing");
+      const db = await admin();
+      const { data: prizes } = await db.from("prizes").select("id, weight, inventory, active, onchain_index");
+      const chain = await vrf.readPool(cfg);
+      if (!chain.pool.length || !vrf.weightsMatch(vrf.poolArrays(prizes ?? []), chain.pool)) throw new Error("Publish the prize pool first, so the odds players see are the odds the contract uses");
+    }
+    await mergeConfig("vrf", { enabled: data.enabled });
+    await audit(context.userId, data.enabled ? "vrf.enabled" : "vrf.disabled", {});
+    return { enabled: data.enabled };
+  });
+
+export const adminVrfSubscription = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const s = await import("./vrf-setup.server");
+    const cfg = (await getConfig("vrf")) as import("./vrf-setup.server").VrfSetupState;
+    let operator: string | null = null;
+    try {
+      const { privateKeyToAccount } = await import("viem/accounts");
+      const k = process.env["VRF_OPERATOR_PRIVATE_KEY"];
+      if (k && /^0x[0-9a-fA-F]{64}$/.test(k)) operator = privateKeyToAccount(k as `0x${string}`).address;
+    } catch {
+      /* no key */
+    }
+    const sub = await s.subscriptionStatus(cfg).catch((e: Error) => ({ error: e.message }));
+    return { operator, network: cfg.chain ?? null, sub };
+  });
+
+/** Switch $APE spin purchases on or off. Turning on checks the treasury, price and on-chain draw first. */
+export const adminPurchaseSwitch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ enabled: z.boolean() }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    if (data.enabled) {
+      const p = await import("./purchase.server");
+      const cfg = (await getConfig("purchase")) as import("./purchase.server").PurchaseConfig;
+      if (!/^0x[0-9a-fA-F]{40}$/.test(cfg.treasury ?? "")) throw new Error("Set purchase.treasury (the wallet that receives APE) in Configuration first");
+      await p.quoteSpinPrice(cfg); // throws if the price or live APE rate isn't available
+      const vrf = await getConfig("vrf");
+      if (!vrf.enabled || !/^0x[0-9a-fA-F]{40}$/.test(vrf.contract ?? "")) throw new Error("Switch real spins on first, so every spin sold can be drawn");
+    }
+    await mergeConfig("purchase", { enabled: data.enabled });
+    await audit(context.userId, data.enabled ? "purchase.enabled" : "purchase.disabled", {});
+    return { enabled: data.enabled };
+  });
+
+/** Recent purchases for the admin console. */
+export const adminListPurchases = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const db = await admin();
+    const { data: rows, error } = await db.from("spin_purchases").select("*").order("created_at", { ascending: false }).limit(200);
+    if (error) throw new Error(error.message);
+    const cfg = (await getConfig("purchase")) as { explorer_url?: string };
+    const emails = new Map<string, string>();
+    type P = { id: string; user_id: string; created_at: string; quantity: number; price_wei: string | number; status: string; tx_hash?: string | null };
+    for (const id of new Set(((rows ?? []) as P[]).map((r) => r.user_id))) {
+      const { data: u } = await db.auth.admin.getUserById(id);
+      emails.set(id, u?.user?.email ?? id);
+    }
+    const { formatEther } = await import("viem");
+    return ((rows ?? []) as P[]).map((r) => ({
+      id: r.id,
+      at: r.created_at,
+      player: emails.get(r.user_id) ?? r.user_id,
+      quantity: r.quantity,
+      ape: formatEther(BigInt(String(r.price_wei))),
+      status: r.status,
+      tx: r.tx_hash && cfg.explorer_url ? `${cfg.explorer_url.replace(/\/$/, "")}/tx/${r.tx_hash}` : null,
+    }));
   });
 
 // ---------- Spin purchases (APE on ApeChain) ----------
@@ -531,7 +788,7 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
       const r = await db.from(table).select(cols).limit(1);
       return r.error ? r.error.message || `HTTP ${r.status}` : null;
     };
-    const applyHint = (file: string) => `In Lovable chat, ask: “Apply the Supabase migration in supabase/migrations/${file} exactly as written.”`;
+    const applyHint = (file: string) => `Lovable applies drizzle/migrations automatically on sync. If this stays red, ask in Lovable chat: “Apply the database migrations in drizzle/migrations” (this one: ${file}).`;
     const dbChecks: { label: string; err: string | null; file: string; optional?: boolean; okDetail: string }[] = [
       { label: "Chainlink draws + spin purchases", err: (await has("spin_purchases", "id")) ?? (await has("spins", "status")), file: "20261006173505_… and 20261006173526_…", okDetail: "Tables are in place" },
       { label: "Privy sign-in", err: await has("privy_accounts", "privy_did"), file: "20261007100000_privy_sign_in_default_wallet.sql", okDetail: "Tables are in place" },
@@ -542,13 +799,26 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     const grantsReady = await grantSchemaReady(db).catch(() => false);
     for (const c of dbChecks)
       items.push({ group: "Database", label: c.label, ok: !c.err, ...(c.optional ? { optional: true } : {}), detail: c.err ?? c.okDetail, where: applyHint(c.file) });
-    items.push({ group: "Database", label: "Admin spin grants (demo vs paid-equivalent tracking)", ok: grantsReady, optional: true, detail: grantsReady ? "Tables are in place" : "Not applied yet — grants still work (compatibility mode) and move over automatically once it is", where: applyHint("20261010010000_admin_spin_grants.sql") });
+    items.push({ group: "Database", label: "Admin spin grants (demo vs paid-equivalent tracking)", ok: grantsReady, optional: true, detail: grantsReady ? "Tables are in place" : "Not applied yet — grants still work (compatibility mode) and move over automatically once it is", where: applyHint("0002_admin_spin_grants.sql") });
+    const demoErr = await has("demo_spins", "id");
+    items.push({ group: "Database", label: "Demo leaderboard, grant deletion, prize delivery", ok: !demoErr, optional: true, detail: demoErr ?? "Tables are in place", where: applyHint("0003_demo_leaderboard_admin_tools.sql") });
+
+    // Contact form → email
+    const { data: lastMail } = await db.from("audit_log").select("action, details, created_at").in("action", ["contact.emailed", "contact.email_failed"]).order("created_at", { ascending: false }).limit(1);
+    const lm = (lastMail?.[0] ?? null) as { action: string; details: { recipients?: string[]; failures?: { error: string }[] }; created_at: string } | null;
+    items.push({
+      group: "Connections",
+      label: "Guide contact form emails the team",
+      ok: envSet("LOVABLE_API_KEY") && lm?.action !== "contact.email_failed",
+      detail: !envSet("LOVABLE_API_KEY") ? "LOVABLE_API_KEY not set" : !lm ? "No message sent yet — send one from the guide's Contact form to test" : lm.action === "contact.emailed" ? `Last message emailed to ${(lm.details.recipients ?? []).join(", ")}` : `Last email failed: ${lm.details.failures?.[0]?.error ?? "unknown error"}`,
+      where: "Lovable → Cloud → Emails (sender domain notify.apegamesgotcha.com must be verified). Recipients: every admin's email, or set app_config contact.notify_to",
+    });
 
     // Chainlink VRF draw
     const vrf = (await cfg("vrf")) as { enabled?: boolean; contract?: string; rpc_url?: string; chain_id?: number } | null;
     const key = process.env["VRF_OPERATOR_PRIVATE_KEY"];
     const keyOk = !!key && /^0x[0-9a-fA-F]{64}$/.test(key);
-    items.push({ group: "Chainlink draw (Base)", label: "Draw contract address", ok: isAddr(vrf?.contract), detail: isAddr(vrf?.contract) ? vrf!.contract! : "Not set — deploy contracts/ (see contracts/README.md)", where: "Admin → Configuration → vrf → contract" });
+    items.push({ group: "Chainlink draw (Base)", label: "Draw contract address", ok: isAddr(vrf?.contract), detail: isAddr(vrf?.contract) ? vrf!.contract! : "Not set yet", where: "Admin → Chainlink VRF → Set up the on-chain draw (one button; needs the operator key and a little Base ETH)" });
     items.push({ group: "Chainlink draw (Base)", label: "Operator wallet key (secret)", ok: keyOk, detail: keyOk ? "Set" : key ? "Set, but not a 0x + 64 hex character private key" : "Not set", where: "Lovable → Cloud → Secrets → VRF_OPERATOR_PRIVATE_KEY" });
     if (keyOk && isAddr(vrf?.contract) && vrf?.rpc_url) {
       try {
@@ -575,7 +845,7 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
         /* covered by "Contract reachable" */
       }
     }
-    items.push({ group: "Chainlink draw (Base)", label: "Real spins switched on", ok: !!vrf?.enabled, detail: vrf?.enabled ? "On" : "Off — players see “Spins open soon”", where: "Admin → Configuration → vrf → enabled: true (last step)" });
+    items.push({ group: "Chainlink draw (Base)", label: "Real spins switched on", ok: !!vrf?.enabled, detail: vrf?.enabled ? "On" : "Off — players see “Spins open soon”", where: "Admin → Chainlink VRF → Set up, Publish prize pool, then Switch real spins on" });
 
     // Purchases
     const pc = (await cfg("purchase")) as { enabled?: boolean; treasury?: string; price_ape_per_spin?: string; price_usd_per_spin?: string; privy_app_id?: string } | null;
@@ -589,7 +859,7 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     const lastFetch = (ekRows?.[0]?.fetched_at as string | undefined) ?? null;
     items.push({ group: "Guide: ApeFest 2026 info", label: "Firecrawl API key (secret)", ok: firecrawl, detail: firecrawl ? `Set${lastFetch ? ` · BAYC pages last fetched ${new Date(lastFetch).toLocaleString("en-US", { timeZone: "America/New_York" })} ET` : " · not fetched yet (use “Refresh ApeFest info” below)"}` : "Not set — the guide only knows the basic event facts", where: "Lovable → Connectors → Firecrawl (sets FIRECRAWL_API_KEY), or firecrawl.dev → API keys → Lovable → Cloud → Secrets → FIRECRAWL_API_KEY" });
     items.push({ group: "Sign-in (Privy)", label: "Privy App Secret (secret)", ok: privySecret, detail: privySecret ? "Set" : "Not set — Privy sign-in can't finish without it", where: "dashboard.privy.io → App settings → API keys → App secret → Lovable → Cloud → Secrets → PRIVY_APP_SECRET" });
-    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Purchases switched on", ok: !!pc?.enabled, detail: pc?.enabled ? "On" : "Off — Refill shows “purchases open soon”", where: "Admin → Configuration → purchase → enabled: true (last step)" });
+    items.push({ group: "Spin purchases (APE on ApeChain)", label: "Purchases switched on", ok: !!pc?.enabled, detail: pc?.enabled ? "On" : "Off — Refill shows “purchases open soon”", where: "Admin → Chainlink VRF → Spin purchases → Switch purchases on (after real spins are on)" });
     return items;
   });
 

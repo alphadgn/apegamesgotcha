@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { EmailSignInForm } from "./EmailSignInForm";
 import { RefillDialog } from "./RefillDialog";
-import { closeRefill, closeSignIn, getWalletUi, openRefill, useWalletUi } from "./walletUi";
+import { BurnDialog } from "./BurnDialog";
+import { closeBurn, closeRefill, closeSignIn, getWalletUi, openRefill, useWalletUi } from "./walletUi";
 
 const PrivyLayer = lazy(() => import("./PrivyLayer"));
 
@@ -62,6 +63,12 @@ export function WalletHost() {
     [qc],
   );
 
+  const onBurned = useCallback(() => {
+    toast.success("Burn confirmed — 1 free spin added to your machine");
+    void qc.invalidateQueries();
+    window.setTimeout(closeBurn, 1600);
+  }, [qc]);
+
   const privyUnavailable = useCallback(() => {
     console.warn("[Privy] not ready after 10s — using email sign-in and browser wallets instead");
     setPrivyFailed(true);
@@ -71,12 +78,15 @@ export function WalletHost() {
 
   const privyOn = !!cfg?.privy_app_id && !privyFailed;
   const refill = (
-    <RefillDialog
-      open={ui.refill && !!user}
-      onClose={closeRefill}
-      onPurchased={onPurchased}
-      privy={privyOn}
-    />
+    <>
+      <RefillDialog
+        open={ui.refill && !!user}
+        onClose={closeRefill}
+        onPurchased={onPurchased}
+        privy={privyOn}
+      />
+      <BurnDialog target={user ? ui.burn : null} onClose={closeBurn} onBurned={onBurned} privy={privyOn} />
+    </>
   );
 
   if (privyOn) {

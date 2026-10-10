@@ -87,7 +87,12 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
   const [approvedPayment, setApprovedPayment] = useState<{ eachWei: string; quotedAt: string } | null>(null);
   const confirm = usePurchaseConfirmer();
   const cancelled = useRef(false);
-  useEffect(() => () => void (cancelled.current = true), []);
+  useEffect(() => {
+    cancelled.current = false; // reset on (re)mount — React dev mode mounts twice
+    return () => {
+      cancelled.current = true;
+    };
+  }, []);
 
   const each = (() => {
     if (settings.price_usd_per_spin) return BigInt((approvedPayment ?? quote)?.eachWei ?? "0");

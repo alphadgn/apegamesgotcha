@@ -89,7 +89,12 @@ export async function grantSpins(
 }
 
 /** Spins a player can use right now: real (on-chain) and demo (practice). */
-export async function spinBalance(db: Db, userId: string): Promise<{ real: number; demo: number }> {
+export async function spinBalance(db: Db, userId: string): Promise<{ real: number; demo: number; nextFreeAt?: string | null }> {
+  const [b, nextFreeAt] = await Promise.all([creditBalance(db, userId), nextFreeDemoAt(db, userId).catch(() => undefined)]);
+  return nextFreeAt === undefined ? b : { ...b, nextFreeAt };
+}
+
+async function creditBalance(db: Db, userId: string): Promise<{ real: number; demo: number }> {
   if (await grantSchemaReady(db)) {
     const [r, d] = await Promise.all([
       db.from("spin_credits").select("id", { head: true, count: "exact" }).eq("user_id", userId).eq("kind", "real").is("used_spin_id", null),
@@ -247,4 +252,86 @@ async function emailMap(db: Db) {
     if (users.length < 1000) break;
   }
   return emails;
+}
+
+// ---------------------------------------------------------------------------
+// Demo spins for signed-in players (free every 30 minutes + granted demo spins), drawn by the server and
+// recorded in demo_spins so they count on the demo leaderboard. Real prizes only ever come from Chainlink.
+// ---------------------------------------------------------------------------
+export const FREE_DEMO_COOLDOWN_MS = 30 * 60_000;
+
+let demoTableCache: { ok: boolean; at: number } | undefined;
+async function demoTableReady(db: Db) {
+  if (demoTableCache && Date.now() - demoTableCache.at < 60_000) return demoTableCache.ok;
+  const r = await db.from("demo_spins").select("id").limit(1);
+  if (r.error && !isMissingSchema(r.error)) throw new Error(r.error.message);
+  demoTableCache = { ok: !r.error, at: Date.now() };
+  return demoTableCache.ok;
+}
+
+/** When the player's next free demo spin is available (null = now), or undefined if not tracked yet. */
+export async function nextFreeDemoAt(db: Db, userId: string): Promise<string | null | undefined> {
+  if (!(await demoTableReady(db))) return undefined;
+  const { data, error } = await db
+    .from("demo_spins")
+    .select("created_at")
+    .eq("user_id", userId)
+    .eq("source", "free")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(error.message);
+  const last = (data?.[0] as { created_at: string } | undefined)?.created_at;
+  if (!last) return null;
+  const next = new Date(last).getTime() + FREE_DEMO_COOLDOWN_MS;
+  return next > Date.now() ? new Date(next).toISOString() : null;
+}
+
+export type DemoResult = { id: string; prize_id: string | null; prize_name: string; rarity: string; points: number };
+
+/**
+ * Play up to `count` demo spins: granted demo spins first, then the free one if it's due.
+ * Returns `{ local: true }` while the demo_spins table isn't there yet (the browser then simulates as before).
+ */
+export async function playDemoSpins(db: Db, userId: string, count: number): Promise<{ local: true } | { local: false; results: DemoResult[] }> {
+  if (!(await demoTableReady(db))) return { local: true };
+  const sources: ("grant" | "free")[] = [];
+  const fromGrant = await useDemoSpins(db, userId, count);
+  for (let i = 0; i < fromGrant; i++) sources.push("grant");
+  if (!sources.length) {
+    if ((await nextFreeDemoAt(db, userId)) !== null) throw new Error("Your next free demo spin isn't ready yet");
+    sources.push("free");
+  }
+  const { data: prizes, error } = await db.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at");
+  if (error) throw new Error(error.message);
+  const pool = ((prizes ?? []) as { id: string; name: string; rarity: string; points: number; weight: number; inventory: number | null }[]).filter(
+    (p) => p.weight > 0 && (p.inventory == null || p.inventory > 0),
+  );
+  const total = pool.reduce((s, p) => s + p.weight, 0);
+  const pick = () => {
+    if (!total) return null;
+    let roll = Number(crypto.getRandomValues(new Uint32Array(1))[0]! % total);
+    for (const p of pool) {
+      if (roll < p.weight) return p;
+      roll -= p.weight;
+    }
+    return pool[0]!;
+  };
+  const rows = sources.map((source) => {
+    const p = pick();
+    return { user_id: userId, source, prize_id: p?.id ?? null, prize_name: p?.name ?? "Banana Chip", rarity: p?.rarity ?? "common", points: p?.points ?? 0 };
+  });
+  const { data: saved, error: e2 } = await db.from("demo_spins").insert(rows).select("id, prize_id, prize_name, rarity, points");
+  if (e2) throw new Error(`Couldn't record the demo spin: ${e2.message}`);
+  return { local: false, results: saved as DemoResult[] };
+}
+
+/** Delete a grant's unused spins (used ones stay). Returns how many were removed. */
+export async function deleteGrant(db: Db, grantId: string, actor: string): Promise<number> {
+  if (!(await grantSchemaReady(db))) throw new Error("The grants database update is still being applied. Try again in a minute.");
+  const { data, error } = await db.rpc("admin_delete_grant", { _grant_id: grantId, _actor: actor });
+  if (error) {
+    if (isMissingSchema(error)) throw new Error("The database update for deleting grants is still being applied. Try again in a minute.");
+    throw new Error(error.message);
+  }
+  return Number(data ?? 0);
 }

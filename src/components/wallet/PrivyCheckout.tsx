@@ -25,13 +25,11 @@ export function useDefaultWalletAddress() {
   });
 }
 
-export default function PrivyCheckout({
-  settings,
-  onPurchased,
-}: {
-  settings: PurchaseSettings;
-  onPurchased: (q: number) => void;
-}) {
+/**
+ * A WalletAdapter backed by Privy (embedded wallet or a wallet connected through Privy).
+ * `prefer` = an address to use when it's connected (e.g. the wallet that holds an NFT being burned).
+ */
+export function usePrivyWalletAdapter(prefer?: string | null): WalletAdapter {
   const { ready, authenticated, login } = usePrivy();
   const { wallets, ready: walletsReady } = useWallets();
   const [chosen, setChosen] = useState<string | null>(null); // a wallet the player switched to for this payment
@@ -40,17 +38,20 @@ export default function PrivyCheckout({
   });
   const { sendTransaction } = useSendTransaction();
   const { data: defaultAddress } = useDefaultWalletAddress();
+  const want = prefer?.toLowerCase() ?? null;
 
-  // Pay with the wallet they just switched to, else the default wallet when it's available here; otherwise the Privy wallet, then the latest connected one.
+  // Use the wallet they just switched to, else the preferred / default wallet when it's available here;
+  // otherwise the Privy wallet, then the latest connected one.
   const wallet =
     wallets.find((w) => chosen && w.address.toLowerCase() === chosen) ??
+    wallets.find((w) => want && w.address.toLowerCase() === want) ??
     wallets.find((w) => defaultAddress && w.address.toLowerCase() === defaultAddress) ??
     wallets.find((w) => w.walletClientType === "privy") ??
     wallets[0] ??
     null;
   const isDefault = !!wallet && wallet.address.toLowerCase() === defaultAddress;
 
-  const adapter: WalletAdapter = {
+  return {
     ready: ready && walletsReady,
     address: authenticated || wallet ? (wallet?.address ?? null) : null,
     label: `${wallet?.walletClientType === "privy" ? "Privy wallet" : "Wallet"}${isDefault ? " (default)" : ""}`,
@@ -76,6 +77,15 @@ export default function PrivyCheckout({
       })) as Hex;
     },
   };
+}
 
+export default function PrivyCheckout({
+  settings,
+  onPurchased,
+}: {
+  settings: PurchaseSettings;
+  onPurchased: (q: number) => void;
+}) {
+  const adapter = usePrivyWalletAdapter();
   return <CheckoutPanel settings={settings} wallet={adapter} onPurchased={onPurchased} />;
 }

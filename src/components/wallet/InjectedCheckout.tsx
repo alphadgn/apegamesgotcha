@@ -7,7 +7,9 @@ type Eip1193 = { request: (a: { method: string; params?: unknown[] }) => Promise
 
 const eth = () => (typeof window === "undefined" ? undefined : (window as unknown as { ethereum?: Eip1193 }).ethereum);
 
-async function switchToApeChain(provider: Eip1193, s: PurchaseSettings) {
+export type ChainInfo = { chain_id: number; rpc_url: string; explorer_url?: string | undefined };
+
+async function switchToApeChain(provider: Eip1193, s: ChainInfo) {
   const chainId = toHex(s.chain_id);
   try {
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
@@ -20,7 +22,8 @@ async function switchToApeChain(provider: Eip1193, s: PurchaseSettings) {
   }
 }
 
-export default function InjectedCheckout({ settings, onPurchased }: { settings: PurchaseSettings; onPurchased: (q: number) => void }) {
+/** A WalletAdapter backed by a browser-extension wallet (window.ethereum). Null when there is none. */
+export function useInjectedWalletAdapter(chain: ChainInfo): WalletAdapter | null {
   const [address, setAddress] = useState<string | null>(null);
   const provider = eth();
 
@@ -38,20 +41,24 @@ export default function InjectedCheckout({ settings, onPurchased }: { settings: 
     setAddress(a[0] ?? null);
   }, [provider]);
 
-  if (!provider) {
-    return <p className="gm-rf-warn">No browser wallet found. Install MetaMask (or another wallet), or ask the organizers to enable email wallets.</p>;
-  }
-
-  const adapter: WalletAdapter = {
+  if (!provider) return null;
+  return {
     ready: true,
     address,
     label: "Wallet",
     connect,
     pay: async ({ to, valueWei, data }) => {
       if (!address) throw new Error("Connect a wallet first");
-      await switchToApeChain(provider, settings);
+      await switchToApeChain(provider, chain);
       return (await provider.request({ method: "eth_sendTransaction", params: [{ from: address, to, value: toHex(BigInt(valueWei)), data }] })) as Hex;
     },
   };
+}
+
+export default function InjectedCheckout({ settings, onPurchased }: { settings: PurchaseSettings; onPurchased: (q: number) => void }) {
+  const adapter = useInjectedWalletAdapter(settings);
+  if (!adapter) {
+    return <p className="gm-rf-warn">No browser wallet found. Install MetaMask (or another wallet), or ask the organizers to enable email wallets.</p>;
+  }
   return <CheckoutPanel settings={settings} wallet={adapter} onPurchased={onPurchased} />;
 }

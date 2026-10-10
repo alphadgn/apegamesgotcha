@@ -55,9 +55,15 @@ export async function listOwnedTokens(cfg: NftConfig, owner: string): Promise<bi
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
+/** Thrown while the burn transaction isn't mined yet, so callers can keep waiting. */
+export class BurnPendingError extends Error {}
+
 export async function verifyBurnTx(cfg: NftConfig, txHash: Hex, tokenId: bigint, fromWallets: string[]) {
   const client = nftClient(cfg);
-  const receipt = await client.getTransactionReceipt({ hash: txHash });
+  const receipt = await client.getTransactionReceipt({ hash: txHash }).catch((e: { name?: string }) => {
+    if (e?.name === "TransactionReceiptNotFoundError") throw new BurnPendingError("Waiting for ApeChain to confirm the burn");
+    throw e;
+  });
   if (receipt.status !== "success") throw new Error("Transaction failed on-chain");
   const burnTargets = [cfg.burn_address.toLowerCase(), "0x0000000000000000000000000000000000000000"];
   const wallets = fromWallets.map((w) => w.toLowerCase());

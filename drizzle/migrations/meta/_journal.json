@@ -8,6 +8,27 @@
       "when": 1791382476303,
       "tag": "0000_contact_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791600000001,
+      "tag": "0001_event_knowledge",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791600000002,
+      "tag": "0002_admin_spin_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791600000003,
+      "tag": "0003_demo_leaderboard_admin_tools",
+      "breakpoints": true
     }
   ]
 }
