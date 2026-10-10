@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { SwipeToDelete } from "@/components/SwipeToDelete";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
@@ -249,7 +250,7 @@ function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: 
   const topUp = useServerFn(adminVrfTopUp);
   const toggle = useServerFn(adminVrfSwitch);
   const subFn = useServerFn(adminVrfSubscription);
-  const { data: sub, refetch } = useQuery({ queryKey: ["vrf-sub"], queryFn: () => subFn() });
+  const { data: sub, error: loadError, isFetching: checking, refetch } = useQuery({ queryKey: ["vrf-sub"], queryFn: () => subFn() });
   const [network, setNetwork] = useState<"base" | "base-sepolia" | "custom">("base");
   const [fundEth, setFundEth] = useState("0.01");
   const [topEth, setTopEth] = useState("0.01");
@@ -273,7 +274,7 @@ function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: 
         network you pick. If a step fails, press it again: finished steps are kept.
       </p>
       <p className="text-sm">
-        Operator wallet: <span className="break-all font-mono">{sub?.operator ?? "not set — add the secret first"}</span>
+        Operator wallet: <span className="break-all font-mono">{sub?.operator ?? (checking ? "Checking…" : loadError ? "Could not check wallet" : "not set — add the secret first")}</span>
         {s?.operator && <> · {Number(s.operator.eth).toFixed(5)} ETH</>}
       </p>
       <div className="grid gap-2 sm:grid-cols-[1fr_140px_auto] sm:items-end">
@@ -290,7 +291,8 @@ function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: 
           <Input value={fundEth} inputMode="decimal" onChange={(e) => setFundEth(e.target.value)} />
         </label>
         <Button
-          disabled={!!busy || enabled || !sub?.operator}
+          className="min-h-11 w-full sm:w-auto"
+          disabled={!!busy || enabled || (!loadError && !sub?.operator)}
           onClick={async () => {
             setBusy("setup");
             setSteps([]);
@@ -332,7 +334,10 @@ function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: 
           ))}
         </ol>
       )}
-      {subError && <p className="text-sm text-destructive">{subError}</p>}
+      {(subError || loadError) && <div role="alert" className="space-y-2">
+        <p className="break-words text-sm text-destructive">{subError || (loadError as Error)?.message}</p>
+        <Button variant="outline" disabled={checking} onClick={() => void refetch()}>Retry wallet check</Button>
+      </div>}
       {s && (
         <div className="grid gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
           <p className="text-sm">
@@ -759,51 +764,3 @@ function AuditPanel() {
   );
 }
 
-/** Swipe left (touch or mouse) to delete. Releasing past the threshold calls onDelete; otherwise it springs back. */
-function SwipeToDelete({ enabled, onDelete, label, children }: { enabled: boolean; onDelete: () => Promise<boolean>; label: string; children: ReactNode }) {
-  const [dx, setDx] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const start = useRef<{ x: number; y: number; w: number; locked: boolean | null } | null>(null);
-  const reveal = 120;
-  return (
-    <li className="relative touch-pan-y select-none">
-      {enabled && (
-        <div className="absolute inset-y-0 right-0 flex items-center justify-end bg-destructive px-4 text-xs font-bold text-destructive-foreground" style={{ width: Math.max(reveal, -dx) }} aria-hidden>
-          {label}
-        </div>
-      )}
-      <div
-        className="relative bg-card"
-        style={{ transform: `translateX(${dx}px)`, transition: dragging ? "none" : "transform 200ms ease" }}
-        onPointerDown={(e) => {
-          if (!enabled) return;
-          start.current = { x: e.clientX, y: e.clientY, w: e.currentTarget.offsetWidth, locked: null };
-        }}
-        onPointerMove={(e) => {
-          const s = start.current;
-          if (!s) return;
-          const mx = e.clientX - s.x, my = e.clientY - s.y;
-          if (s.locked === null && (Math.abs(mx) > 8 || Math.abs(my) > 8)) {
-            s.locked = Math.abs(mx) > Math.abs(my);
-            if (s.locked) { e.currentTarget.setPointerCapture(e.pointerId); setDragging(true); }
-          }
-          if (s.locked) setDx(Math.min(0, mx));
-        }}
-        onPointerUp={async () => {
-          const s = start.current;
-          start.current = null;
-          setDragging(false);
-          if (!s?.locked) return;
-          if (-dx > Math.min(s.w * 0.4, 160)) {
-            setDx(-s.w);
-            const ok = await onDelete();
-            if (!ok) setDx(0);
-          } else setDx(0);
-        }}
-        onPointerCancel={() => { start.current = null; setDragging(false); setDx(0); }}
-      >
-        {children}
-      </div>
-    </li>
-  );
-}
