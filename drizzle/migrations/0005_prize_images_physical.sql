@@ -1,0 +1,10 @@
+alter table public.prizes add column if not exists image_url text;
+alter table public.prizes add column if not exists is_physical boolean not null default false;
+drop policy if exists "prize images read" on storage.objects;
+create policy "prize images read" on storage.objects for select to anon, authenticated using (bucket_id = 'prize-images');
+drop policy if exists "prize images admin insert" on storage.objects;
+create policy "prize images admin insert" on storage.objects for insert to authenticated with check (bucket_id = 'prize-images' and public.has_role(auth.uid(), 'admin'));
+drop policy if exists "prize images admin update" on storage.objects;
+create policy "prize images admin update" on storage.objects for update to authenticated using (bucket_id = 'prize-images' and public.has_role(auth.uid(), 'admin'));
+drop policy if exists "prize images admin delete" on storage.objects;
+create policy "prize images admin delete" on storage.objects for delete to authenticated using (bucket_id = 'prize-images' and public.has_role(auth.uid(), 'admin'));

@@ -315,7 +315,9 @@ export type Database = {
           active: boolean
           created_at: string
           id: string
+          image_url: string | null
           inventory: number | null
+          is_physical: boolean
           name: string
           onchain_index: number | null
           points: number
@@ -326,7 +328,9 @@ export type Database = {
           active?: boolean
           created_at?: string
           id?: string
+          image_url?: string | null
           inventory?: number | null
+          is_physical?: boolean
           name: string
           onchain_index?: number | null
           points?: number
@@ -337,7 +341,9 @@ export type Database = {
           active?: boolean
           created_at?: string
           id?: string
+          image_url?: string | null
           inventory?: number | null
+          is_physical?: boolean
           name?: string
           onchain_index?: number | null
           points?: number
