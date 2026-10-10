@@ -42,10 +42,33 @@ alter table public.spin_credits add constraint spin_credits_demo_is_grant check 
 create index if not exists spin_credits_grant_idx on public.spin_credits (grant_id);
 create index if not exists spin_credits_unused_idx on public.spin_credits (user_id, kind) where used_spin_id is null and used_at is null;
 
--- Earlier grants (before tracking) become paid-equivalent grant rows so the admin panel shows them.
+-- Carry over grants made before this migration ran (the app keeps grants working on the older schema):
+--   * paid-equivalent grants made by the app: credits with ref '<grant id>:<n>' + an 'admin.grant_spins' audit row (note)
+--   * demo grants made by the app: 'admin.grant_demo_spins' audit rows, use recorded as 'demo.spins_used'
+--   * grants from before any tracking: credits with no ref, grouped by player/admin/second
 do $$
 declare r record; v_grant uuid;
 begin
+  -- Paid-equivalent grants recorded by the app.
+  for r in
+    select split_part(c.ref, ':', 1)::uuid as gid, c.user_id, min(c.created_by::text)::uuid as created_by,
+           min(c.created_at) as at, count(*)::int as n
+      from public.spin_credits c
+     where c.source = 'grant' and c.grant_id is null
+       and c.ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9]+$'
+     group by 1, 2
+  loop
+    insert into public.spin_grants (id, user_id, kind, count, note, created_by, created_at)
+    values (r.gid, r.user_id, 'real', least(r.n, 100),
+            coalesce((select a.details ->> 'note' from public.audit_log a
+                       where a.action = 'admin.grant_spins' and a.details ->> 'grant_id' = r.gid::text limit 1), ''),
+            r.created_by, r.at)
+    on conflict (id) do nothing;
+    update public.spin_credits c set grant_id = r.gid
+     where c.source = 'grant' and c.grant_id is null and split_part(c.ref, ':', 1) = r.gid::text;
+  end loop;
+
+  -- Grants from before any tracking.
   for r in
     select user_id, created_by, date_trunc('second', created_at) as at, count(*)::int as n
     from public.spin_credits
@@ -58,6 +81,29 @@ begin
     update public.spin_credits set grant_id = v_grant
       where source = 'grant' and grant_id is null and user_id = r.user_id
         and created_by is not distinct from r.created_by and date_trunc('second', created_at) = r.at;
+  end loop;
+
+  -- Demo grants recorded by the app, then the demo spins already used (oldest grants first).
+  for r in
+    select (a.details ->> 'grant_id')::uuid as gid, (a.details ->> 'user_id')::uuid as user_id, a.actor,
+           a.created_at, least(greatest((a.details ->> 'count')::int, 1), 100) as n, coalesce(a.details ->> 'note', '') as note
+      from public.audit_log a
+     where a.action = 'admin.grant_demo_spins'
+       and not exists (select 1 from public.spin_grants g where g.id = (a.details ->> 'grant_id')::uuid)
+  loop
+    insert into public.spin_grants (id, user_id, kind, count, note, created_by, created_at)
+    values (r.gid, r.user_id, 'demo', r.n, r.note, r.actor, r.created_at);
+    insert into public.spin_credits (user_id, source, ref, kind, grant_id, created_by, created_at)
+    select r.user_id, 'grant', r.gid::text || ':' || i, 'demo', r.gid, r.actor, r.created_at from generate_series(1, r.n) i;
+  end loop;
+  for r in
+    select (a.details ->> 'user_id')::uuid as user_id, sum((a.details ->> 'count')::int)::int as used, max(a.created_at) as at
+      from public.audit_log a where a.action = 'demo.spins_used' group by 1
+  loop
+    update public.spin_credits c set used_at = r.at
+     where c.id in (select x.id from public.spin_credits x
+                     where x.user_id = r.user_id and x.kind = 'demo' and x.used_at is null
+                     order by x.created_at, x.ref limit r.used);
   end loop;
 end $$;
 

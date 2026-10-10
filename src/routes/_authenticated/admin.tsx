@@ -373,7 +373,8 @@ function GrantsPanel() {
 
 function GrantLog() {
   const list = useServerFn(adminListGrants);
-  const { data, error, isFetching, refetch } = useQuery({ queryKey: ["spin-grants"], queryFn: () => list() });
+  const { data: res, error, isFetching, refetch } = useQuery({ queryKey: ["spin-grants"], queryFn: () => list() });
+  const data = res?.rows;
   const [filter, setFilter] = useState<"all" | GrantKind>("all");
   const rows = (data ?? []).filter((r) => filter === "all" || r.kind === filter);
   const totals = (k: GrantKind) => {
@@ -409,6 +410,18 @@ function GrantLog() {
         ))}
       </div>
       {error && <p className="mt-3 text-sm text-destructive">{(error as Error).message}</p>}
+      {res?.pendingMigration && (
+        <p className="mt-3 rounded border border-border bg-muted/40 p-3 text-left text-xs text-muted-foreground">
+          Grants are working and players can use them now. One database update is still waiting to be applied in Lovable
+          (see Setup checklist); when it runs, every grant listed here carries over automatically.
+        </p>
+      )}
+      {res?.pendingMigration && (
+        <p className="mt-3 rounded border border-border bg-muted/40 p-3 text-left text-xs text-muted-foreground">
+          Grants are working and players can use them now. One database update is still waiting to be applied in Lovable
+          (see Setup checklist); when it runs, every grant listed here carries over automatically.
+        </p>
+      )}
       {data && rows.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No grants yet.</p>}
       <ul className="mt-3 divide-y divide-border text-left text-sm">
         {rows.map((r) => (

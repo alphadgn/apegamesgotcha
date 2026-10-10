@@ -487,7 +487,7 @@ export type SpinGrantRow = {
 /** Every admin spin grant with how many of its spins have been used, newest first (admins only). */
 export const adminListGrants = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<SpinGrantRow[]> => {
+  .handler(async ({ context }): Promise<{ rows: SpinGrantRow[]; pendingMigration: boolean }> => {
     await assertAdmin(context);
     const db = await admin();
     const { data: grants, error } = await db
@@ -524,7 +524,7 @@ export const adminListGrants = createServerFn({ method: "POST" })
       for (const u of users) emails.set(u.id, u.email ?? u.id);
       if (users.length < 1000) break;
     }
-    return rows.map((g) => ({
+    return { pendingMigration: false, rows: rows.map((g) => ({
       id: g.id,
       created_at: g.created_at,
       kind: g.kind,
@@ -533,7 +533,7 @@ export const adminListGrants = createServerFn({ method: "POST" })
       note: g.note,
       player: emails.get(g.user_id) ?? g.user_id,
       granted_by: g.created_by ? (emails.get(g.created_by) ?? g.created_by) : "—",
-    }));
+    })) };
   });
 
 /** Use granted demo spins on the demo machine (simulated, no prizes). Returns how many were available. */
