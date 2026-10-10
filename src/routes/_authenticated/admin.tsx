@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminRestockPrize, adminGrant, adminSetLevel, adminVrfStatus, adminPublishPool, adminReconcilePublication, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminRestockPrize, adminGrant, adminListGrants, adminSetLevel, adminVrfStatus, adminPublishPool, adminReconcilePublication, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
 import { SeasonsPanel, SnapshotsPanel, SharesPanel, LedgerPanel, EconomicsPanel, OpsPanel } from "@/components/admin/SeasonAdmin";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -280,33 +280,155 @@ function VrfPanel() {
   );
 }
 
+const GRANT_KINDS = {
+  real: {
+    label: "Paid-equivalent",
+    short: "Paid-equiv.",
+    help: "Same as a purchased spin: a real on-chain Chainlink draw that wins prizes and season points. Funded from the grant budget (Economics); needs the on-chain draw switched on.",
+    badge: "border-primary/60 bg-primary/15 text-primary",
+  },
+  demo: {
+    label: "Demo",
+    short: "Demo",
+    help: "Practice spins on the demo machine: simulated, no prizes, no points. Playable straight away, with no 30-minute wait.",
+    badge: "border-border bg-muted text-muted-foreground",
+  },
+} as const;
+type GrantKind = keyof typeof GRANT_KINDS;
+
 function GrantsPanel() {
+  const qc = useQueryClient();
   const grant = useServerFn(adminGrant);
   const setLevel = useServerFn(adminSetLevel);
-  const [g, setG] = useState({ email: "", spins: 1, points: 0, note: "" });
+  const [g, setG] = useState<{ email: string; spins: number; kind: GrantKind; points: number; note: string }>({ email: "", spins: 1, kind: "real", points: 0, note: "" });
+  const [busy, setBusy] = useState(false);
   const [lv, setLv] = useState({ tokenId: "", level: "" });
   return (
-    <div className="mt-4 grid gap-4 md:grid-cols-2">
-      <div className="space-y-2 rounded border border-border bg-card p-4">
-        <h3 className="font-bold">Grant spins / adjust points</h3>
-        <p className="text-sm text-muted-foreground">Granted spins draw from a funded “grant” budget (Economics). Point adjustments apply to the active season and are audited. A reason is required.</p>
-        <Input placeholder="user email" value={g.email} onChange={(e) => setG({ ...g, email: e.target.value })} />
-        <div className="grid grid-cols-2 gap-2">
-          <Input type="number" placeholder="spins" value={g.spins} onChange={(e) => setG({ ...g, spins: +e.target.value })} />
-          <Input type="number" placeholder="points (+/-)" value={g.points} onChange={(e) => setG({ ...g, points: +e.target.value })} />
+    <div className="mt-4 space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-3 rounded border border-border bg-card p-4">
+          <h3 className="font-bold">Grant spins / adjust points</h3>
+          <p className="text-sm text-muted-foreground">Granted spins are usable right away and don't count toward players' daily or season spin limits. Point adjustments apply to the active season. A reason (5+ characters) is required.</p>
+          <Input placeholder="user email" type="email" value={g.email} onChange={(e) => setG({ ...g, email: e.target.value })} />
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Spin type</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(Object.keys(GRANT_KINDS) as GrantKind[]).map((k) => (
+                <label
+                  key={k}
+                  className={`flex cursor-pointer gap-2 rounded border p-3 text-left text-sm ${g.kind === k ? "border-primary bg-primary/10" : "border-border"}`}
+                >
+                  <input type="radio" name="grant-kind" className="mt-1 h-4 w-4 shrink-0 accent-primary" checked={g.kind === k} onChange={() => setG({ ...g, kind: k })} />
+                  <span>
+                    <b>{GRANT_KINDS[k].label}</b>
+                    <span className="mt-1 block text-xs text-muted-foreground">{GRANT_KINDS[k].help}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-left text-xs text-muted-foreground">
+              Spins
+              <Input type="number" min={0} max={100} value={g.spins} onChange={(e) => setG({ ...g, spins: +e.target.value })} />
+            </label>
+            <label className="text-left text-xs text-muted-foreground">
+              Points (+/-)
+              <Input type="number" value={g.points} onChange={(e) => setG({ ...g, points: +e.target.value })} />
+            </label>
+          </div>
+          <Input placeholder="reason / note (shown in the grant log)" value={g.note} onChange={(e) => setG({ ...g, note: e.target.value })} />
+          <Button
+            disabled={busy || !g.email || g.note.trim().length < 5 || (g.spins <= 0 && g.points === 0)}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await grant({ data: g });
+                toast.success(g.spins > 0 ? `Granted ${g.spins} ${GRANT_KINDS[g.kind].label.toLowerCase()} spin${g.spins === 1 ? "" : "s"} — usable now` : "Points adjusted");
+                void qc.invalidateQueries({ queryKey: ["spin-grants"] });
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Applying…" : "Apply"}
+          </Button>
         </div>
-        <Input placeholder="reason / note" value={g.note} onChange={(e) => setG({ ...g, note: e.target.value })} />
-        <Button onClick={async () => { try { await grant({ data: g }); toast.success("Granted"); } catch (e) { toast.error((e as Error).message); } }}>Apply</Button>
-      </div>
-      <div className="space-y-2 rounded border border-border bg-card p-4">
-        <h3 className="font-bold">Override NFT level</h3>
-        <p className="text-sm text-muted-foreground">Use when on-chain traits can't be read. Leave level empty to clear.</p>
-        <div className="grid grid-cols-2 gap-2">
-          <Input placeholder="token ID" value={lv.tokenId} onChange={(e) => setLv({ ...lv, tokenId: e.target.value })} />
-          <Input placeholder="level" value={lv.level} onChange={(e) => setLv({ ...lv, level: e.target.value })} />
+        <div className="space-y-2 rounded border border-border bg-card p-4">
+          <h3 className="font-bold">Override NFT level</h3>
+          <p className="text-sm text-muted-foreground">Use when on-chain traits can't be read. Leave level empty to clear.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="token ID" value={lv.tokenId} onChange={(e) => setLv({ ...lv, tokenId: e.target.value })} />
+            <Input placeholder="level" value={lv.level} onChange={(e) => setLv({ ...lv, level: e.target.value })} />
+          </div>
+          <Button onClick={async () => { try { await setLevel({ data: { tokenId: lv.tokenId, level: lv.level === "" ? null : +lv.level } }); toast.success("Updated"); } catch (e) { toast.error((e as Error).message); } }}>Save</Button>
         </div>
-        <Button onClick={async () => { try { await setLevel({ data: { tokenId: lv.tokenId, level: lv.level === "" ? null : +lv.level } }); toast.success("Updated"); } catch (e) { toast.error((e as Error).message); } }}>Save</Button>
       </div>
+      <GrantLog />
+    </div>
+  );
+}
+
+function GrantLog() {
+  const list = useServerFn(adminListGrants);
+  const { data, error, isFetching, refetch } = useQuery({ queryKey: ["spin-grants"], queryFn: () => list() });
+  const [filter, setFilter] = useState<"all" | GrantKind>("all");
+  const rows = (data ?? []).filter((r) => filter === "all" || r.kind === filter);
+  const totals = (k: GrantKind) => {
+    const xs = (data ?? []).filter((r) => r.kind === k);
+    const granted = xs.reduce((s, r) => s + r.count, 0);
+    const used = xs.reduce((s, r) => s + r.used, 0);
+    return { granted, used, left: granted - used };
+  };
+  return (
+    <div className="rounded border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-bold">Granted spins</h3>
+        <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Loading…" : "Refresh"}</Button>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {(Object.keys(GRANT_KINDS) as GrantKind[]).map((k) => {
+          const t = totals(k);
+          return (
+            <div key={k} className="rounded border border-border p-3 text-left">
+              <span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${GRANT_KINDS[k].badge}`}>{GRANT_KINDS[k].label}</span>
+              <p className="mt-2 text-sm">
+                <b>{t.granted}</b> granted · <b>{t.used}</b> used · <b>{t.left}</b> unused
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1" role="group" aria-label="Filter grants">
+        {(["all", "real", "demo"] as const).map((f) => (
+          <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} aria-pressed={filter === f} onClick={() => setFilter(f)}>
+            {f === "all" ? "All" : GRANT_KINDS[f].label}
+          </Button>
+        ))}
+      </div>
+      {error && <p className="mt-3 text-sm text-destructive">{(error as Error).message}</p>}
+      {data && rows.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No grants yet.</p>}
+      <ul className="mt-3 divide-y divide-border text-left text-sm">
+        {rows.map((r) => (
+          <li key={r.id} className="grid gap-1 py-3 sm:grid-cols-[180px_110px_minmax(0,1fr)_130px] sm:items-center sm:gap-3">
+            <span className="font-mono text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
+            <span>
+              <span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${GRANT_KINDS[r.kind].badge}`}>{GRANT_KINDS[r.kind].short}</span>
+            </span>
+            <span className="min-w-0">
+              <span className="block break-all font-medium">{r.player}</span>
+              <span className="block break-words text-xs text-muted-foreground">
+                {r.note || "No note"} · by {r.granted_by}
+              </span>
+            </span>
+            <span className="font-mono text-xs sm:text-right">
+              {r.used}/{r.count} used{r.count - r.used > 0 ? ` · ${r.count - r.used} left` : ""}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

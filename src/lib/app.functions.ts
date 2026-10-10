@@ -434,6 +434,8 @@ export const adminGrant = createServerFn({ method: "POST" })
       .object({
         email: z.string().email(),
         spins: z.number().int().min(0).max(100),
+        /** real = paid-equivalent on-chain spin (funded from the grant budget); demo = practice spin, no prizes or points. */
+        kind: z.enum(["real", "demo"]).default("real"),
         points: z.number().int().min(-1_000_000).max(1_000_000),
         note: z.string().min(5).max(200),
       })
@@ -450,6 +452,7 @@ export const adminGrant = createServerFn({ method: "POST" })
         _reason: data.note,
         _actor: context.userId,
         _source: "grant",
+        _kind: data.kind,
       });
     if (data.points !== 0) {
       const raw = await admin();
@@ -468,6 +471,79 @@ export const adminGrant = createServerFn({ method: "POST" })
       });
     }
     return { ok: true };
+  });
+
+export type SpinGrantRow = {
+  id: string;
+  created_at: string;
+  kind: "real" | "demo";
+  count: number;
+  used: number;
+  note: string;
+  player: string;
+  granted_by: string;
+};
+
+/** Every admin spin grant with how many of its spins have been used, newest first (admins only). */
+export const adminListGrants = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<SpinGrantRow[]> => {
+    await assertAdmin(context);
+    const db = await admin();
+    const { data: grants, error } = await db
+      .from("spin_grants")
+      .select("id, created_at, kind, count, note, user_id, created_by")
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    const rows = (grants ?? []) as {
+      id: string;
+      created_at: string;
+      kind: "real" | "demo";
+      count: number;
+      note: string;
+      user_id: string;
+      created_by: string | null;
+    }[];
+    const ids = rows.map((g) => g.id);
+    const used = new Map<string, number>();
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: credits, error: e2 } = await db
+        .from("spin_credits")
+        .select("grant_id, used_spin_id, used_at")
+        .in("grant_id", ids.slice(i, i + 100));
+      if (e2) throw new Error(e2.message);
+      for (const c of (credits ?? []) as { grant_id: string; used_spin_id: string | null; used_at: string | null }[])
+        if (c.used_spin_id || c.used_at) used.set(c.grant_id, (used.get(c.grant_id) ?? 0) + 1);
+    }
+    // Emails stay inside the admin console (never on public surfaces).
+    const emails = new Map<string, string>();
+    for (let page = 1; page <= 50; page++) {
+      const { data } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+      const users = (data?.users ?? []) as { id: string; email?: string }[];
+      for (const u of users) emails.set(u.id, u.email ?? u.id);
+      if (users.length < 1000) break;
+    }
+    return rows.map((g) => ({
+      id: g.id,
+      created_at: g.created_at,
+      kind: g.kind,
+      count: g.count,
+      used: used.get(g.id) ?? 0,
+      note: g.note,
+      player: emails.get(g.user_id) ?? g.user_id,
+      granted_by: g.created_by ? (emails.get(g.created_by) ?? g.created_by) : "—",
+    }));
+  });
+
+/** Use granted demo spins on the demo machine (simulated, no prizes). Returns how many were available. */
+export const redeemDemoSpins = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ count: z.number().int().min(1).max(10) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const db = await (await ctx()).serviceDb();
+    const [used] = await db.rpc<number>("use_demo_spins", { _user_id: context.userId, _count: data.count });
+    return { used: Number(used ?? 0) };
   });
 
 export const adminSetLevel = createServerFn({ method: "POST" })

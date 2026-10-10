@@ -1502,28 +1502,67 @@ export type Database = {
         Row: {
           created_at: string;
           created_by: string | null;
+          grant_id: string | null;
           id: string;
+          kind: string;
           ref: string | null;
           source: string;
+          used_at: string | null;
           used_spin_id: string | null;
           user_id: string;
         };
         Insert: {
           created_at?: string;
           created_by?: string | null;
+          grant_id?: string | null;
           id?: string;
+          kind?: string;
           ref?: string | null;
           source: string;
+          used_at?: string | null;
           used_spin_id?: string | null;
           user_id: string;
         };
         Update: {
           created_at?: string;
           created_by?: string | null;
+          grant_id?: string | null;
           id?: string;
+          kind?: string;
           ref?: string | null;
           source?: string;
+          used_at?: string | null;
           used_spin_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      spin_grants: {
+        Row: {
+          count: number;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          kind: string;
+          note: string;
+          user_id: string;
+        };
+        Insert: {
+          count: number;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          kind: string;
+          note?: string;
+          user_id: string;
+        };
+        Update: {
+          count?: number;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          kind?: string;
+          note?: string;
           user_id?: string;
         };
         Relationships: [];
@@ -2333,7 +2372,12 @@ export type Database = {
           _reason: string;
           _actor: string;
           _source?: string;
+          _kind?: string;
         };
+        Returns: number;
+      };
+      use_demo_spins: {
+        Args: { _user_id: string; _count: number };
         Returns: number;
       };
       has_role: {

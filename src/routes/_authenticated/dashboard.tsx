@@ -103,6 +103,7 @@ function useMyData(uid: string | undefined, seasonId: string | undefined) {
             .from("spin_credits")
             .select("id", { count: "exact", head: true })
             .eq("user_id", uid)
+            .eq("kind", "real")
             .is("used_spin_id", null),
           db
             .from("spins")

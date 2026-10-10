@@ -102,7 +102,7 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     const [prizesRes, nftRes, creditsRes, standingRes, cfgRes] = await Promise.all([
       authed.supabase.from("prizes").select("name, rarity").eq("active", true),
       authed.supabase.from("app_config").select("value").eq("key", "nft").maybeSingle(),
-      authed.supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", authed.userId).is("used_spin_id", null),
+      authed.supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", authed.userId).eq("kind", "real").is("used_spin_id", null),
       season ? authed.supabase.rpc("get_my_season_standing", { _season_id: season.id }) : Promise.resolve({ data: [] }),
       // Non-sensitive rule values only (spin limits, prices).
       supabaseAdmin.from("app_config").select("key, value").in("key", ["spins", "purchase", "event_info"]),
