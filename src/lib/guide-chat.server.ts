@@ -96,7 +96,7 @@ export async function handleGuideChat(request: Request): Promise<Response> {
       authed.supabase.from("prizes").select("name, rarity, points").eq("active", true),
       authed.supabase.from("app_config").select("value").eq("key", "nft").maybeSingle(),
       authed.supabase.from("points_ledger").select("amount, reason").eq("user_id", authed.userId),
-      authed.supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", authed.userId).is("used_spin_id", null),
+      authed.supabase.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", authed.userId).eq("kind", "real").is("used_spin_id", null),
       authed.supabase.rpc("get_leaderboard", { _limit: 500 }),
       // Non-sensitive rule values only (scoring weights, spin limits, prices).
       supabaseAdmin.from("app_config").select("key, value").in("key", ["scoring", "spins", "purchase", "event_info"]),

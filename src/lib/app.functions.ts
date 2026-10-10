@@ -281,22 +281,115 @@ export const adminUpsertPrize = createServerFn({ method: "POST" })
 export const adminGrant = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
-    z.object({ email: z.string().email(), spins: z.number().int().min(0).max(100), points: z.number().int(), note: z.string().max(200) }).parse(d),
+    z
+      .object({
+        email: z.string().email(),
+        spins: z.number().int().min(0).max(100),
+        /** real = paid-equivalent on-chain spin; demo = practice spin (no prizes or points). */
+        kind: z.enum(["real", "demo"]),
+        points: z.number().int(),
+        note: z.string().max(200),
+      })
+      .parse(d),
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const db = await admin();
-    const { data: list } = await db.auth.admin.listUsers({ perPage: 1000 });
-    const user = list?.users.find((u: { email?: string; id: string }) => u.email?.toLowerCase() === data.email.toLowerCase());
+    const user = await userByEmail(db, data.email);
     if (!user) throw new Error("No user with that email");
     if (data.spins > 0) {
-      await db.from("spin_credits").insert(Array.from({ length: data.spins }, () => ({ user_id: user.id, source: "grant", created_by: context.userId })));
+      const { error } = await db.rpc("admin_grant_spins", {
+        _user_id: user.id,
+        _count: data.spins,
+        _kind: data.kind,
+        _note: data.note,
+        _actor: context.userId,
+      });
+      if (error) throw new Error(`Couldn't grant spins: ${error.message}`);
     }
     if (data.points !== 0) {
-      await db.from("points_ledger").insert({ user_id: user.id, amount: data.points, reason: "admin_adjustment", created_by: context.userId });
+      const { error } = await db.from("points_ledger").insert({ user_id: user.id, amount: data.points, reason: "admin_adjustment", created_by: context.userId });
+      if (error) throw new Error(`Couldn't adjust points: ${error.message}`);
+      await audit(context.userId, "admin.points", { user_id: user.id, points: data.points, note: data.note });
     }
-    await audit(context.userId, "admin.grant", { ...data, user_id: user.id });
     return { ok: true };
+  });
+
+async function userByEmail(db: any, email: string): Promise<{ id: string; email?: string } | undefined> {
+  const want = email.toLowerCase();
+  for (let page = 1; page <= 50; page++) {
+    const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw new Error(error.message);
+    const users = (data?.users ?? []) as { id: string; email?: string }[];
+    const hit = users.find((u) => u.email?.toLowerCase() === want);
+    if (hit || users.length < 1000) return hit;
+  }
+  return undefined;
+}
+
+export type SpinGrantRow = {
+  id: string;
+  created_at: string;
+  kind: "real" | "demo";
+  count: number;
+  used: number;
+  note: string;
+  player: string;
+  granted_by: string;
+};
+
+/** Every admin spin grant with how many of its spins have been used, newest first. */
+export const adminListGrants = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<SpinGrantRow[]> => {
+    await assertAdmin(context);
+    const db = await admin();
+    const { data: grants, error } = await db
+      .from("spin_grants")
+      .select("id, created_at, kind, count, note, user_id, created_by")
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    const rows = (grants ?? []) as { id: string; created_at: string; kind: "real" | "demo"; count: number; note: string; user_id: string; created_by: string | null }[];
+    const ids = rows.map((g) => g.id);
+    const used = new Map<string, number>();
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: credits, error: e2 } = await db
+        .from("spin_credits")
+        .select("grant_id, used_spin_id, used_at")
+        .in("grant_id", ids.slice(i, i + 100));
+      if (e2) throw new Error(e2.message);
+      for (const c of (credits ?? []) as { grant_id: string; used_spin_id: string | null; used_at: string | null }[])
+        if (c.used_spin_id || c.used_at) used.set(c.grant_id, (used.get(c.grant_id) ?? 0) + 1);
+    }
+    const emails = new Map<string, string>();
+    for (let page = 1; page <= 50; page++) {
+      const { data } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+      const users = (data?.users ?? []) as { id: string; email?: string }[];
+      for (const u of users) emails.set(u.id, u.email ?? u.id);
+      if (users.length < 1000) break;
+    }
+    return rows.map((g) => ({
+      id: g.id,
+      created_at: g.created_at,
+      kind: g.kind,
+      count: g.count,
+      used: used.get(g.id) ?? 0,
+      note: g.note,
+      player: emails.get(g.user_id) ?? g.user_id,
+      granted_by: g.created_by ? (emails.get(g.created_by) ?? g.created_by) : "—",
+    }));
+  });
+
+/** Use granted demo spins on the demo machine (simulated, no prizes). Returns how many were available. */
+export const redeemDemoSpins = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ count: z.number().int().min(1).max(10) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const db = await admin();
+    const { data: used, error } = await db.rpc("use_demo_spins", { _user_id: context.userId, _count: data.count });
+    if (error) throw new Error(error.message);
+    return { used: Number(used ?? 0) };
   });
 
 export const adminSetLevel = createServerFn({ method: "POST" })

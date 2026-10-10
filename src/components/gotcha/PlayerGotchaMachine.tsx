@@ -13,6 +13,8 @@ import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 
 type MachineData = {
   credits: number;
+  /** Practice spins an administrator granted: playable right away on the demo machine. */
+  demoGrants: number;
   prizes: GotchaPrize[];
   pendingIds: string[];
   lastFive: ShareSpin[]; // oldest → newest
@@ -31,19 +33,24 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
     queryFn: async (): Promise<MachineData> => {
       // Untyped: the generated database types can lag behind applied migrations.
       const db = supabase as unknown as SupabaseClient;
-      const [credits, prizes, pending, recent] = await Promise.all([
-        db.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", userId).is("used_spin_id", null),
+      const [credits, demoGrants, prizes, pending, recent] = await Promise.all([
+        db.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("kind", "real").is("used_spin_id", null),
+        db.from("spin_credits").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("kind", "demo").is("used_spin_id", null).is("used_at", null),
         db.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at"),
         db.from("spins").select("id").eq("user_id", userId).eq("status", "pending"),
         db.from("spins").select("prize_name, rarity, points").eq("user_id", userId).eq("status", "fulfilled").order("created_at", { ascending: false }).limit(5),
       ]);
       return {
         credits: credits.count ?? 0,
+        demoGrants: demoGrants.count ?? 0,
         prizes: (prizes.data ?? []) as GotchaPrize[],
         pendingIds: ((pending.data ?? []) as { id: string }[]).map((s) => s.id),
         lastFive: ((recent.data ?? []) as ShareSpin[]).filter((s) => s.prize_name).reverse(),
       };
     },
+    // Spins an administrator grants show up within seconds, without a reload.
+    refetchInterval: inPlay || freeInPlay ? false : 15_000,
+    refetchOnWindowFocus: true,
   });
 
   const refresh = useCallback(() => qc.invalidateQueries(), [qc]);
@@ -82,7 +89,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
 
   // Out of real spins: the same free practice spin every 30 minutes (no prizes or points).
   if (data && ((credits === 0 && data.pendingIds.length === 0 && !inPlay) || freeInPlay)) {
-    return <DemoGotchaMachine prizes={data.prizes} userId={userId} onBusyChange={setFreeInPlay} />;
+    return <DemoGotchaMachine prizes={data.prizes} userId={userId} grantedSpins={data.demoGrants} onBusyChange={setFreeInPlay} />;
   }
 
   return (

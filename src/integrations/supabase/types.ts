@@ -303,28 +303,75 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          grant_id: string | null
           id: string
+          kind: string
           ref: string | null
           source: string
+          used_at: string | null
           used_spin_id: string | null
           user_id: string
         }
         Insert: {
           created_at?: string
           created_by?: string | null
+          grant_id?: string | null
           id?: string
+          kind?: string
           ref?: string | null
           source: string
+          used_at?: string | null
           used_spin_id?: string | null
           user_id: string
         }
         Update: {
           created_at?: string
           created_by?: string | null
+          grant_id?: string | null
           id?: string
+          kind?: string
           ref?: string | null
           source?: string
+          used_at?: string | null
           used_spin_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spin_credits_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "spin_grants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spin_grants: {
+        Row: {
+          count: number
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          note: string
+          user_id: string
+        }
+        Insert: {
+          count: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind: string
+          note?: string
+          user_id: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          note?: string
           user_id?: string
         }
         Relationships: []
@@ -507,9 +554,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_grant_spins: {
+        Args: {
+          _actor: string
+          _count: number
+          _kind: string
+          _note: string
+          _user_id: string
+        }
+        Returns: string
+      }
       begin_spins: {
         Args: { _count: number; _user_id: string }
         Returns: string[]
+      }
+      use_demo_spins: {
+        Args: { _count: number; _user_id: string }
+        Returns: number
       }
       complete_spin_purchase: {
         Args: { _payer: string; _purchase_id: string; _tx_hash: string }

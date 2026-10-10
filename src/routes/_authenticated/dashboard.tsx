@@ -54,7 +54,7 @@ function useMyData() {
         supabase.from("wallets").select("*").eq("user_id", uid),
         supabase.from("nft_holdings").select("*").eq("user_id", uid).order("token_id"),
         supabase.from("points_ledger").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
-        supabase.from("spin_credits").select("*").eq("user_id", uid).is("used_spin_id", null),
+        supabase.from("spin_credits").select("*").eq("user_id", uid).is("used_spin_id", null).is("used_at", null),
         supabase.from("spins").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(20),
         supabase.from("app_config").select("value").eq("key", "nft").single(),
         supabase.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at"),
@@ -133,7 +133,14 @@ function Dashboard() {
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
       <div className="grid gap-4 md:grid-cols-3">
         <Stat label="Campaign points" value={total.toLocaleString()} />
-        <Stat label="Spins available" value={String(data.credits.length)} accent />
+        <Stat
+          label="Spins available"
+          value={String(data.credits.filter((c) => (c as { kind?: string }).kind !== "demo").length)}
+          accent
+          {...(data.credits.some((c) => (c as { kind?: string }).kind === "demo")
+            ? { sub: `+ ${data.credits.filter((c) => (c as { kind?: string }).kind === "demo").length} free practice spins (no prizes)` }
+            : {})}
+        />
         <Stat label="NFTs synced" value={String(data.holdings.filter((h) => !h.burned).length)} />
       </div>
 
@@ -216,11 +223,12 @@ function Dashboard() {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Stat({ label, value, accent, sub }: { label: string; value: string; accent?: boolean; sub?: string }) {
   return (
     <div className="min-w-0 rounded border border-border bg-card p-4 sm:p-5">
       <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
       <p className={`mt-1 break-all font-display text-3xl font-bold sm:text-4xl ${accent ? "text-primary" : ""}`}>{value}</p>
+      {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
     </div>
   );
 }
