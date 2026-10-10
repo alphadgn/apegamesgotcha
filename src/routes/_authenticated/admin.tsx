@@ -5,7 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { SwipeToDelete } from "@/components/SwipeToDelete";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminDeletePrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,6 +158,7 @@ type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "
 function PrizesPanel() {
   const qc = useQueryClient();
   const save = useServerFn(adminUpsertPrize);
+  const del = useServerFn(adminDeletePrize);
   const { data } = useQuery({ queryKey: ["prizes-admin"], queryFn: async () => (await supabase.from("prizes").select("*").order("created_at")).data ?? [] });
   const [rows, setRows] = useState<Prize[]>([]);
   useEffect(() => { if (data) setRows(data as Prize[]); }, [data]);
@@ -166,23 +167,33 @@ function PrizesPanel() {
   return (
     <div className="mt-4 overflow-x-auto rounded border border-border bg-card p-4">
       <p className="mb-2 text-xs text-muted-foreground sm:hidden">Swipe sideways to see every column.</p>
-      <div className="grid min-w-[720px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] gap-2 font-mono text-xs uppercase text-muted-foreground">
-        <span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>Active</span><span />
+      <div className="grid min-w-[800px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px_80px] gap-2 font-mono text-xs uppercase text-muted-foreground">
+        <span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>Active</span><span /><span />
       </div>
       {rows.map((r, i) => (
-        <div key={r.id ?? i} className="mt-2 grid min-w-[720px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px] items-center gap-2">
+        <div key={r.id ?? i} className="mt-2 grid min-w-[800px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px_80px] items-center gap-2">
           <Input value={r.name} onChange={(e) => upd(i, { name: e.target.value })} />
           <select className="h-9 rounded border border-input bg-background px-2 text-sm" value={r.rarity} onChange={(e) => upd(i, { rarity: e.target.value as Prize["rarity"] })}>
             {["common", "rare", "epic", "legendary"].map((x) => <option key={x}>{x}</option>)}
           </select>
-          <Input type="number" value={r.weight} onChange={(e) => upd(i, { weight: +e.target.value })} />
+          <Input type="number" placeholder="0" value={r.weight || ""} onChange={(e) => upd(i, { weight: +e.target.value })} />
           <span className="font-mono text-sm">{total && r.active ? ((r.weight / total) * 100).toFixed(2) : "0"}%</span>
-          <Input type="number" value={r.points} onChange={(e) => upd(i, { points: +e.target.value })} />
+          <Input type="number" placeholder="0" value={r.points || ""} onChange={(e) => upd(i, { points: +e.target.value })} />
           <Input placeholder="∞" value={r.inventory ?? ""} onChange={(e) => upd(i, { inventory: e.target.value === "" ? null : +e.target.value })} />
           <input type="checkbox" checked={r.active} onChange={(e) => upd(i, { active: e.target.checked })} />
           <Button size="sm" onClick={async () => {
             try { await save({ data: r }); toast.success("Saved"); qc.invalidateQueries({ queryKey: ["prizes-admin"] }); } catch (e) { toast.error((e as Error).message); }
           }}>Save</Button>
+          <Button size="sm" variant="destructive" onClick={async () => {
+            if (!r.id) { setRows(rows.filter((_, j) => j !== i)); return; }
+            if (!window.confirm(`Delete "${r.name}"?`)) return;
+            try {
+              const res = await del({ data: { id: r.id } });
+              if (res.deleted) toast.success("Prize deleted");
+              else toast.info("Players already won this prize or it's on-chain, so it was switched off instead of deleted.");
+              qc.invalidateQueries({ queryKey: ["prizes-admin"] });
+            } catch (e) { toast.error((e as Error).message); }
+          }}>Delete</Button>
         </div>
       ))}
       <Button variant="outline" size="sm" className="mt-4" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", weight: 1, points: 0, inventory: null, active: false }])}>Add prize</Button>
@@ -519,11 +530,11 @@ function GrantsPanel() {
           <div className="grid grid-cols-2 gap-2">
             <label className="text-left text-xs text-muted-foreground">
               Spins
-              <Input type="number" min={0} max={100} value={g.spins} onChange={(e) => setG({ ...g, spins: +e.target.value })} />
+              <Input type="number" min={0} max={100} placeholder="0" value={g.spins || ""} onChange={(e) => setG({ ...g, spins: +e.target.value })} />
             </label>
             <label className="text-left text-xs text-muted-foreground">
               Points (+/-)
-              <Input type="number" value={g.points} onChange={(e) => setG({ ...g, points: +e.target.value })} />
+              <Input type="number" placeholder="0" value={g.points || ""} onChange={(e) => setG({ ...g, points: +e.target.value })} />
             </label>
           </div>
           <Input placeholder="reason / note (shown in the grant log)" value={g.note} onChange={(e) => setG({ ...g, note: e.target.value })} />
