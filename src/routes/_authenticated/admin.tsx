@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { adminUpdateConfig, adminUpsertPrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
@@ -209,7 +209,7 @@ function VrfPanel() {
       <PurchasesCard drawOn={!!data?.enabled} />
       <div className="rounded border border-border bg-card p-4">
         <h3 className="font-bold">Draw contract</h3>
-        <p className="mt-1 text-sm text-muted-foreground">Every capsule is drawn by the GotchaVRF contract using Chainlink VRF. Set it up with the button above.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Every capsule is drawn by the GotchaVRF contract using Chainlink VRF. Set it up with the "Set up" button above (Base, chain 8453).</p>
         {error && <p className="mt-3 text-sm text-destructive">{(error as Error).message}</p>}
         {data && (
           <div className="mt-3 font-mono">
@@ -602,55 +602,47 @@ function GrantLog() {
           (see Setup checklist); when it runs, every grant listed here carries over automatically.
         </p>
       )}
-      {res?.pendingMigration && (
-        <p className="mt-3 rounded border border-border bg-muted/40 p-3 text-left text-xs text-muted-foreground">
-          Grants are working and players can use them now. One database update is still waiting to be applied in Lovable
-          (see Setup checklist); when it runs, every grant listed here carries over automatically.
-        </p>
-      )}
       {data && rows.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No grants yet.</p>}
-      <ul className="mt-3 divide-y divide-border text-left text-sm">
-        {rows.map((r) => (
-          <li key={r.id} className="grid gap-1 py-3 sm:grid-cols-[170px_100px_minmax(0,1fr)_minmax(130px,auto)] sm:items-center sm:gap-3">
-            <span className="font-mono text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
-            <span>
-              <span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${GRANT_KINDS[r.kind].badge}`}>{GRANT_KINDS[r.kind].short}</span>
-            </span>
-            <span className="min-w-0">
-              <span className="block break-all font-medium">{r.player}</span>
-              <span className="block break-words text-xs text-muted-foreground">
-                {r.note || "No note"} · by {r.granted_by}
-              </span>
-            </span>
-            <span className="flex flex-wrap items-center gap-2 font-mono text-xs sm:justify-end">
-              {r.used}/{r.count} used{r.count - r.used > 0 ? ` · ${r.count - r.used} left` : ""}
-              {r.count - r.used > 0 && /^[0-9a-f-]{36}$/.test(r.id) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-auto min-h-9 px-2 py-1 text-xs text-destructive"
-                  disabled={deleting === r.id}
-                  onClick={async () => {
-                    const left = r.count - r.used;
-                    if (!window.confirm(`Delete ${left} unused ${GRANT_KINDS[r.kind].label.toLowerCase()} spin${left === 1 ? "" : "s"} granted to ${r.player}? Spins already played stay.`)) return;
-                    setDeleting(r.id);
-                    try {
-                      const { removed } = await del({ data: { grantId: r.id } });
-                      toast.success(`Deleted ${removed} unused spin${removed === 1 ? "" : "s"}`);
-                      await refetch();
-                    } catch (e) {
-                      toast.error((e as Error).message);
-                    } finally {
-                      setDeleting(null);
-                    }
-                  }}
-                >
-                  {deleting === r.id ? "Deleting…" : "Delete unused"}
-                </Button>
-              )}
-            </span>
-          </li>
-        ))}
+      {rows.length > 0 && <p className="mt-3 text-left text-xs text-muted-foreground">Swipe a grant left to delete its unused spins. Only the spins are removed — never the player's account.</p>}
+      <ul className="mt-3 divide-y divide-border overflow-hidden text-left text-sm">
+        {rows.map((r) => {
+          const left = r.count - r.used;
+          const canDelete = left > 0 && /^[0-9a-f-]{36}$/.test(r.id);
+          const remove = async () => {
+            if (!window.confirm(`Delete ${left} unused ${GRANT_KINDS[r.kind].label.toLowerCase()} spin${left === 1 ? "" : "s"} granted to ${r.player}? Only the spins are removed — the account stays. Spins already played stay.`)) return false;
+            setDeleting(r.id);
+            try {
+              const { removed } = await del({ data: { grantId: r.id } });
+              toast.success(`Deleted ${removed} unused spin${removed === 1 ? "" : "s"}`);
+              await refetch();
+              return true;
+            } catch (e) {
+              toast.error((e as Error).message);
+              return false;
+            } finally {
+              setDeleting(null);
+            }
+          };
+          return (
+            <SwipeToDelete key={r.id} enabled={canDelete && deleting !== r.id} onDelete={remove} label={deleting === r.id ? "Deleting…" : `Delete ${left} spin${left === 1 ? "" : "s"}`}>
+              <div className="grid gap-1 py-3 sm:grid-cols-[170px_100px_minmax(0,1fr)_minmax(130px,auto)] sm:items-center sm:gap-3">
+                <span className="font-mono text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
+                <span>
+                  <span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${GRANT_KINDS[r.kind].badge}`}>{GRANT_KINDS[r.kind].short}</span>
+                </span>
+                <span className="min-w-0">
+                  <span className="block break-all font-medium">{r.player}</span>
+                  <span className="block break-words text-xs text-muted-foreground">
+                    {r.note || "No note"} · by {r.granted_by}
+                  </span>
+                </span>
+                <span className="font-mono text-xs sm:text-right">
+                  {r.used}/{r.count} used{left > 0 ? ` · ${left} left` : ""}
+                </span>
+              </div>
+            </SwipeToDelete>
+          );
+        })}
       </ul>
     </div>
   );
@@ -764,5 +756,54 @@ function AuditPanel() {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Swipe left (touch or mouse) to delete. Releasing past the threshold calls onDelete; otherwise it springs back. */
+function SwipeToDelete({ enabled, onDelete, label, children }: { enabled: boolean; onDelete: () => Promise<boolean>; label: string; children: ReactNode }) {
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ x: number; y: number; w: number; locked: boolean | null } | null>(null);
+  const reveal = 120;
+  return (
+    <li className="relative touch-pan-y select-none">
+      {enabled && (
+        <div className="absolute inset-y-0 right-0 flex items-center justify-end bg-destructive px-4 text-xs font-bold text-destructive-foreground" style={{ width: Math.max(reveal, -dx) }} aria-hidden>
+          {label}
+        </div>
+      )}
+      <div
+        className="relative bg-card"
+        style={{ transform: `translateX(${dx}px)`, transition: dragging ? "none" : "transform 200ms ease" }}
+        onPointerDown={(e) => {
+          if (!enabled) return;
+          start.current = { x: e.clientX, y: e.clientY, w: e.currentTarget.offsetWidth, locked: null };
+        }}
+        onPointerMove={(e) => {
+          const s = start.current;
+          if (!s) return;
+          const mx = e.clientX - s.x, my = e.clientY - s.y;
+          if (s.locked === null && (Math.abs(mx) > 8 || Math.abs(my) > 8)) {
+            s.locked = Math.abs(mx) > Math.abs(my);
+            if (s.locked) { e.currentTarget.setPointerCapture(e.pointerId); setDragging(true); }
+          }
+          if (s.locked) setDx(Math.min(0, mx));
+        }}
+        onPointerUp={async () => {
+          const s = start.current;
+          start.current = null;
+          setDragging(false);
+          if (!s?.locked) return;
+          if (-dx > Math.min(s.w * 0.4, 160)) {
+            setDx(-s.w);
+            const ok = await onDelete();
+            if (!ok) setDx(0);
+          } else setDx(0);
+        }}
+        onPointerCancel={() => { start.current = null; setDragging(false); setDx(0); }}
+      >
+        {children}
+      </div>
+    </li>
   );
 }
