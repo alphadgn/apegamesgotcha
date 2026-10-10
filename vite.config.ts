@@ -6,26 +6,17 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-// Stub pngjs in the server build only: Privy's QR module eagerly loads qrcode's
-// server entry, and pngjs's top-level util.inherits(...) crashes the deployed
-// worker runtime. The browser build keeps the real pngjs so QR codes still render.
-const stubPngjsOnServer = {
-  name: "stub-pngjs-on-server",
-  enforce: "pre" as const,
-  resolveId(id: string, _importer: string | undefined, options?: { ssr?: boolean }) {
-    if (id === "pngjs" && options?.ssr) {
-      return new URL("./src/lib/pngjs-server-stub.ts", import.meta.url).pathname;
-    }
-    return null;
-  },
-};
-
 export default defineConfig({
   vite: {
-    plugins: [stubPngjsOnServer],
     resolve: {
-      // Keep viem's optional socket transport compatible with the server runtime.
-      alias: { isows: new URL("./src/lib/native-websocket.ts", import.meta.url).pathname },
+      alias: {
+        // Keep viem's optional socket transport compatible with the server runtime.
+        isows: new URL("./src/lib/native-websocket.ts", import.meta.url).pathname,
+        // Stub pngjs everywhere: Privy's QR module eagerly loads qrcode's server
+        // entry, and pngjs's top-level util.inherits(...) crashes the deployed
+        // worker runtime. Browser QR codes use the canvas renderer, not pngjs.
+        pngjs: new URL("./src/lib/pngjs-server-stub.ts", import.meta.url).pathname,
+      },
     },
   },
   tanstackStart: {
