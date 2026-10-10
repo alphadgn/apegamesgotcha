@@ -108,11 +108,11 @@ function GuideChat({
   };
 
   return (
-    <main className={compact ? "flex h-full flex-col" : "mx-auto flex h-[calc(100vh-3.5rem)] max-w-3xl flex-col px-4 py-6"}>
-      <header className="flex items-center gap-3 pb-4">
-        <img src={mascotUrl} alt="Captain Ape, your guide" width={48} height={48} className="rounded-full border border-border bg-card" />
-        <div className="flex-1">
-          <h1 className="text-xl font-bold">Captain Ape — your guide</h1>
+    <main className={compact ? "flex h-full flex-col" : "mx-auto flex h-[calc(100vh-3.5rem)] h-[calc(100dvh-3.5rem)] max-w-3xl flex-col px-4 py-4 sm:py-6"}>
+      <header className={`flex flex-wrap items-center gap-x-3 gap-y-2 pb-3 sm:pb-4 ${compact ? "pr-11" : ""}`}>
+        <img src={mascotUrl} alt="Captain Ape, your guide" width={48} height={48} className="h-10 w-10 shrink-0 rounded-full border border-border bg-card sm:h-12 sm:w-12" />
+        <div className="min-w-[9rem] flex-1">
+          <h1 className="text-lg font-bold sm:text-xl">Captain Ape — your guide</h1>
           <p className="font-mono text-xs text-muted-foreground">Spins, prizes, NFTs, points and Charleston — ask away.</p>
         </div>
         <button type="button" onClick={() => setContact((c) => !c)} className="rounded-full border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">

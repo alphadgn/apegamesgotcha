@@ -318,7 +318,7 @@ function Dashboard() {
     season?.status === "active" && Number(season.rules["nft_snapshot_points"] ?? 0) > 0;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
       <div className="flex flex-wrap items-center justify-center gap-2">
         <label htmlFor="dash-season" className="text-sm text-muted-foreground">
           Season
@@ -336,7 +336,7 @@ function Dashboard() {
             </option>
           ))}
         </select>
-        <Link to="/profile" className="text-sm text-primary underline">
+        <Link to="/profile" className="inline-flex min-h-11 items-center text-sm text-primary underline">
           Public name & avatar
         </Link>
       </div>
@@ -364,7 +364,7 @@ function Dashboard() {
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
-        <div className="rounded border border-border bg-card p-6">
+        <div className="rounded border border-border bg-card p-4 sm:p-6">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xl font-bold">Verified wallets</h2>
             <Button size="sm" variant="outline" onClick={addWallet} disabled={!!busy}>
@@ -381,17 +381,17 @@ function Dashboard() {
                   <span className="min-w-0 break-all font-mono text-xs">{w.address}</span>
                   <span className="flex shrink-0 items-center gap-2">
                     {w.kind === "privy" && (
-                      <span className="rounded bg-muted px-2 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+                      <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] uppercase text-muted-foreground">
                         Privy wallet
                       </span>
                     )}
                     {w.verification === "legacy_personal_sign" && (
-                      <span className="rounded bg-muted px-2 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+                      <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] uppercase text-muted-foreground">
                         Older signature
                       </span>
                     )}
                     {w.is_default ? (
-                      <span className="rounded bg-primary px-2 py-0.5 font-mono text-[10px] uppercase text-primary-foreground">
+                      <span className="rounded bg-primary px-2 py-0.5 font-mono text-[11px] uppercase text-primary-foreground">
                         Default
                       </span>
                     ) : (
@@ -420,7 +420,7 @@ function Dashboard() {
           </p>
         </div>
 
-        <div className="rounded border border-border bg-card p-6">
+        <div className="rounded border border-border bg-card p-4 sm:p-6">
           <h2 className="text-xl font-bold">NFT snapshot points</h2>
           {season?.is_legacy || !season ? (
             <p className="mt-2 text-sm text-muted-foreground">
@@ -456,7 +456,7 @@ function Dashboard() {
           )}
         </div>
 
-        <div className="rounded border border-border bg-card p-6">
+        <div className="rounded border border-border bg-card p-4 sm:p-6">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xl font-bold">My ApeGames NFTs (now)</h2>
             <Button size="sm" onClick={doSync} disabled={!data.wallets.length || !!busy}>
@@ -494,7 +494,7 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="rounded border border-accent/60 bg-card p-6">
+        <div className="rounded border border-accent/60 bg-card p-4 sm:p-6">
           <h2 className="text-xl font-bold">Burn for a free spin</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Level {minLevel}+ only. Transfer the NFT from your linked wallet to{" "}
@@ -586,9 +586,9 @@ function Breakdown({ score, legacy }: { score: ScoreRow; legacy: boolean }) {
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="rounded border border-border bg-card p-5">
+    <div className="min-w-0 rounded border border-border bg-card p-4 sm:p-5">
       <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
-      <p className={`mt-1 font-display text-4xl font-bold ${accent ? "text-primary" : ""}`}>
+      <p className={`mt-1 break-all font-display text-3xl font-bold sm:text-4xl ${accent ? "text-primary" : ""}`}>
         {value}
       </p>
     </div>
@@ -603,13 +603,13 @@ function History({
   rows: { k: string; l: string; r: string; c?: string | undefined }[];
 }) {
   return (
-    <div className="rounded border border-border bg-card p-6">
+    <div className="rounded border border-border bg-card p-4 sm:p-6">
       <h3 className="text-lg font-bold">{title}</h3>
       <ul className="mt-3 divide-y divide-border font-mono text-sm">
         {rows.map((r) => (
           <li key={r.k} className="flex justify-between gap-3 py-2 text-left">
             <span className={r.c}>{r.l}</span>
-            <span className="shrink-0">{r.r}</span>
+            <span className="max-w-[60%] break-all text-right">{r.r}</span>
           </li>
         ))}
         {!rows.length && <li className="py-2 text-muted-foreground">Nothing yet.</li>}

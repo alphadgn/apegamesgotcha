@@ -32,10 +32,10 @@ function Admin() {
   if (loading) return null;
   if (!isAdmin) return <main className="mx-auto max-w-3xl px-4 py-16 text-muted-foreground">Admins only.</main>;
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-4xl font-bold">Admin console</h1>
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
+      <h1 className="text-3xl font-bold sm:text-4xl">Admin console</h1>
       <Tabs defaultValue="setup" className="mt-6">
-        <TabsList className="h-auto flex-wrap justify-center">
+        <TabsList className="h-auto flex-wrap justify-center gap-1">
           <TabsTrigger value="setup">Setup checklist</TabsTrigger>
           <TabsTrigger value="seasons">Seasons</TabsTrigger>
           <TabsTrigger value="snapshots">Snapshots</TabsTrigger>
@@ -316,10 +316,10 @@ function AuditPanel() {
   return (
     <div className="mt-4 rounded border border-border bg-card font-mono text-xs">
       {data?.map((a) => (
-        <div key={a.id} className="grid grid-cols-[170px_160px_1fr] gap-3 border-b border-border px-4 py-2">
+        <div key={a.id} className="grid gap-1 sm:grid-cols-[170px_160px_1fr] sm:gap-3 border-b border-border px-4 py-2">
           <span className="text-muted-foreground">{new Date(a.created_at).toLocaleString()}</span>
           <span className="text-primary">{a.action}</span>
-          <span className="truncate">{JSON.stringify(a.details)}</span>
+          <span className="break-all sm:truncate">{JSON.stringify(a.details)}</span>
         </div>
       ))}
     </div>

@@ -8,8 +8,8 @@ import { GuidePanel } from "./GuidePanel";
 function GuideSheet({ open, onOpenChange, publicMode = false }: { open: boolean; onOpenChange: (open: boolean) => void; publicMode?: boolean }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[85vh] max-w-3xl mx-auto flex flex-col gap-2 p-4">
-        <SheetHeader className="p-0">
+      <SheetContent side="bottom" className="mx-auto flex h-[85dvh] max-w-3xl flex-col gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+        <SheetHeader className="sr-only">
           <SheetTitle>Captain Ape — your guide</SheetTitle>
           <SheetDescription>Points, spins, prizes and Charleston — ask away.</SheetDescription>
         </SheetHeader>

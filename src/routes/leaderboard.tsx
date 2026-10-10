@@ -59,8 +59,8 @@ function LeaderboardPage() {
   const pages = total <= 10 ? 1 : 1 + Math.ceil((total - 10) / PAGE);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <h1 className="text-4xl font-bold">Leaderboard</h1>
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
+      <h1 className="text-3xl font-bold sm:text-4xl">Leaderboard</h1>
       <p className="mt-2 text-muted-foreground">
         Seasonal engagement points. Points can't be transferred and aren't redeemable for money, APE
         or tokens.
@@ -232,7 +232,7 @@ function MyStanding({ season }: { season: SeasonSummary }) {
       ) : (
         <span className="text-sm text-muted-foreground">You're not on this board yet.</span>
       )}
-      <Link to="/profile" className="text-sm text-primary underline">
+      <Link to="/profile" className="inline-flex min-h-11 items-center text-sm text-primary underline">
         Choose your public name
       </Link>
     </div>

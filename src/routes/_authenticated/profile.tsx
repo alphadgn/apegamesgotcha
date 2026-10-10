@@ -99,8 +99,8 @@ function Profile() {
     );
   const p = profile.data;
   return (
-    <main className="mx-auto max-w-xl px-4 py-10">
-      <h1 className="text-4xl font-bold">Your public profile</h1>
+    <main className="mx-auto max-w-xl px-4 py-6 sm:py-10">
+      <h1 className="text-3xl font-bold sm:text-4xl">Your public profile</h1>
       <p className="mt-2 text-muted-foreground">
         This is all other players see on the leaderboard. Your email, wallets and account id are
         never shown.
@@ -186,7 +186,7 @@ function Profile() {
       </section>
 
       <p className="mt-6 text-center text-sm">
-        <Link to="/dashboard" className="text-primary underline">
+        <Link to="/dashboard" className="inline-flex min-h-11 items-center text-primary underline">
           Wallets, NFTs and points →
         </Link>
       </p>

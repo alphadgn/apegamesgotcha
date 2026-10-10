@@ -75,8 +75,8 @@ function Index() {
 
       <section className="mt-16">
         <div className="mb-4 flex items-end justify-between">
-          <h2 className="text-3xl font-bold">Top apes</h2>
-          <Link to="/leaderboard" className="font-mono text-sm text-primary">Full board →</Link>
+          <h2 className="text-2xl font-bold sm:text-3xl">Top apes</h2>
+          <Link to="/leaderboard" className="inline-flex min-h-11 items-center font-mono text-sm text-primary">Full board →</Link>
         </div>
         <TopBoard limit={10} />
       </section>
