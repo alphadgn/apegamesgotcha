@@ -285,6 +285,31 @@ export const adminUpdateConfig = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const adminDeletePrize = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const db = await admin();
+    const { data: p } = await db.from("prizes").select("name, onchain_index").eq("id", data.id).maybeSingle();
+    if (!p) throw new Error("Prize not found");
+    const [{ count: real }, { count: demo }] = await Promise.all([
+      db.from("spins").select("id", { count: "exact", head: true }).eq("prize_id", data.id),
+      db.from("demo_spins").select("id", { count: "exact", head: true }).eq("prize_id", data.id),
+    ]);
+    // Prizes already won or published on-chain stay on record (history + draw mapping); switch them off instead.
+    if ((real ?? 0) > 0 || (demo ?? 0) > 0 || p.onchain_index != null) {
+      const { error } = await db.from("prizes").update({ active: false }).eq("id", data.id);
+      if (error) throw new Error(error.message);
+      await db.from("audit_log").insert({ actor: context.userId, action: "admin.prize_deactivated", details: { id: data.id, name: p.name } });
+      return { deleted: false };
+    }
+    const { error } = await db.from("prizes").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    await db.from("audit_log").insert({ actor: context.userId, action: "admin.prize_deleted", details: { id: data.id, name: p.name } });
+    return { deleted: true };
+  });
+
 export const adminUpsertPrize = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
