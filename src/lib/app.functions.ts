@@ -321,6 +321,8 @@ export const adminUpsertPrize = createServerFn({ method: "POST" })
       points: z.number().int(),
       inventory: z.number().int().min(0).nullable(),
       active: z.boolean(),
+      image_url: z.string().max(500).nullable().optional(),
+      is_physical: z.boolean().optional(),
     }).parse(d),
   )
   .handler(async ({ data, context }) => {

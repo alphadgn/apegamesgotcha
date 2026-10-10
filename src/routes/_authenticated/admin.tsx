@@ -153,7 +153,38 @@ function ConfigEditor({ row }: { row: { key: string; value: unknown; version: nu
   );
 }
 
-type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "legendary"; weight: number; points: number; inventory: number | null; active: boolean };
+type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "legendary"; weight: number; points: number; inventory: number | null; active: boolean; image_url?: string | null; is_physical?: boolean };
+
+/** Prize images live in a private bucket; `image_url` stores the file path and is shown via a signed link. */
+function PrizeImage({ path, onChange }: { path?: string | null | undefined; onChange: (p: string | null) => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    if (!path) { setUrl(null); return; }
+    supabase.storage.from("prize-images").createSignedUrl(path, 3600).then(({ data }) => { if (live) setUrl(data?.signedUrl ?? null); });
+    return () => { live = false; };
+  }, [path]);
+  return (
+    <label className="relative flex h-12 w-12 cursor-pointer items-center justify-center overflow-hidden rounded border border-dashed border-border bg-background text-[10px] text-muted-foreground" title={path ? "Replace image" : "Upload image"}>
+      {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : busy ? "…" : "+ img"}
+      <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+        const f = e.target.files?.[0];
+        e.target.value = "";
+        if (!f) return;
+        if (f.size > 5 * 1024 * 1024) { toast.error("Image must be under 5 MB"); return; }
+        setBusy(true);
+        const ext = f.name.split(".").pop()?.toLowerCase() || "png";
+        const p = `${crypto.randomUUID()}.${ext}`;
+        const { error } = await supabase.storage.from("prize-images").upload(p, f, { contentType: f.type });
+        setBusy(false);
+        if (error) { toast.error(error.message); return; }
+        onChange(p);
+        toast.info("Image uploaded — press Save to keep it");
+      }} />
+    </label>
+  );
+}
 
 function PrizesPanel() {
   const qc = useQueryClient();
@@ -164,15 +195,20 @@ function PrizesPanel() {
   useEffect(() => { if (data) setRows(data as Prize[]); }, [data]);
   const total = rows.filter((r) => r.active && (r.inventory == null || r.inventory > 0)).reduce((s, r) => s + r.weight, 0);
   const upd = (i: number, p: Partial<Prize>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const cols = "grid min-w-[920px] grid-cols-[56px_2fr_1fr_1fr_1fr_1fr_60px_50px_50px_70px_70px] gap-2";
   return (
     <div className="mt-4 overflow-x-auto rounded border border-border bg-card p-4">
       <p className="mb-2 text-xs text-muted-foreground sm:hidden">Swipe sideways to see every column.</p>
-      <div className="grid min-w-[800px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px_80px] gap-2 font-mono text-xs uppercase text-muted-foreground">
-        <span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>Active</span><span /><span />
+      <div className={`${cols} font-mono text-xs uppercase text-muted-foreground`}>
+        <span>Image</span><span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>IRL</span><span>Active</span><span /><span />
       </div>
       {rows.map((r, i) => (
-        <div key={r.id ?? i} className="mt-2 grid min-w-[800px] grid-cols-[2fr_1fr_1fr_1fr_1fr_60px_60px_80px_80px] items-center gap-2">
-          <Input value={r.name} onChange={(e) => upd(i, { name: e.target.value })} />
+        <div key={r.id ?? i} className={`mt-2 ${cols} items-center`}>
+          <PrizeImage path={r.image_url} onChange={(p) => upd(i, { image_url: p })} />
+          <div>
+            <Input value={r.name} onChange={(e) => upd(i, { name: e.target.value })} />
+            {r.is_physical && <span className="mt-1 inline-block rounded bg-primary/20 px-1.5 text-[10px] uppercase text-primary">IRL physical prize claim</span>}
+          </div>
           <select className="h-9 rounded border border-input bg-background px-2 text-sm" value={r.rarity} onChange={(e) => upd(i, { rarity: e.target.value as Prize["rarity"] })}>
             {["common", "rare", "epic", "legendary"].map((x) => <option key={x}>{x}</option>)}
           </select>
@@ -180,9 +216,10 @@ function PrizesPanel() {
           <span className="font-mono text-sm">{total && r.active ? ((r.weight / total) * 100).toFixed(2) : "0"}%</span>
           <Input type="number" placeholder="0" value={r.points || ""} onChange={(e) => upd(i, { points: +e.target.value })} />
           <Input placeholder="∞" value={r.inventory ?? ""} onChange={(e) => upd(i, { inventory: e.target.value === "" ? null : +e.target.value })} />
-          <input type="checkbox" checked={r.active} onChange={(e) => upd(i, { active: e.target.checked })} />
+          <input type="checkbox" aria-label="IRL physical prize" checked={!!r.is_physical} onChange={(e) => upd(i, { is_physical: e.target.checked })} />
+          <input type="checkbox" aria-label="Active" checked={r.active} onChange={(e) => upd(i, { active: e.target.checked })} />
           <Button size="sm" onClick={async () => {
-            try { await save({ data: r }); toast.success("Saved"); qc.invalidateQueries({ queryKey: ["prizes-admin"] }); } catch (e) { toast.error((e as Error).message); }
+            try { await save({ data: { ...r, image_url: r.image_url ?? null, is_physical: !!r.is_physical } }); toast.success("Saved"); qc.invalidateQueries({ queryKey: ["prizes-admin"] }); } catch (e) { toast.error((e as Error).message); }
           }}>Save</Button>
           <Button size="sm" variant="destructive" onClick={async () => {
             if (!r.id) { setRows(rows.filter((_, j) => j !== i)); return; }
@@ -196,7 +233,10 @@ function PrizesPanel() {
           }}>Delete</Button>
         </div>
       ))}
-      <Button variant="outline" size="sm" className="mt-4" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", weight: 1, points: 0, inventory: null, active: false }])}>Add prize</Button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", weight: 1, points: 0, inventory: null, active: false, image_url: null, is_physical: false }])}>Add prize</Button>
+        <Button variant="outline" size="sm" onClick={() => setRows([...rows, { name: "IRL physical prize claim", rarity: "legendary", weight: 1, points: 0, inventory: 1, active: false, image_url: null, is_physical: true }])}>Add IRL physical prize</Button>
+      </div>
     </div>
   );
 }
