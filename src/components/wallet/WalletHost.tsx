@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { RefillDialog } from "./RefillDialog";
+import { SignInWindow } from "./SignInWindow";
 import { BurnDialog } from "./BurnDialog";
 import { closeBurn, closeRefill, closeSignIn, useWalletUi } from "./walletUi";
 
@@ -70,7 +71,9 @@ export function WalletHost() {
   }, [qc]);
 
   const privyUnavailable = useCallback(() => {
-    console.warn("[Glyph] not ready after 10s — sign-in unavailable; Refill falls back to browser wallets");
+    console.warn(
+      "[Glyph] not ready after 10s — sign-in unavailable; Refill falls back to browser wallets",
+    );
     setPrivyFailed(true);
   }, []);
 
@@ -85,7 +88,12 @@ export function WalletHost() {
         onPurchased={onPurchased}
         privy={privyOn}
       />
-      <BurnDialog target={user ? ui.burn : null} onClose={closeBurn} onBurned={onBurned} privy={privyOn} />
+      <BurnDialog
+        target={user ? ui.burn : null}
+        onClose={closeBurn}
+        onBurned={onBurned}
+        privy={privyOn}
+      />
     </>
   );
 
@@ -97,7 +105,11 @@ export function WalletHost() {
           toast.error("Glyph sign-in isn't available right now. Please try again in a moment.");
         }}
       >
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <SignInWindow open={ui.signIn && !user} status="Loading Glyph…" onClose={closeSignIn} />
+          }
+        >
           <PrivyLayer config={cfg} onUnavailable={privyUnavailable}>
             {refill}
           </PrivyLayer>
@@ -112,20 +124,17 @@ export function WalletHost() {
   return (
     <>
       {refill}
-      <Dialog open={ui.signIn && !user} onOpenChange={(o) => !o && closeSignIn()}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Sign in with Glyph</DialogTitle>
-            <DialogDescription>
-              {waiting
-                ? "Loading Glyph…"
-                : !cfg?.privy_app_id
-                  ? "Glyph sign-in isn't set up yet. Please check back soon."
-                  : "Glyph sign-in couldn't load right now. Check your connection and try again in a moment."}
-            </DialogDescription>
-          </DialogHeader>
-        </DialogContent>
-      </Dialog>
+      <SignInWindow
+        open={ui.signIn && !user}
+        onClose={closeSignIn}
+        status={
+          waiting
+            ? "Loading Glyph…"
+            : !cfg?.privy_app_id
+              ? "Glyph sign-in isn't set up yet. Please check back soon."
+              : "Glyph sign-in couldn't load right now. Check your connection and try again in a moment."
+        }
+      />
     </>
   );
 }

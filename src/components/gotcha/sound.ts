@@ -2,16 +2,23 @@
 
 let shared: AudioContext | null = null;
 
-/** One AudioContext for the whole page (iOS limits how many can exist). Call from a tap to unlock audio. */
-export function sharedAudio(): AudioContext | null {
+/** The page's one AudioContext (iOS limits how many can exist), without unlocking it. Safe to call
+ *  before any tap: music is decoded ahead of time on it, and plays once a tap unlocks it. */
+export function audioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!shared) {
     const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!C) return null;
-    shared = new C();
+    shared = new C({ latencyHint: "interactive" });
   }
-  if (shared.state === "suspended") void shared.resume();
   return shared;
+}
+
+/** The shared AudioContext, unlocked. Call from a tap so mobile browsers allow audio. */
+export function sharedAudio(): AudioContext | null {
+  const ctx = audioContext();
+  if (ctx && ctx.state !== "running") void ctx.resume();
+  return ctx;
 }
 
 export type Sfx = ReturnType<typeof createSfx>;
