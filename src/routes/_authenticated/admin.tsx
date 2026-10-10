@@ -602,55 +602,47 @@ function GrantLog() {
           (see Setup checklist); when it runs, every grant listed here carries over automatically.
         </p>
       )}
-      {res?.pendingMigration && (
-        <p className="mt-3 rounded border border-border bg-muted/40 p-3 text-left text-xs text-muted-foreground">
-          Grants are working and players can use them now. One database update is still waiting to be applied in Lovable
-          (see Setup checklist); when it runs, every grant listed here carries over automatically.
-        </p>
-      )}
       {data && rows.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No grants yet.</p>}
-      <ul className="mt-3 divide-y divide-border text-left text-sm">
-        {rows.map((r) => (
-          <li key={r.id} className="grid gap-1 py-3 sm:grid-cols-[170px_100px_minmax(0,1fr)_minmax(130px,auto)] sm:items-center sm:gap-3">
-            <span className="font-mono text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
-            <span>
-              <span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${GRANT_KINDS[r.kind].badge}`}>{GRANT_KINDS[r.kind].short}</span>
-            </span>
-            <span className="min-w-0">
-              <span className="block break-all font-medium">{r.player}</span>
-              <span className="block break-words text-xs text-muted-foreground">
-                {r.note || "No note"} · by {r.granted_by}
-              </span>
-            </span>
-            <span className="flex flex-wrap items-center gap-2 font-mono text-xs sm:justify-end">
-              {r.used}/{r.count} used{r.count - r.used > 0 ? ` · ${r.count - r.used} left` : ""}
-              {r.count - r.used > 0 && /^[0-9a-f-]{36}$/.test(r.id) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-auto min-h-9 px-2 py-1 text-xs text-destructive"
-                  disabled={deleting === r.id}
-                  onClick={async () => {
-                    const left = r.count - r.used;
-                    if (!window.confirm(`Delete ${left} unused ${GRANT_KINDS[r.kind].label.toLowerCase()} spin${left === 1 ? "" : "s"} granted to ${r.player}? Spins already played stay.`)) return;
-                    setDeleting(r.id);
-                    try {
-                      const { removed } = await del({ data: { grantId: r.id } });
-                      toast.success(`Deleted ${removed} unused spin${removed === 1 ? "" : "s"}`);
-                      await refetch();
-                    } catch (e) {
-                      toast.error((e as Error).message);
-                    } finally {
-                      setDeleting(null);
-                    }
-                  }}
-                >
-                  {deleting === r.id ? "Deleting…" : "Delete unused"}
-                </Button>
-              )}
-            </span>
-          </li>
-        ))}
+      {rows.length > 0 && <p className="mt-3 text-left text-xs text-muted-foreground">Swipe a grant left to delete its unused spins. Only the spins are removed — never the player's account.</p>}
+      <ul className="mt-3 divide-y divide-border overflow-hidden text-left text-sm">
+        {rows.map((r) => {
+          const left = r.count - r.used;
+          const canDelete = left > 0 && /^[0-9a-f-]{36}$/.test(r.id);
+          const remove = async () => {
+            if (!window.confirm(`Delete ${left} unused ${GRANT_KINDS[r.kind].label.toLowerCase()} spin${left === 1 ? "" : "s"} granted to ${r.player}? Only the spins are removed — the account stays. Spins already played stay.`)) return false;
+            setDeleting(r.id);
+            try {
+              const { removed } = await del({ data: { grantId: r.id } });
+              toast.success(`Deleted ${removed} unused spin${removed === 1 ? "" : "s"}`);
+              await refetch();
+              return true;
+            } catch (e) {
+              toast.error((e as Error).message);
+              return false;
+            } finally {
+              setDeleting(null);
+            }
+          };
+          return (
+            <SwipeToDelete key={r.id} enabled={canDelete && deleting !== r.id} onDelete={remove} label={deleting === r.id ? "Deleting…" : `Delete ${left} spin${left === 1 ? "" : "s"}`}>
+              <div className="grid gap-1 py-3 sm:grid-cols-[170px_100px_minmax(0,1fr)_minmax(130px,auto)] sm:items-center sm:gap-3">
+                <span className="font-mono text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
+                <span>
+                  <span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${GRANT_KINDS[r.kind].badge}`}>{GRANT_KINDS[r.kind].short}</span>
+                </span>
+                <span className="min-w-0">
+                  <span className="block break-all font-medium">{r.player}</span>
+                  <span className="block break-words text-xs text-muted-foreground">
+                    {r.note || "No note"} · by {r.granted_by}
+                  </span>
+                </span>
+                <span className="font-mono text-xs sm:text-right">
+                  {r.used}/{r.count} used{left > 0 ? ` · ${left} left` : ""}
+                </span>
+              </div>
+            </SwipeToDelete>
+          );
+        })}
       </ul>
     </div>
   );
