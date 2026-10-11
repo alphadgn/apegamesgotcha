@@ -45,6 +45,33 @@ function jsonError(status: number, message: string) {
   });
 }
 
+// Abuse limits for the (paid) AI guide.
+const MAX_MESSAGES = 40; // conversation turns accepted per request (only the last 20 reach the model)
+const MAX_MESSAGE_CHARS = 2_000; // the player's new message
+const MAX_TOTAL_CHARS = 40_000; // everything in one request
+/** Signed-out visitors: requests per IP per window (best effort, per server instance). */
+const ANON_LIMIT = 20;
+const ANON_WINDOW_MS = 10 * 60_000;
+const anonHits = new Map<string, number[]>();
+
+function textOf(m: UIMessage) {
+  return (m.parts ?? []).map((p) => ("text" in p && typeof p.text === "string" ? p.text : "")).join("");
+}
+
+function anonAllowed(request: Request) {
+  const ip =
+    request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "unknown";
+  const now = Date.now();
+  const hits = (anonHits.get(ip) ?? []).filter((t) => now - t < ANON_WINDOW_MS);
+  if (hits.length >= ANON_LIMIT) return false;
+  hits.push(now);
+  anonHits.set(ip, hits);
+  if (anonHits.size > 5_000) anonHits.clear(); // keep memory bounded
+  return true;
+}
+
 export async function handleGuideChat(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
   // Signed-in players get personalized answers; signed-out visitors get a
@@ -71,6 +98,13 @@ export async function handleGuideChat(request: Request): Promise<Response> {
   if (!Array.isArray(messages) || messages.length === 0) return jsonError(400, "No messages provided.");
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return jsonError(400, "Last message must be from the user.");
+  if (messages.length > MAX_MESSAGES) messages.splice(0, messages.length - MAX_MESSAGES);
+  if (textOf(last).length > MAX_MESSAGE_CHARS)
+    return jsonError(413, `Please keep your question under ${MAX_MESSAGE_CHARS.toLocaleString()} characters.`);
+  if (messages.reduce((n, m) => n + textOf(m).length, 0) > MAX_TOTAL_CHARS)
+    return jsonError(413, "This conversation is too long. Start a new one.");
+  if (!authed && !anonAllowed(request))
+    return jsonError(429, "The guide is busy. Sign in, or try again in a few minutes.");
 
   // Live context for the guide: general rules for everyone, plus this player's
   // real numbers only when a verified session is present.
@@ -216,7 +250,8 @@ export async function handleGuideChat(request: Request): Promise<Response> {
 
   const user = authed;
   if (user) {
-    const { error: saveUserError } = await user.supabase.from("guide_messages").insert({
+    // Saved with the server's access: players can't write chat rows themselves (no forged replies).
+    const { error: saveUserError } = await supabaseAdmin.from("guide_messages").insert({
       user_id: user.userId,
       role: "user",
       parts: last.parts,
@@ -229,7 +264,7 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     ...(user
       ? {
           onFinish: async ({ responseMessage }) => {
-            const { error } = await user.supabase.from("guide_messages").insert({
+            const { error } = await supabaseAdmin.from("guide_messages").insert({
               user_id: user.userId,
               role: "assistant",
               parts: responseMessage.parts,

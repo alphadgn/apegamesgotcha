@@ -84,3 +84,28 @@ export function openBurn(target: BurnTarget) {
 export function closeBurn() {
   set({ burn: null });
 }
+
+// ---- Sign-out: the Glyph layer registers its Privy logout so sign-out can end the Glyph session too ----
+let privyLogout: (() => Promise<void>) | null = null;
+const logoutWaiters = new Set<() => void>();
+
+/** Called by the Glyph layer when it's up (and with null when it goes away). */
+export function registerPrivyLogout(fn: (() => Promise<void>) | null) {
+  privyLogout = fn;
+  if (fn) logoutWaiters.forEach((w) => w());
+}
+
+/** The Privy logout, loading the Glyph layer first if needed (gives up after `ms`). */
+export function getPrivyLogout(ms = 4000): Promise<(() => Promise<void>) | null> {
+  if (privyLogout) return Promise.resolve(privyLogout);
+  activateWallet();
+  return new Promise((resolve) => {
+    const done = () => {
+      logoutWaiters.delete(done);
+      clearTimeout(t);
+      resolve(privyLogout);
+    };
+    const t = setTimeout(done, ms);
+    logoutWaiters.add(done);
+  });
+}

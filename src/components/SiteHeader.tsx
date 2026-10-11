@@ -1,8 +1,8 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { openSignIn } from "@/components/wallet/walletUi";
+import { signOutEverywhere } from "@/lib/sign-out";
 import {
   ArrowLeft,
   Info,
@@ -51,7 +51,6 @@ function BackButton() {
 
 export function SiteHeader() {
   const { user, isAdmin, isSuperAdmin } = useAuth();
-  const router = useRouter();
   const link = "min-h-11 cursor-pointer text-sm uppercase text-muted-foreground";
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
@@ -120,13 +119,7 @@ export function SiteHeader() {
             )}
             <DropdownMenuSeparator />
             {user ? (
-              <DropdownMenuItem
-                className={link}
-                onSelect={async () => {
-                  await supabase.auth.signOut();
-                  void router.navigate({ to: "/" });
-                }}
-              >
+              <DropdownMenuItem className={link} onSelect={() => void signOutEverywhere()}>
                 <LogOut aria-hidden="true" />
                 Sign out
               </DropdownMenuItem>

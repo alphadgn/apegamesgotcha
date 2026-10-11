@@ -21,7 +21,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { getWalletNonce, linkPrivyAccount, linkWallet, privySignIn } from "@/lib/app.functions";
 import { MAX_WALLETS } from "@/lib/wallet-limits";
-import { closeSignIn, getWalletUi, openRefill, openSignIn, useWalletUi } from "./walletUi";
+import {
+  closeSignIn,
+  getWalletUi,
+  openRefill,
+  openSignIn,
+  registerPrivyLogout,
+  useWalletUi,
+} from "./walletUi";
 
 export type PrivyPublicConfig = {
   privy_app_id: string | null;
@@ -151,10 +158,23 @@ function GlyphBridge() {
     }
   };
 
-  /** Signed in to Glyph from an earlier visit but want another account: sign out of Glyph, then pick again. */
-  const switchAccount = () => {
-    void glyph.logout();
-  };
+  // Sign-out (menu) ends the Glyph / Privy session through this.
+  useEffect(() => {
+    registerPrivyLogout(() => Promise.resolve(glyph.logout()).then(() => undefined));
+    return () => registerPrivyLogout(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Signed out of the app but a Glyph session is still saved in this browser (e.g. an older sign-out):
+  // clear it before offering sign-in, so signing in always goes through Glyph again — never a one-tap
+  // "continue as" back into an account.
+  const [clearing, setClearing] = useState(false);
+  useEffect(() => {
+    if (mode !== "sign-in" || !ready || !authenticated || working.current || clearing) return;
+    setClearing(true);
+    void Promise.resolve(glyph.logout()).finally(() => setClearing(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, ready, authenticated]);
 
   // Privy couldn't start (site not in Privy's allowed domains, wrong App ID, offline): say why instead of
   // loading forever. It keeps trying in the background, so the button appears if it does start.
@@ -330,16 +350,19 @@ function GlyphBridge() {
     mode: mode ?? "sign-in",
     status: busy
       ? "Finish in the Glyph window…"
-      : slow
-        ? "Glyph sign-in can't start on this site yet"
-        : undefined,
+      : clearing || (ready && authenticated)
+        ? "Getting Glyph ready…"
+        : slow
+          ? "Glyph sign-in can't start on this site yet"
+          : undefined,
     detail:
       slow && !ready
         ? `Privy didn't start on ${origin}. In the Privy dashboard, add this address under App settings → Domains (allowed origins), then reload.`
         : undefined,
-    onContinue: ready && !busy ? () => void continueWithGlyph() : undefined,
-    continueLabel: remembered ? `Continue as ${short(remembered)}` : "Continue with Glyph",
-    onSwitchAccount: remembered && !busy ? switchAccount : undefined,
+    onContinue:
+      ready && !busy && !clearing && !authenticated ? () => void continueWithGlyph() : undefined,
+    continueLabel: "Continue with Glyph",
+    onSwitchAccount: undefined,
     onClose: close,
     hidden: handedOff,
     ...(linking ? linkProps : {}),
