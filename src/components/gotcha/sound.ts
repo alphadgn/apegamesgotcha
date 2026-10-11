@@ -2,15 +2,28 @@
 
 let shared: AudioContext | null = null;
 
-/** One AudioContext for the whole page (iOS limits how many can exist). Call from a tap to unlock audio. */
+/**
+ * One AudioContext for the whole page (iOS limits how many can exist). Call from a tap to unlock audio.
+ *
+ * The bug that silenced the music: this only woke the sound engine when it was "suspended". When the player
+ * leaves the page (the Glyph sign-in tab, a wallet app, another app, the lock screen), iPhone Safari puts it in
+ * a different state, "interrupted", and it stayed asleep for the rest of the visit. Now any state other than
+ * "running" is woken inside the tap, and an interrupted or closed engine is replaced by a fresh one (a new
+ * engine created inside a tap starts playing straight away).
+ */
 export function sharedAudio(): AudioContext | null {
   if (typeof window === "undefined") return null;
+  const state = shared?.state as string | undefined;
+  if (shared && (state === "interrupted" || state === "closed")) {
+    void shared.close().catch(() => {});
+    shared = null;
+  }
   if (!shared) {
     const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!C) return null;
     shared = new C();
   }
-  if (shared.state === "suspended") void shared.resume();
+  if (shared.state !== "running") void shared.resume().catch(() => {});
   return shared;
 }
 

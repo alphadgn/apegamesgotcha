@@ -3,7 +3,7 @@
 // Five My Dead Friends tracks (the files in /public/music) are the only music. Each spin picks the next
 // one from a shuffled bag (all five play before any repeats, never the same one twice in a row), and each
 // is level-matched with trimDb so none is louder than the rest.
-import { getMusicVolume, onMusicVolume, volumeGain } from "./sound";
+import { getMusicVolume, onMusicVolume, sharedAudio, volumeGain } from "./sound";
 
 /** Loudness target, as RMS in dBFS at full volume; each track's trim brings it to this level. */
 const LEVEL_TARGET_DB = -18.5;
@@ -25,48 +25,55 @@ const dbToGain = (db: number | undefined) => Math.pow(10, (db ?? 0) / 20);
 type Voice = { setLevel: (level: number) => void; stop: (fade: number) => void };
 
 /**
- * A plain audio player, NOT routed through the Web Audio engine. On iPhones the Web Audio engine goes silent
- * when the ringer switch is on silent, while a plain audio player keeps playing (the /sound-test check:
- * "1. Plain music file" played on silent, "2. Game music" did not). Volume and fades use the player's own
- * volume (iPhones keep that at the phone's volume, so there the side buttons set the loudness).
+ * The original playback path (the one that played before): an <audio> player started inside the Click To
+ * Spin tap, routed through the sound engine (`sharedAudio`) via a gain node, so the palm-tree slider and the
+ * fades control the loudness. One player per machine, reused for every track: once a tap has started it, the
+ * phone lets it play again later without a tap (spin-all and reveal-all start the next track from a timer).
+ * If the sound engine had to be replaced (see `sharedAudio`), a fresh player is built on the new one.
  */
-const plays = new WeakMap<HTMLAudioElement, number>();
+type Player = { ctx: AudioContext; audio: HTMLAudioElement; gain: GainNode; token: number };
 
-function playClip(audio: HTMLAudioElement, url: string, level: number): Voice {
-  const token = (plays.get(audio) ?? 0) + 1; // a newer track on this player ends this one's fade
-  plays.set(audio, token);
-  const mine = () => plays.get(audio) === token;
-  // One player per machine, reused for every track: once a tap has started it, phones let it play again
-  // later without a tap (spin-all and reveal-all start the next track from a timer).
+function playerFor(ctx: AudioContext, old: Player | null): Player {
+  if (old && old.ctx === ctx) return old;
+  old?.audio.pause();
+  const audio = new Audio();
+  audio.preload = "auto";
+  audio.setAttribute("playsinline", "");
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  ctx.createMediaElementSource(audio).connect(gain).connect(ctx.destination);
+  return { ctx, audio, gain, token: 0 };
+}
+
+function playClip(p: Player, url: string, level: number): Voice {
+  const token = ++p.token; // a newer track on this player ends this one's fade
+  const { ctx, audio, gain } = p;
   audio.pause();
   audio.src = url;
   audio.loop = true;
-  audio.preload = "auto";
-  audio.setAttribute("playsinline", "");
-  const clamp = (v: number) => Math.min(1, Math.max(0, v));
-  audio.volume = clamp(level);
+  const now = ctx.currentTime;
+  gain.gain.cancelScheduledValues(now);
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(level, now + 0.05);
   void audio.play().catch(() => {});
   let stopped = false;
-  let fader = 0;
   return {
     setLevel(v) {
-      if (!stopped && mine()) audio.volume = clamp(v);
+      if (stopped || p.token !== token) return;
+      gain.gain.cancelScheduledValues(ctx.currentTime);
+      gain.gain.setTargetAtTime(v, ctx.currentTime, 0.05);
     },
     stop(fade: number) {
       if (stopped) return;
       stopped = true;
-      const from = audio.volume;
-      const steps = Math.max(1, Math.round((fade * 1000) / 50));
-      let k = 0;
-      fader = window.setInterval(() => {
-        if (!mine()) return window.clearInterval(fader); // the next track took over this player
-        k++;
-        audio.volume = clamp(from * (1 - k / steps)); // a smooth fade where the browser allows it
-        if (k >= steps) {
-          window.clearInterval(fader);
-          audio.pause();
-        }
-      }, 50);
+      if (p.token !== token) return; // the next track already took over this player
+      const t = ctx.currentTime;
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t);
+      gain.gain.linearRampToValueAtTime(0, t + fade); // a smooth, audible fade
+      window.setTimeout(() => {
+        if (p.token === token) audio.pause();
+      }, fade * 1000 + 120);
     },
   };
 }
@@ -97,7 +104,7 @@ export function createJukebox(volume = 0.7) {
   let lastPlayed = -1;
   // The palm-tree volume slider: rescales the playing track.
   let currentLevel = 0;
-  let player: HTMLAudioElement | null = null;
+  let player: Player | null = null;
   onMusicVolume((v) => current?.setLevel(currentLevel * volumeGain(v)));
   if (typeof window !== "undefined") TRACKS.forEach((t) => warm(t.url));
 
@@ -121,10 +128,12 @@ export function createJukebox(volume = 0.7) {
     /** Start a new random track. Call from a tap/click so mobile browsers allow audio. */
     start() {
       if (!enabled) return;
+      const ctx = sharedAudio(); // wakes (or replaces) the sound engine inside the tap
+      if (!ctx) return;
       current?.stop(0.4);
       const t = TRACKS[nextIndex(TRACKS.length)]!;
       currentLevel = volume * dbToGain(t.trimDb);
-      player ??= new Audio();
+      player = playerFor(ctx, player);
       current = playClip(player, t.url, currentLevel * volumeGain(getMusicVolume()));
     },
     /** Fade the music out (never a hard cut). */
