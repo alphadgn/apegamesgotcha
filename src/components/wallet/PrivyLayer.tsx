@@ -397,6 +397,32 @@ function GlyphBridge() {
   const remembered = glyph.address;
   const origin = typeof window === "undefined" ? "" : window.location.origin;
 
+  // Inside a frame (e.g. the Lovable editor's preview), Glyph's sign-in tab can't report back: browsers
+  // (iPhone Safari above all) wall off a framed page's storage and its link to the tab it opens, so that tab
+  // stayed on about:blank. Sign in from the site's own tab instead; the sign-in window opens there by itself.
+  const framed = (() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.top !== window.self;
+    } catch {
+      return true;
+    }
+  })();
+  const openOwnTab = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("signin", getWalletUi().afterSignIn === "refill" ? "refill" : "1");
+    window.open(url.toString(), "_blank", "noopener");
+  };
+  const framedProps = {
+    status: undefined,
+    detail: undefined,
+    onContinue: openOwnTab,
+    continueLabel: "Open sign-in in a new tab",
+    secondary: undefined,
+    note: "This page is shown inside a frame (like the Lovable editor preview), where Glyph's sign-in window can't connect back. Sign in on the site in its own tab: the sign-in window opens there automatically.",
+    onSwitchAccount: undefined,
+  };
+
   const linking = mode === "link";
   const linkProps = {
     status: walletsFull
@@ -440,6 +466,7 @@ function GlyphBridge() {
     onClose: close,
     hidden: handedOff,
     ...(linking ? linkProps : {}),
+    ...(framed && !challenge ? framedProps : {}),
     // Step 2 of 2: sign the one-time message with the Glyph wallet (after Glyph's "Approve").
     ...(challenge
       ? {

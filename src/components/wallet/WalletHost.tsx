@@ -17,7 +17,7 @@ import {
 import { RefillDialog } from "./RefillDialog";
 import { HostedSignInWindow } from "./SignInWindow";
 import { BurnDialog } from "./BurnDialog";
-import { activateWallet, closeBurn, closeRefill, closeSignIn, useWalletUi } from "./walletUi";
+import { activateWallet, closeBurn, closeRefill, closeSignIn, openSignIn, useWalletUi } from "./walletUi";
 
 const loadPrivyLayer = () => import("./PrivyLayer");
 const PrivyLayer = lazy(loadPrivyLayer);
@@ -114,6 +114,15 @@ export function WalletHost() {
       setReturning(true);
       activateWallet();
       return;
+    }
+    // Opened from a framed preview to sign in (?signin=1 / ?signin=refill): open the sign-in window here.
+    const q = new URLSearchParams(window.location.search);
+    const signin = q.get("signin");
+    if (signin) {
+      q.delete("signin");
+      const rest = q.toString();
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
+      openSignIn(signin === "refill" ? { then: "refill" } : {});
     }
     // Otherwise warm up the sign-in code and settings once the page is idle, so Sign in opens instantly.
     const warm = () => {
