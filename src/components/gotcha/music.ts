@@ -3,7 +3,7 @@
 // Five My Dead Friends tracks (the files in /public/music) are the only music. Each spin picks the next
 // one from a shuffled bag (all five play before any repeats, never the same one twice in a row), and each
 // is level-matched with trimDb so none is louder than the rest.
-import { audioDecoder, musicBus, releasePlaybackSession, sharedAudio } from "./sound";
+import { audioDecoder, musicBus, noteMusicStart, releasePlaybackSession, sharedAudio } from "./sound";
 
 /** Loudness target, as RMS in dBFS at full volume; each track's trim brings it to this level. */
 const LEVEL_TARGET_DB = -18.5;
@@ -192,6 +192,7 @@ export function createJukebox(volume = 0.7) {
       const t = TRACKS[slot.index]!;
       const vol = volume * dbToGain(t.trimDb);
       current = slot.buffer ? playBuffer(ctx, slot.buffer, vol) : playStream(ctx, t.url, vol);
+      noteMusicStart(`${slot.buffer ? "decoded" : "streamed"} "${t.title}" (context ${ctx.state})`);
       prepare(); // decode the one after, ready for the next tap
     },
     /** Fade the music out (never a hard cut). */

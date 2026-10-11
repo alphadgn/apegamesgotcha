@@ -42,38 +42,65 @@ let silentEl: HTMLAudioElement | null = null;
 
 /**
  * iPhones mute Web Audio when the ringer (silent) switch is on, so the spin music was inaudible even with
- * "Sound on". Ask for the "playback" audio session (Safari 16.4+), which plays like a music app; on older
- * iOS, a silent looping <audio> element started in the tap does the same.
+ * "Sound on". Two measures, both from the tap: ask for the "playback" audio session (Safari 16.4+), which
+ * plays like a music app, and on iPhone/iPad also keep a silent looping <audio> element playing, which moves
+ * the page to the playback session on every iOS version. The session is never switched back (switching it
+ * while the AudioContext lives can silence it), only the silent element is paused when the music stops.
  */
 function claimPlaybackSession() {
   const nav = navigator as Navigator & { audioSession?: { type: string } };
   try {
-    if (nav.audioSession) {
-      if (nav.audioSession.type !== "playback") nav.audioSession.type = "playback";
-      return;
-    }
-  } catch {
-    /* not settable here */
+    if (nav.audioSession && nav.audioSession.type !== "playback") nav.audioSession.type = "playback";
+  } catch (e) {
+    debugNote(`audioSession: ${(e as Error).message}`);
   }
   if (!isIOS()) return;
   if (!silentEl) {
     silentEl = new Audio(silentWav());
     silentEl.loop = true;
+    silentEl.preload = "auto";
     silentEl.setAttribute("playsinline", "");
     silentEl.setAttribute("x-webkit-airplay", "deny");
   }
-  if (silentEl.paused) void silentEl.play().catch(() => {});
+  if (silentEl.paused) void silentEl.play().catch((e: Error) => debugNote(`silent audio: ${e.message}`));
 }
 
-/** Music stopped: hand the audio session back (other apps' audio may resume, lock screen shows nothing). */
+/** Music stopped: pause the silent element (the lock screen then shows nothing). */
 export function releasePlaybackSession() {
-  const nav = navigator as Navigator & { audioSession?: { type: string } };
-  try {
-    if (nav.audioSession && nav.audioSession.type === "playback") nav.audioSession.type = "auto";
-  } catch {
-    /* ignore */
-  }
   silentEl?.pause();
+}
+
+// ---- Audio diagnostics: add ?audiodebug=1 to the address to see what the phone's audio is doing ----
+let lastNote = "";
+let lastStart = "";
+function debugNote(n: string) {
+  lastNote = n;
+}
+/** Called by the jukebox when it starts a track (shown in the diagnostics panel). */
+export function noteMusicStart(how: string) {
+  lastStart = `${how} @ ${new Date().toLocaleTimeString()}`;
+}
+if (typeof window !== "undefined" && /[?&]audiodebug=1/.test(window.location.search)) {
+  const box = document.createElement("pre");
+  box.style.cssText =
+    "position:fixed;left:4px;bottom:4px;z-index:99999;max-width:94vw;margin:0;padding:6px 8px;font:11px/1.35 ui-monospace,monospace;background:rgba(0,0,0,.85);color:#7CFC9A;border:1px solid #7CFC9A;border-radius:6px;white-space:pre-wrap;pointer-events:none";
+  const paint = () => {
+    const nav = navigator as Navigator & { audioSession?: { type: string } };
+    box.textContent = [
+      `iOS: ${isIOS()}  audioSession: ${nav.audioSession ? nav.audioSession.type : "n/a"}`,
+      `context: ${shared ? `${shared.state} ${shared.sampleRate}Hz t=${shared.currentTime.toFixed(1)}` : "not created"}`,
+      `music volume: ${Math.round(volume * 100)}%  bus gain: ${bus ? bus.gain.value.toFixed(2) : "-"}`,
+      `silent element: ${silentEl ? (silentEl.paused ? "paused" : "playing") : "-"}`,
+      `last music start: ${lastStart || "-"}`,
+      lastNote ? `note: ${lastNote}` : "",
+    ].join("\n");
+  };
+  const add = () => {
+    document.body.appendChild(box);
+    window.setInterval(paint, 500);
+  };
+  if (document.body) add();
+  else window.addEventListener("DOMContentLoaded", add);
 }
 
 /** The page's one AudioContext (iOS limits how many can exist), if it already exists. Never creates one:
@@ -99,7 +126,7 @@ export function sharedAudio(): AudioContext | null {
     if (!C) return null;
     shared = new C({ latencyHint: "interactive" });
   }
-  if (shared.state !== "running") void shared.resume().catch(() => {});
+  if (shared.state !== "running") void shared.resume().catch((e: Error) => debugNote(`resume: ${e.message}`));
   return shared;
 }
 
