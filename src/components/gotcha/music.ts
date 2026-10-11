@@ -3,7 +3,7 @@
 // Five My Dead Friends tracks (the files in /public/music) are the only music. Each spin picks the next
 // one from a shuffled bag (all five play before any repeats, never the same one twice in a row), and each
 // is level-matched with trimDb so none is louder than the rest.
-import { audioContext, musicBus, sharedAudio } from "./sound";
+import { audioDecoder, musicBus, releasePlaybackSession, sharedAudio } from "./sound";
 
 /** Loudness target, as RMS in dBFS at full volume; each track's trim brings it to this level. */
 const LEVEL_TARGET_DB = -18.5;
@@ -122,7 +122,7 @@ function fetchTrack(url: string) {
   return p;
 }
 
-async function decodeTrack(ctx: AudioContext, url: string): Promise<AudioBuffer | null> {
+async function decodeTrack(ctx: BaseAudioContext, url: string): Promise<AudioBuffer | null> {
   const bytes = await fetchTrack(url);
   if (!bytes) return null;
   try {
@@ -142,6 +142,7 @@ export function createJukebox(volume = 0.7) {
   let lastPlayed = -1;
   /** The track that plays on the next tap, decoded and ready (or still decoding). */
   let next: { index: number; buffer: AudioBuffer | null } | null = null;
+  let releaseTimer = 0;
 
   const nextIndex = (count: number) => {
     if (!bag.length) {
@@ -155,7 +156,7 @@ export function createJukebox(volume = 0.7) {
   /** Pick the next track and decode it now, so the next tap plays it with no wait. */
   const prepare = () => {
     if (typeof window === "undefined") return;
-    const ctx = audioContext();
+    const ctx = audioDecoder(); // decoding needs no tap; playing does (sharedAudio in start)
     if (!ctx) return;
     const slot: { index: number; buffer: AudioBuffer | null } = { index: nextIndex(TRACKS.length), buffer: null };
     next = slot;
@@ -181,7 +182,8 @@ export function createJukebox(volume = 0.7) {
     /** Start the next track — immediately. Call from a tap/click so mobile browsers allow audio. */
     start() {
       if (!enabled) return;
-      const ctx = sharedAudio(); // resumes the audio context inside the tap
+      window.clearTimeout(releaseTimer);
+      const ctx = sharedAudio(); // creates/resumes the audio context inside the tap (and claims iOS playback)
       if (!ctx) return;
       current?.stop(0.4);
       if (!next) prepare();
@@ -194,8 +196,14 @@ export function createJukebox(volume = 0.7) {
     },
     /** Fade the music out (never a hard cut). */
     stop(fade = 1) {
-      current?.stop(fade);
+      if (!current) return;
+      current.stop(fade);
       current = null;
+      // Once the fade (and the reveal sounds) are done, give the phone's audio session back.
+      window.clearTimeout(releaseTimer);
+      releaseTimer = window.setTimeout(() => {
+        if (!current) releasePlaybackSession();
+      }, fade * 1000 + 2500);
     },
     /** Stop playing (the machine left the page). The jukebox stays usable if the machine comes back. */
     dispose() {
