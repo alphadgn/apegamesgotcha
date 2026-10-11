@@ -61,3 +61,48 @@ export function createSfx() {
     },
   };
 }
+
+// ---- Music volume (the slider on the left palm tree) ----
+// All music plays through one gain node, so the slider changes it instantly, even mid-track.
+const VOLUME_KEY = "gm-music-volume";
+let bus: GainNode | null = null;
+let volume = (() => {
+  try {
+    const v = Number(localStorage.getItem(VOLUME_KEY));
+    return Number.isFinite(v) && localStorage.getItem(VOLUME_KEY) !== null ? Math.min(1, Math.max(0, v)) : 0.8;
+  } catch {
+    return 0.8;
+  }
+})();
+const volumeListeners = new Set<(v: number) => void>();
+
+/** Music volume from 0 (silent) to 1 (loudest). */
+export function getMusicVolume() {
+  return volume;
+}
+
+/** Where every music voice connects (instead of straight to the speakers). */
+export function musicBus(ctx: AudioContext): AudioNode {
+  if (!bus || bus.context !== ctx) {
+    bus = ctx.createGain();
+    bus.gain.value = volume * volume; // squared: the slider feels even to the ear
+    bus.connect(ctx.destination);
+  }
+  return bus;
+}
+
+export function setMusicVolume(v: number) {
+  volume = Math.min(1, Math.max(0, v));
+  if (bus) bus.gain.setTargetAtTime(volume * volume, bus.context.currentTime, 0.03);
+  try {
+    localStorage.setItem(VOLUME_KEY, String(Math.round(volume * 100) / 100));
+  } catch {
+    /* storage unavailable */
+  }
+  volumeListeners.forEach((l) => l(volume));
+}
+
+export function onMusicVolume(l: (v: number) => void) {
+  volumeListeners.add(l);
+  return () => volumeListeners.delete(l);
+}

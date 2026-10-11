@@ -66,7 +66,8 @@ export function IrlPrizes() {
   );
 }
 
-function ClaimForm({ win, onDone }: { win: IrlWin; onDone: () => void }) {
+/** Delivery details for one won prize (pick up at ApeFest or ship to an address). */
+export function ClaimForm({ win, onDone, cancelLabel = "Cancel" }: { win: IrlWin; onDone: () => void; cancelLabel?: string }) {
   const qc = useQueryClient();
   const submit = useServerFn(submitPrizeClaim);
   const c = win.claim;
@@ -158,7 +159,7 @@ function ClaimForm({ win, onDone }: { win: IrlWin; onDone: () => void }) {
       />
       <p className="text-xs text-muted-foreground">Your details are only shared with the ApeGames team to deliver this prize.</p>
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onDone}>Cancel</Button>
+        <Button type="button" variant="outline" onClick={onDone}>{cancelLabel}</Button>
         <Button type="submit" disabled={busy}>{busy ? "Sending…" : c ? "Update claim" : "Send claim"}</Button>
       </div>
     </form>

@@ -10,7 +10,7 @@ import { readPendingBurn, useBurnConfirmer } from "@/components/wallet/BurnPanel
 import { usePrivyPublicConfig } from "@/components/wallet/WalletHost";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
+import { SpinArcade } from "@/components/gotcha/SpinArcade";
 import { useAuth } from "@/hooks/useAuth";
 import { SafeSection } from "@/components/SafeSection";
 import { MAX_WALLETS } from "@/lib/wallet-limits";
@@ -207,7 +207,7 @@ function Dashboard() {
       {/* Gotcha machine */}
       <div className="mt-6">
         <SafeSection label="gotcha machine">
-          {user && <PlayerGotchaMachine userId={user.id} footnote="Buy more spins with Refill, or burn a Level 4+ NFT for a free one." />}
+          {user && <SpinArcade userId={user.id} footnote="Buy more spins with Refill, or burn a Level 4+ NFT for a free one." />}
         </SafeSection>
       </div>
 

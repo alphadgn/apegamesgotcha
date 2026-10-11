@@ -672,3 +672,106 @@
   .gm-reveal-vrf { font-size: 12px; }
   .gm-rf-bundle small { font-size: 12px; }
 }
+
+/* ---------- music volume on the left palm trunk (TreeVolume) ---------- */
+.gm-vol {
+  position: absolute; z-index: 3; width: 30px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center;
+}
+.gm-vol-track {
+  position: relative; flex: 1; width: 30px; border-radius: 999px; touch-action: none; cursor: ns-resize;
+  background: linear-gradient(90deg, rgba(7, 15, 38, 0.55), rgba(19, 41, 90, 0.35) 50%, rgba(7, 15, 38, 0.55));
+}
+.gm-vol-track::before { /* the groove up the trunk */
+  content: ""; position: absolute; left: 50%; top: 13px; bottom: 13px; width: 6px; margin-left: -3px; border-radius: 3px;
+  background: rgba(4, 10, 29, 0.9); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(246, 195, 67, 0.35);
+}
+.gm-vol-track:focus-visible { outline: 3px solid var(--gm-gold); outline-offset: 2px; }
+.gm-vol-mark { /* the two red marks: top = loudest, bottom = off */
+  position: absolute; left: 50%; width: 22px; height: 4px; margin-left: -11px; border-radius: 2px;
+  background: var(--gm-red); box-shadow: 0 0 6px rgba(215, 38, 47, 0.9);
+}
+.gm-vol-mark-max { top: 11px; }
+.gm-vol-mark-min { bottom: 11px; }
+.gm-vol-fill {
+  position: absolute; left: 50%; bottom: 0; width: 6px; margin-left: -3px; border-radius: 3px; pointer-events: none;
+  background: linear-gradient(0deg, var(--gm-gold-deep), var(--gm-gold-hi));
+  box-shadow: 0 0 8px rgba(246, 195, 67, 0.7);
+}
+.gm-vol-thumb {
+  position: absolute; left: 50%; width: 26px; height: 26px; margin-left: -13px; border-radius: 50%; pointer-events: none;
+  display: grid; place-items: center; color: var(--gm-navy);
+  background: radial-gradient(circle at 35% 30%, var(--gm-gold-hi), var(--gm-gold) 55%, var(--gm-gold-deep));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(7, 15, 38, 0.6);
+  transition: transform 0.12s ease;
+}
+.gm-vol-thumb svg { width: 15px; height: 15px; }
+.gm-vol.is-dragging .gm-vol-thumb, .gm-vol-track:focus-visible .gm-vol-thumb { transform: scale(1.15); }
+.gm-vol-label {
+  position: absolute; top: 100%; margin-top: 3px; font-family: var(--gm-display); font-weight: 700;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gm-gold-hi);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8); pointer-events: none;
+}
+@media (max-width: 639px) {
+  .gm-vol, .gm-vol-track { width: 26px; }
+}
+
+/* ---------- DEMO / LIVE buttons beside the switches ---------- */
+.gm-modes-wrap { width: min(100%, 390px); display: grid; justify-items: center; }
+.gm-modes-wrap.has-picks { width: min(100%, 470px); grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.gm-modes-wrap.has-picks .gm-modes { width: 100%; }
+.gm-pick {
+  width: 58px; height: 58px; border-radius: 50%; border: 3px solid rgba(7, 15, 38, 0.85); padding: 0;
+  font-family: var(--gm-display); font-weight: 800; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase;
+  white-space: nowrap; word-spacing: 0; color: #000 !important;
+  box-shadow: 0 5px 0 var(--pick-deep), 0 8px 14px rgba(0, 0, 0, 0.45), inset 0 2px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.2s ease;
+}
+.gm-pick-demo { --pick-deep: var(--gm-gold-deep); --pick-glow: rgba(255, 226, 138, 0.95); background: linear-gradient(180deg, var(--gm-gold-hi), var(--gm-gold) 50%, #d99a22); }
+.gm-pick-live { --pick-deep: #13702f; --pick-glow: rgba(110, 255, 150, 0.95); background: linear-gradient(180deg, #a6f5b9, #34c759 50%, #1f9a42); }
+.gm-pick.is-pressed { /* pushed in */
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 var(--pick-deep), 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 3px 7px rgba(0, 0, 0, 0.35), 0 0 18px var(--pick-glow);
+}
+.gm-pick:not(.is-pressed):not(.is-blinking) { filter: saturate(0.55) brightness(0.8); }
+.gm-pick:not(.is-pressed):not(:disabled):hover { filter: none; }
+.gm-pick:disabled { cursor: not-allowed; opacity: 0.6; }
+.gm-pick.is-blinking { animation: gm-pick-blink 0.9s steps(1, end) infinite; }
+@keyframes gm-pick-blink {
+  0% { filter: brightness(1.15); box-shadow: 0 5px 0 var(--pick-deep), 0 8px 14px rgba(0, 0, 0, 0.45), 0 0 22px var(--pick-glow); }
+  50% { filter: brightness(0.55) saturate(0.6); box-shadow: 0 5px 0 var(--pick-deep), 0 8px 14px rgba(0, 0, 0, 0.45); }
+}
+/* Click To Spin: grey until a mode is picked, green on LIVE */
+.gm-cta.is-off { filter: grayscale(1) brightness(0.7); animation: none; }
+.gm-cta.is-live {
+  background: linear-gradient(180deg, #a6f5b9, #34c759 50%, #1f9a42);
+  box-shadow: 0 6px 0 #13702f, 0 10px 20px rgba(0, 0, 0, 0.4);
+  color: #000 !important;
+}
+.gm-cta.is-live:not(:disabled):active { box-shadow: 0 1px 0 #13702f, 0 4px 10px rgba(0, 0, 0, 0.4); }
+.gm-cta.is-live.is-ready { animation: gm-cta-live 1.2s ease-in-out infinite; }
+@keyframes gm-cta-live {
+  0%, 100% { transform: scale(1); filter: brightness(1); box-shadow: 0 6px 0 #13702f, 0 10px 20px rgba(0, 0, 0, 0.4), 0 0 0 rgba(110, 255, 150, 0); }
+  50% { transform: scale(1.055); filter: brightness(1.25) saturate(1.1); box-shadow: 0 6px 0 #13702f, 0 14px 30px rgba(0, 0, 0, 0.44), 0 0 42px rgba(110, 255, 150, 1); }
+}
+@media (max-width: 639px) {
+  .gm-modes-wrap.has-picks { gap: 5px; }
+  .gm-pick { width: 46px; height: 46px; font-size: 9.5px; border-width: 2px; letter-spacing: 0; }
+  .gm-modes-wrap.has-picks .gm-switch-row { grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); gap: 5px; font-size: 10.5px; }
+  .gm-modes-wrap.has-picks .gm-switch { width: 40px; height: 22px; }
+  .gm-modes-wrap.has-picks .gm-switch-thumb { width: 13px; height: 13px; }
+  .gm-modes-wrap.has-picks .gm-switch[aria-checked="true"] .gm-switch-thumb { transform: translateX(18px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gm-pick.is-blinking { animation-duration: 1.6s; }
+  .gm-cta.is-live.is-ready { animation: none; box-shadow: 0 6px 0 #13702f, 0 10px 20px rgba(0, 0, 0, 0.4), 0 0 18px rgba(110, 255, 150, 0.72); }
+}
+
+/* "Claim your IRL prize" under the status plate, right after a real-world prize is revealed */
+.gm-claim-btn {
+  display: block; margin: 8px auto 0; padding: 5px 14px; max-width: 100%; border-radius: 999px; border: 2px solid var(--gm-navy);
+  background: linear-gradient(180deg, var(--gm-gold-hi), var(--gm-gold)); color: var(--gm-navy) !important;
+  font-family: var(--gm-display); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+  box-shadow: 0 0 0 2px var(--gm-gold), 0 0 18px rgba(246, 195, 67, 0.75);
+  animation: gm-pulse 0.8s ease-in-out infinite alternate;
+}

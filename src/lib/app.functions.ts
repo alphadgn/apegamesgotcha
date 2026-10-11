@@ -1033,10 +1033,32 @@ async function syncPrivyWallets(userId: string, identity: import("./privy.server
   return { skipped };
 }
 
+/** A one-time message for the player's Glyph wallet to sign before sign-in / linking (proof of ownership). */
+export const getWalletSignInChallenge = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/), origin: z.string().max(200) }).parse(d))
+  .handler(async ({ data }) => {
+    const { issueWalletChallenge } = await import("./wallet-proof.server");
+    return issueWalletChallenge(data.address, data.origin);
+  });
+
+const walletProofSchema = z.object({ message: z.string().min(20).max(1000), token: z.string().min(20).max(200), signature: z.string().regex(/^0x[0-9a-fA-F]+$/).max(20000) });
+
+/** The Glyph wallet (or, without Glyph, any Privy-verified wallet) must have signed our sign-in message. */
+async function assertWalletProof(identity: import("./privy.server").PrivyIdentity, proof: z.infer<typeof walletProofSchema>) {
+  const { verifyWalletProof } = await import("./wallet-proof.server");
+  const glyph = identity.wallets.filter((w) => w.kind === "glyph").map((w) => w.address);
+  const allowed = glyph.length ? glyph : identity.wallets.map((w) => w.address);
+  if (!allowed.length) throw new Error("No wallet came back from Glyph. Please sign in again.");
+  const nft = (await getConfig("nft").catch(() => null)) as { rpc_url?: string } | null;
+  return verifyWalletProof(proof, allowed, nft?.rpc_url);
+}
+
 export const privySignIn = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ accessToken: z.string().min(20).max(4096) }).parse(d))
+  .inputValidator((d) => z.object({ accessToken: z.string().min(20).max(4096), proof: walletProofSchema }).parse(d))
   .handler(async ({ data }) => {
     const identity = await privyIdentityFromToken(data.accessToken);
+    // Glyph's "Approve" alone isn't enough: the wallet must also sign our one-time message.
+    await assertWalletProof(identity, data.proof);
     const db = await admin();
 
     // 1) Same Privy login as before  2) same verified email  3) a wallet already linked to an account.
@@ -1080,9 +1102,10 @@ export const privySignIn = createServerFn({ method: "POST" })
 /** A signed-in player who also signs in to Privy (e.g. to pay): attach that Privy login and its wallets. */
 export const linkPrivyAccount = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ accessToken: z.string().min(20).max(4096) }).parse(d))
+  .inputValidator((d) => z.object({ accessToken: z.string().min(20).max(4096), proof: walletProofSchema }).parse(d))
   .handler(async ({ data, context }) => {
     const identity = await privyIdentityFromToken(data.accessToken);
+    await assertWalletProof(identity, data.proof); // the Glyph wallet signed our one-time message
     const db = await admin();
     const { data: row } = await db.from("privy_accounts").select("user_id").eq("privy_did", identity.did).maybeSingle();
     if (row && row.user_id !== context.userId) throw new Error("That Privy login belongs to another player. Sign out and sign in with it instead.");

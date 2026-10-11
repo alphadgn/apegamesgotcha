@@ -3,6 +3,7 @@ import { MotionIcon, Palmetto, Skyline, SoundIcon, TorchEmblem, prizeArt } from 
 import { PrizeImage } from "@/components/PrizeImage";
 import { createSfx, type Sfx } from "./sound";
 import { createJukebox, type Jukebox } from "./music";
+import { TreeVolume } from "./TreeVolume";
 
 export type GotchaPrize = {
   id: string;
@@ -13,6 +14,8 @@ export type GotchaPrize = {
   inventory?: number | null;
   /** Uploaded prize photo (path in the private prize-images bucket), shown round in the reveal. */
   image_url?: string | null;
+  /** A real-world prize: winning it in a live draw asks for delivery details right away. */
+  is_physical?: boolean | null;
 };
 
 /** One capsule's state as reported by the server (mirrors the `checkDraw` server function). */
@@ -65,7 +68,22 @@ type Props = {
   demoPoints?: boolean;
   /** When set, real spins aren't open yet (e.g. the on-chain draw isn't switched on); shown instead of pulling. */
   closedReason?: string | undefined;
+  /**
+   * DEMO / LIVE buttons beside the switches: shown when `onPlayModeChange` is set. Until one is pressed
+   * (`playMode` null) both blink and Click To Spin is greyed out; once picked, Click To Spin glows in that
+   * button's colour. Out of spins, Click To Spin still glows and calls `onNoSpins` (e.g. points at Refill).
+   */
+  playMode?: PlayMode | null | undefined;
+  onPlayModeChange?: ((mode: PlayMode) => void) | undefined;
+  /** Small line under Click To Spin when the player is out of spins (default "Tap to refill"). */
+  noSpinsHint?: string | undefined;
+  /** Signed-out visitor on the live machine: the plate invites them to sign in. */
+  signedOut?: boolean | undefined;
+  /** Extra control under the status plate for the prize just revealed (e.g. "Claim your IRL prize"). */
+  revealAction?: ((result: GotchaResult) => ReactNode) | undefined;
 };
+
+export type PlayMode = "demo" | "live";
 
 type Phase = "idle" | "requesting" | "drawing" | "rolling" | "charging" | "opening" | "revealed" | "complete";
 type Motion =
@@ -131,7 +149,14 @@ export function GotchaMachine({
   demo = false,
   demoPoints = false,
   closedReason,
+  playMode = null,
+  onPlayModeChange,
+  noSpinsHint = "Tap to refill",
+  signedOut = false,
+  revealAction,
 }: Props) {
+  const picks = !!onPlayModeChange; // DEMO / LIVE buttons on this machine
+  const unpicked = picks && !playMode;
   const pool = prizes.length ? prizes : FALLBACK_PRIZES;
   const tiles = useMemo(() => {
     const n = Math.max(TILE_COUNT, pool.length);
@@ -190,6 +215,8 @@ export function GotchaMachine({
   const onEndRef = useRef(onSessionEnd);
   const closedRef = useRef(closedReason);
   closedRef.current = closedReason;
+  const unpickedRef = useRef(unpicked);
+  unpickedRef.current = unpicked;
   const onRevealRef = useRef(onReveal);
   onRevealRef.current = onReveal;
   modeRef.current = mode;
@@ -551,7 +578,7 @@ export function GotchaMachine({
 
   const pull = async () => {
     const credits = creditsRef.current; // live value — automatic "Spin all" pulls run from timers
-    if (busy || credits < 1 || closedRef.current) return;
+    if (busy || credits < 1 || closedRef.current || unpickedRef.current) return;
     const used = historyRef.current.length + resultsRef.current.length;
     const availableSlots = used >= maxPerSession ? maxPerSession : maxPerSession - used;
     const spinAll = spinModeRef.current === "all";
@@ -664,6 +691,8 @@ export function GotchaMachine({
     const i = cur + 1;
     switch (phase) {
       case "idle":
+        if (unpicked) return { t: "Pick Demo or Live", s: "Press DEMO or LIVE beside the switches", pill: "Every draw powered by Chainlink VRF" };
+        if (signedOut && credits === 0 && !closedReason) return { t: "Live spins", s: "Sign in to spin for real prizes", pill: "Every draw powered by Chainlink VRF" };
         if (closedReason) return { t: "Real spins open soon", s: closedReason, pill: credits > 0 ? `${plural(credits, "spin")} waiting for you` : "Every draw powered by Chainlink VRF" };
         return credits > 0
           ? { t: "Ready to pull", s: `Load ${plural(count, "capsule")} · ${plural(credits, "spin")} available`, pill: "Every draw powered by Chainlink VRF" }
@@ -712,7 +741,10 @@ export function GotchaMachine({
     return { st: k < drawn ? "sealed" : "off" };
   };
   let cta: { label: string; sub?: string; onClick: () => void; disabled?: boolean };
-  if (closedReason && (phase === "idle" || sessionDone)) cta = { label: "Spins open soon", sub: credits > 0 ? `${plural(credits, "spin")} saved` : "Check back shortly", onClick: () => {}, disabled: true };
+  const atRest = phase === "idle" || sessionDone;
+  if (unpicked && atRest && !chaining) cta = { label: "Click To Spin", sub: "Pick Demo or Live", onClick: () => {}, disabled: true };
+  else if (picks && atRest && !chaining && !closedReason && credits === 0 && onNoSpins) cta = { label: "Click To Spin", sub: noSpinsHint, onClick: onNoSpins };
+  else if (closedReason && (phase === "idle" || sessionDone)) cta = { label: "Spins open soon", sub: credits > 0 ? `${plural(credits, "spin")} saved` : "Check back shortly", onClick: () => {}, disabled: true };
   else if (phase === "requesting") cta = { label: "Requesting…", onClick: () => {}, disabled: true };
   else if (phase === "drawing") cta = { label: "Drawing on-chain…", sub: "Chainlink VRF", onClick: () => {}, disabled: true };
   else if (busy) cta = { label: "Revealing…", onClick: () => {}, disabled: true };
@@ -726,8 +758,24 @@ export function GotchaMachine({
     : { label: "No spins available", onClick: () => {}, disabled: true };
 
   const canPull = phase === "idle" && credits > 0 && !closedReason;
-  const canLever = (phase === "idle" || sessionDone) && credits > 0 && !closedReason;
-  const spinReady = credits > 0 && (phase === "idle" || sessionDone);
+  const canLever = (phase === "idle" || sessionDone) && credits > 0 && !closedReason && !unpicked;
+  // Picked machines glow even when out of spins (the tap then points at Refill or sign-in).
+  const spinReady = picks ? !unpicked && atRest && !chaining && !closedReason && (credits > 0 || !!onNoSpins) : credits > 0 && atRest;
+  const pickLocked = !atRest || chaining;
+  const pickButton = (m: PlayMode) => (
+    <button
+      type="button"
+      className={`gm-pick gm-pick-${m}${playMode === m ? " is-pressed" : ""}${unpicked ? " is-blinking" : ""}`}
+      aria-pressed={playMode === m}
+      aria-label={m === "demo" ? "Demo spins" : "Live spins"}
+      disabled={pickLocked && playMode !== m}
+      onClick={() => {
+        if (playMode !== m && !pickLocked) onPlayModeChange?.(m);
+      }}
+    >
+      {m === "demo" ? "Demo" : "Live"}
+    </button>
+  );
   const rarityVar = rarityOf ? ({ "--rar": `var(--gm-${rarityOf})` } as CSSProperties) : undefined;
   const poolTotal = pool.reduce((s, p) => s + (p.inventory === 0 ? 0 : p.weight ?? 0), 0);
   const word = active && (phase === "revealed" || phase === "charging" || phase === "opening") ? shortWord(active.random_word) : null;
@@ -745,6 +793,7 @@ export function GotchaMachine({
         <span className="gm-script gm-script-l">Charleston<br />Always a<br />Good Game</span>
         <span className="gm-script gm-script-r">The Games<br />Are Calling</span>
       </div>
+      <TreeVolume />
 
       <div className="gm-grid">
         {/* ---------- session card ---------- */}
@@ -883,6 +932,7 @@ export function GotchaMachine({
                 </div>
               </div>
               <p className="gm-plate-pill">{status.pill}</p>
+              {phase === "revealed" && !parked && active && revealAction?.(active)}
             </div>
 
             <div className="gm-body">
@@ -908,6 +958,8 @@ export function GotchaMachine({
                 })}
               </div>
 
+              <div className={`gm-modes-wrap${picks ? " has-picks" : ""}`}>
+              {picks && pickButton("demo")}
               <div className="gm-modes">
                 <div className="gm-switch-row">
                   <span>One by one</span>
@@ -918,14 +970,16 @@ export function GotchaMachine({
                 </div>
                 <div className="gm-switch-row">
                   <span>One spin</span>
-                  <button type="button" role="switch" aria-checked={spinMode === "all"} aria-label="Spin all" className="gm-switch" disabled={!spinReady && spinMode !== "all"} onClick={() => setSpinMode((value) => value === "one" ? "all" : "one")}>
+                  <button type="button" role="switch" aria-checked={spinMode === "all"} aria-label="Spin all" className="gm-switch" disabled={!(credits > 0 && atRest) && spinMode !== "all"} onClick={() => setSpinMode((value) => value === "one" ? "all" : "one")}>
                     <span className="gm-switch-thumb" />
                   </button>
                   <span>Spin all</span>
                 </div>
               </div>
+              {picks && pickButton("live")}
+              </div>
 
-              <button type="button" className={`gm-cta${spinReady ? " is-ready" : ""}`} onClick={cta.onClick} disabled={cta.disabled}>
+              <button type="button" className={`gm-cta${spinReady ? " is-ready" : ""}${unpicked ? " is-off" : ""}${playMode === "live" ? " is-live" : ""}`} onClick={cta.onClick} disabled={cta.disabled}>
                 <span>{cta.label}</span>
                 {cta.sub && <small>{cta.sub}</small>}
               </button>

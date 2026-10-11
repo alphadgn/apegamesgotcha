@@ -13,13 +13,19 @@ import {
 } from "@privy-io/react-auth";
 import { apeChain } from "viem/chains";
 import { setSignInControls } from "./SignInWindow";
-import { useGlyphAccount } from "./glyph";
+import { glyphAddress, useGlyphAccount } from "./glyph";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { getWalletNonce, linkPrivyAccount, linkWallet, privySignIn } from "@/lib/app.functions";
+import {
+  getWalletNonce,
+  getWalletSignInChallenge,
+  linkPrivyAccount,
+  linkWallet,
+  privySignIn,
+} from "@/lib/app.functions";
 import { MAX_WALLETS } from "@/lib/wallet-limits";
 import {
   closeSignIn,
@@ -81,26 +87,56 @@ function GlyphBridge() {
   const mode: "sign-in" | "link" | null =
     ui.signIn && !user ? "sign-in" : linkOpen && user ? "link" : null;
 
+  type Proof = { message: string; token: string; signature: string };
   /** Push the Glyph login (and its wallet) to the server: sign in to the app, or attach to the signed-in player. */
-  const bridge = async () => {
+  const bridge = async (proof: Proof) => {
     const token = await getAccessToken();
     if (!token) throw new Error("Glyph sign-in didn't finish. Please try again.");
     const { data: s } = await supabase.auth.getSession();
     if (s.session) {
-      const r = await linkFn({ data: { accessToken: token } });
+      const r = await linkFn({ data: { accessToken: token, proof } });
       if (r.skipped.length)
         toast.warning(
           `Wallet ${short(r.skipped[0]!)} wasn't added: it's linked to another player, or this account already has 5 wallets.`,
         );
       return "linked" as const;
     }
-    const { tokenHash } = await signInFn({ data: { accessToken: token } });
+    const { tokenHash } = await signInFn({ data: { accessToken: token, proof } });
     const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" });
     if (error) throw error;
     return "signed-in" as const;
   };
 
-  /** Runs from the button tap: Glyph's window first (if needed), then the hand-over to the app. */
+  /**
+   * Step 2 of 2, waiting for the player's tap: the one-time message their Glyph wallet must sign. Glyph's
+   * "Approve" (step 1) only grants access; this signature proves the player controls the wallet, and the
+   * server checks it before signing in or linking.
+   */
+  const [challenge, setChallenge] = useState<{
+    address: string;
+    message: string;
+    token: string;
+    then: "refill" | null;
+    mode: "sign-in" | "link";
+  } | null>(null);
+  const challengeFn = useServerFn(getWalletSignInChallenge);
+
+  const reportError = (e: unknown) => {
+    const m = errorText(e);
+    console.error("[Glyph] sign-in failed:", e);
+    if (/popup|blocked/i.test(m)) {
+      toast.error("Your browser blocked the Glyph window. Allow pop-ups for this site and try again.");
+    } else if (/redirect|origin|domain|not allowed|allowlist/i.test(m)) {
+      toast.error(
+        `Glyph sign-in isn't allowed on ${window.location.origin} yet: add it in Privy → App settings → Domains. (${m})`,
+        { duration: 15_000 },
+      );
+    } else if (/closed|cancel|exited|abort|reject|denied/i.test(m)) {
+      toast.message("The Glyph window was closed before it finished. Try again when you're ready.");
+    } else toast.error(`Glyph sign-in didn't work: ${m}`);
+  };
+
+  /** Step 1 of 2 (from the tap): Glyph's sign-in window and "Approve", then fetch the message to sign. */
   const continueWithGlyph = async () => {
     if (working.current) return;
     working.current = true;
@@ -114,36 +150,18 @@ function GlyphBridge() {
     setBusy(true);
     let failed = false;
     try {
-      if (!authenticated || !glyph.address) {
+      let address = glyph.address;
+      if (!authenticated || !address) {
         if (authenticated) await glyph.logout(); // a Privy session without Glyph: start clean
-        await glyph.login();
+        const u = await glyph.login();
+        address = glyphAddress(u);
       }
-      const result = await bridge();
-      toast.success(
-        result === "signed-in" ? "Signed in with Glyph" : "Glyph wallet added to your account",
-      );
-      closeSignIn();
-      setLinkOpen(false);
-      await qc.invalidateQueries();
-      if (then === "refill") openRefill();
+      if (!address) throw new Error("Glyph didn't return a wallet. Please try again.");
+      const c = await challengeFn({ data: { address, origin: window.location.origin } });
+      setChallenge({ address, message: c.message, token: c.token, then, mode: wasMode ?? "sign-in" });
     } catch (e) {
       failed = true;
-      const m = errorText(e);
-      console.error("[Glyph] sign-in failed:", e);
-      if (/popup|blocked/i.test(m)) {
-        toast.error(
-          "Your browser blocked the Glyph window. Allow pop-ups for this site and tap Continue again.",
-        );
-      } else if (/redirect|origin|domain|not allowed|allowlist/i.test(m)) {
-        toast.error(
-          `Glyph sign-in isn't allowed on ${window.location.origin} yet: add it in Privy → App settings → Domains. (${m})`,
-          { duration: 15_000 },
-        );
-      } else if (/closed|cancel|exited|abort/i.test(m)) {
-        toast.message(
-          "Glyph sign-in was closed before it finished. Tap Continue with Glyph to try again.",
-        );
-      } else toast.error(`Glyph sign-in didn't work: ${m}`);
+      reportError(e);
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) void glyph.logout();
     } finally {
@@ -158,6 +176,41 @@ function GlyphBridge() {
     }
   };
 
+  /** Step 2 of 2 (from the tap): the Glyph wallet signs the message, then the server checks it and signs in. */
+  const signWithGlyph = async () => {
+    const c = challenge;
+    if (!c || working.current) return;
+    working.current = true;
+    setBusy(true);
+    try {
+      const signature = await glyph.signMessage(c.message, c.address);
+      const result = await bridge({ message: c.message, token: c.token, signature });
+      toast.success(result === "signed-in" ? "Signed in with Glyph" : "Glyph wallet added to your account");
+      setChallenge(null);
+      closeSignIn();
+      setLinkOpen(false);
+      await qc.invalidateQueries();
+      if (c.then === "refill") openRefill();
+    } catch (e) {
+      reportError(e);
+      // A stale or rejected message: get a fresh one so the next tap works.
+      if (/expired|wasn't issued|didn't check out/i.test(errorText(e))) {
+        const fresh = await challengeFn({ data: { address: c.address, origin: window.location.origin } }).catch(() => null);
+        if (fresh) setChallenge({ ...c, message: fresh.message, token: fresh.token });
+      }
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
+  };
+
+  /** Closing the window mid-way (after Approve, before signing): nothing is signed in, so drop Glyph too. */
+  const cancelChallenge = async () => {
+    setChallenge(null);
+    const { data: s } = await supabase.auth.getSession();
+    if (!s.session) void glyph.logout();
+  };
+
   // Sign-out (menu) ends the Glyph / Privy session through this.
   useEffect(() => {
     registerPrivyLogout(() => Promise.resolve(glyph.logout()).then(() => undefined));
@@ -170,11 +223,11 @@ function GlyphBridge() {
   // "continue as" back into an account.
   const [clearing, setClearing] = useState(false);
   useEffect(() => {
-    if (mode !== "sign-in" || !ready || !authenticated || working.current || clearing) return;
+    if (mode !== "sign-in" || !ready || !authenticated || working.current || clearing || challenge) return;
     setClearing(true);
     void Promise.resolve(glyph.logout()).finally(() => setClearing(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, ready, authenticated]);
+  }, [mode, ready, authenticated, challenge]);
 
   // Privy couldn't start (site not in Privy's allowed domains, wrong App ID, offline): say why instead of
   // loading forever. It keeps trying in the background, so the button appears if it does start.
@@ -318,6 +371,7 @@ function GlyphBridge() {
 
   const close = () => {
     if (busy) return;
+    if (challenge) void cancelChallenge();
     closeSignIn();
     setLinkOpen(false);
   };
@@ -362,10 +416,23 @@ function GlyphBridge() {
     onContinue:
       ready && !busy && !clearing && !authenticated ? () => void continueWithGlyph() : undefined,
     continueLabel: "Continue with Glyph",
+    note: "Step 1 of 2: approve in Glyph. Step 2: sign a free message to prove the wallet is yours.",
     onSwitchAccount: undefined,
     onClose: close,
     hidden: handedOff,
     ...(linking ? linkProps : {}),
+    // Step 2 of 2: sign the one-time message with the Glyph wallet (after Glyph's "Approve").
+    ...(challenge
+      ? {
+          status: busy ? "Sign in the Glyph window…" : undefined,
+          onContinue: !busy ? () => void signWithGlyph() : undefined,
+          continueLabel: "Sign message in Glyph",
+          secondary: undefined,
+          note: `Step 2 of 2: sign a one-time message with your Glyph wallet ${short(challenge.address)} to prove it's yours. It's free: no transaction, no gas.`,
+          detail: undefined,
+          onSwitchAccount: undefined,
+        }
+      : {}),
   };
   // Feed the app's one sign-in window (rendered by WalletHost) rather than rendering a second one.
   const latest = useRef(props);

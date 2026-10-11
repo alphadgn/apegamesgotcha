@@ -3,7 +3,7 @@
 // Five My Dead Friends tracks (the files in /public/music) are the only music. Each spin picks the next
 // one from a shuffled bag (all five play before any repeats, never the same one twice in a row), and each
 // is level-matched with trimDb so none is louder than the rest.
-import { audioContext, sharedAudio } from "./sound";
+import { audioContext, musicBus, sharedAudio } from "./sound";
 
 /** Loudness target, as RMS in dBFS at full volume; each track's trim brings it to this level. */
 const LEVEL_TARGET_DB = -18.5;
@@ -48,7 +48,7 @@ function gainFor(ctx: AudioContext, volume: number) {
   const now = ctx.currentTime;
   master.gain.setValueAtTime(0, now);
   master.gain.linearRampToValueAtTime(volume, now + ATTACK_S);
-  master.connect(ctx.destination);
+  master.connect(musicBus(ctx)); // the volume slider on the left palm tree
   return master;
 }
 

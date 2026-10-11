@@ -58,5 +58,11 @@ export function useGlyphAccount() {
     [cross, address],
   );
 
-  return { ready, authenticated, address, login, logout, getAccessToken, sendTransaction };
+  /** Asks the Glyph wallet to sign a message (opens Glyph's window; call it straight from a tap). */
+  const signMessage = useCallback(
+    async (message: string, signer: string) => (await cross.signMessage(message, { address: signer })) as Hex,
+    [cross],
+  );
+
+  return { ready, authenticated, address, login, logout, getAccessToken, sendTransaction, signMessage };
 }

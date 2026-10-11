@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Leaderboard } from "@/components/Leaderboard";
-import { DemoGotchaMachine } from "@/components/gotcha/DemoGotchaMachine";
-import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
+import { SpinArcade } from "@/components/gotcha/SpinArcade";
 import { useAuth } from "@/hooks/useAuth";
 import { SafeSection } from "@/components/SafeSection";
 import type { GotchaPrize } from "@/components/gotcha/GotchaMachine";
@@ -55,10 +54,8 @@ function Index() {
         <SafeSection label="gotcha machine">
           {authLoading ? (
             <div className="min-h-[900px]" aria-busy="true" />
-          ) : user ? (
-            <PlayerGotchaMachine userId={user.id} />
           ) : (
-            <DemoGotchaMachine prizes={prizes} />
+            <SpinArcade userId={user?.id} prizes={prizes} />
           )}
         </SafeSection>
       </section>

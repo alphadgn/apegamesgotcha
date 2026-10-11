@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRefillGuide } from "./useRefillGuide";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { playDemoSpins, redeemDemoSpins } from "@/lib/app.functions";
-import { GotchaMachine, type DrawStatus, type GotchaPrize } from "./GotchaMachine";
+import { GotchaMachine, type DrawStatus, type GotchaPrize, type PlayMode } from "./GotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 import { openRefill, openSignIn } from "@/components/wallet/walletUi";
 
@@ -67,6 +68,8 @@ export function DemoGotchaMachine({
   savedRealSpins = 0,
   nextFreeAt,
   onBusyChange,
+  playMode,
+  onPlayModeChange,
 }: {
   prizes?: GotchaPrize[] | undefined;
   /** Signed-in player out of real spins: same free practice spin, Refill opens checkout directly. */
@@ -78,21 +81,22 @@ export function DemoGotchaMachine({
   /** Signed-in: when the server says the next free spin is due (null = now). Undefined = timed in this browser. */
   nextFreeAt?: string | null | undefined;
   onBusyChange?: ((busy: boolean) => void) | undefined;
+  /** DEMO / LIVE buttons on the machine (see GotchaMachine). */
+  playMode?: PlayMode | null | undefined;
+  onPlayModeChange?: ((mode: PlayMode) => void) | undefined;
 }) {
   const lastKey = userId ? `${DEMO_KEY}:${userId}` : DEMO_KEY;
   const pullsKey = userId ? `${DEMO_PULLS_KEY}:${userId}` : DEMO_PULLS_KEY;
   const pool = prizes?.length ? prizes : DEMO_PRIZES;
   const [lastSpin, setLastSpin] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  const [refillAttention, setRefillAttention] = useState(false);
   const [revealedSpins, setRevealedSpins] = useState<ShareSpin[]>([]);
   const [inPlay, setInPlay] = useState(false);
   // Pending draws: simulated here (signed out) or already drawn by the server (signed in, counts on the demo board).
   const draws = useRef(new Map<string, { readyAt: number; word?: bigint; result?: { prize_id: string | null; prize_name: string; rarity: string; points: number } }>());
   const play = useServerFn(playDemoSpins);
   const serverTimed = !!userId && nextFreeAt !== undefined;
-  const refillRef = useRef<HTMLButtonElement>(null);
-  const attentionTimer = useRef<number | undefined>(undefined);
+  const refill = useRefillGuide();
   const redeem = useServerFn(redeemDemoSpins);
   // Granted spins used since the count was last loaded (the server count already reflects earlier ones).
   const [grantedUsed, setGrantedUsed] = useState(0);
@@ -103,10 +107,7 @@ export function DemoGotchaMachine({
     if (!serverTimed) setLastSpin(readLast(lastKey)); // signed in: the server keeps the free-spin clock
     setRevealedSpins(readPulls(pullsKey));
     const t = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => {
-      clearInterval(t);
-      window.clearTimeout(attentionTimer.current);
-    };
+    return () => clearInterval(t);
   }, [lastKey, pullsKey, serverTimed]);
 
   const serverNext = serverTimed && nextFreeAt ? Date.parse(nextFreeAt) : 0;
@@ -114,20 +115,6 @@ export function DemoGotchaMachine({
   // Granted spins are usable immediately; the every-30-minutes free spin only counts once they're gone.
   // While real spins are saved for the on-chain draw, the player isn't out of spins, so no free-spin timer.
   const credits = granted > 0 ? granted : savedRealSpins > 0 ? 0 : wait === 0 ? 1 : 0;
-
-  const guideToRefill = useCallback(() => {
-    const button = refillRef.current;
-    if (!button) return;
-    window.clearTimeout(attentionTimer.current);
-    setRefillAttention(false);
-    requestAnimationFrame(() => {
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      button.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
-      button.focus({ preventScroll: true });
-      setRefillAttention(true);
-      attentionTimer.current = window.setTimeout(() => setRefillAttention(false), 1800);
-    });
-  }, []);
 
   const useFreeSpinLocally = useCallback(() => {
     const at = Date.now();
@@ -218,12 +205,12 @@ export function DemoGotchaMachine({
         <span className="gm-bar-actions">
           {showShare && <ShareSpinsButton spins={revealedSpins} demo />}
           <Button
-            ref={refillRef}
+            ref={refill.ref}
             type="button"
             size="sm"
-            className={refillAttention ? "is-refill-attention" : ""}
+            className={refill.attention ? "is-refill-attention" : ""}
             onClick={() => {
-              setRefillAttention(false);
+              refill.clear();
               if (userId) openRefill();
               else openSignIn({ then: "refill" }); // sign in first, then the payment window opens
             }}
@@ -246,7 +233,10 @@ export function DemoGotchaMachine({
               ? "Free spins are simulated and award no prizes. Refill to spin for real."
               : "Demo spins are simulated and award no prizes. Sign in to spin for real."
         }
-        onNoSpins={guideToRefill}
+        onNoSpins={refill.guide}
+        noSpinsHint={wait > 0 && granted === 0 && savedRealSpins === 0 ? `Refill · free in ${fmt(wait)}` : "Tap to refill"}
+        playMode={playMode}
+        onPlayModeChange={onPlayModeChange}
         onReveal={(r) =>
           setRevealedSpins((xs) => {
             const next = [...xs, { prize_name: r.prize_name, rarity: r.rarity, points: r.points }].slice(-5);
