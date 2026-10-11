@@ -2,150 +2,17 @@
 
 let shared: AudioContext | null = null;
 
-type AudioCtor = typeof AudioContext;
-type OfflineCtor = typeof OfflineAudioContext;
-
-function realtimeCtor(): AudioCtor | undefined {
-  return window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioCtor }).webkitAudioContext;
-}
-
-const isIOS = () =>
-  typeof navigator !== "undefined" &&
-  (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
-
-/** A short silent WAV (for the iOS ringer-switch workaround below). */
-let silentUrl: string | null = null;
-function silentWav() {
-  if (silentUrl) return silentUrl;
-  const rate = 8000;
-  const samples = rate / 4; // 0.25 s
-  const buf = new ArrayBuffer(44 + samples);
-  const v = new DataView(buf);
-  const text = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  text(0, "RIFF");
-  v.setUint32(4, 36 + samples, true);
-  text(8, "WAVEfmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); // PCM
-  v.setUint16(22, 1, true); // mono
-  v.setUint32(24, rate, true);
-  v.setUint32(28, rate, true);
-  v.setUint16(32, 1, true);
-  v.setUint16(34, 8, true); // 8-bit
-  text(36, "data");
-  v.setUint32(40, samples, true);
-  for (let i = 0; i < samples; i++) v.setUint8(44 + i, 128); // 8-bit silence
-  silentUrl = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
-  return silentUrl;
-}
-let silentEl: HTMLAudioElement | null = null;
-
-/**
- * iPhones mute Web Audio when the ringer (silent) switch is on, so the spin music was inaudible even with
- * "Sound on". Two measures, both from the tap: ask for the "playback" audio session (Safari 16.4+), which
- * plays like a music app, and on iPhone/iPad also keep a silent looping <audio> element playing, which moves
- * the page to the playback session on every iOS version. The session is never switched back (switching it
- * while the AudioContext lives can silence it), only the silent element is paused when the music stops.
- */
-function claimPlaybackSession() {
-  const nav = navigator as Navigator & { audioSession?: { type: string } };
-  try {
-    if (nav.audioSession && nav.audioSession.type !== "playback") nav.audioSession.type = "playback";
-  } catch (e) {
-    debugNote(`audioSession: ${(e as Error).message}`);
-  }
-  if (!isIOS()) return;
-  if (!silentEl) {
-    silentEl = new Audio(silentWav());
-    silentEl.loop = true;
-    silentEl.preload = "auto";
-    silentEl.setAttribute("playsinline", "");
-    silentEl.setAttribute("x-webkit-airplay", "deny");
-  }
-  if (silentEl.paused) void silentEl.play().catch((e: Error) => debugNote(`silent audio: ${e.message}`));
-}
-
-/** Music stopped: pause the silent element (the lock screen then shows nothing). */
-export function releasePlaybackSession() {
-  silentEl?.pause();
-}
-
-// ---- Audio diagnostics: add ?audiodebug=1 to the address to see what the phone's audio is doing ----
-let lastNote = "";
-let lastStart = "";
-function debugNote(n: string) {
-  lastNote = n;
-}
-/** Called by the jukebox when it starts a track (shown in the diagnostics panel). */
-export function noteMusicStart(how: string) {
-  lastStart = `${how} @ ${new Date().toLocaleTimeString()}`;
-}
-if (typeof window !== "undefined" && /[?&]audiodebug=1/.test(window.location.search)) {
-  const box = document.createElement("pre");
-  box.style.cssText =
-    "position:fixed;left:4px;bottom:4px;z-index:99999;max-width:94vw;margin:0;padding:6px 8px;font:11px/1.35 ui-monospace,monospace;background:rgba(0,0,0,.85);color:#7CFC9A;border:1px solid #7CFC9A;border-radius:6px;white-space:pre-wrap;pointer-events:none";
-  const paint = () => {
-    const nav = navigator as Navigator & { audioSession?: { type: string } };
-    box.textContent = [
-      `iOS: ${isIOS()}  audioSession: ${nav.audioSession ? nav.audioSession.type : "n/a"}`,
-      `context: ${shared ? `${shared.state} ${shared.sampleRate}Hz t=${shared.currentTime.toFixed(1)}` : "not created"}`,
-      `music volume: ${Math.round(volume * 100)}%  bus gain: ${bus ? bus.gain.value.toFixed(2) : "-"}`,
-      `silent element: ${silentEl ? (silentEl.paused ? "paused" : "playing") : "-"}`,
-      `last music start: ${lastStart || "-"}`,
-      lastNote ? `note: ${lastNote}` : "",
-    ].join("\n");
-  };
-  const add = () => {
-    document.body.appendChild(box);
-    window.setInterval(paint, 500);
-  };
-  if (document.body) add();
-  else window.addEventListener("DOMContentLoaded", add);
-}
-
-/** The page's one AudioContext (iOS limits how many can exist), if it already exists. Never creates one:
- *  iOS only lets a context play when it was created or resumed inside a tap (see `sharedAudio`). */
-export function audioContext(): AudioContext | null {
-  return shared;
-}
-
-/**
- * The shared AudioContext, created or woken up inside the player's tap so mobile browsers allow sound.
- * A context iOS left "interrupted" (after a call, another app, or the Glyph/wallet window) is replaced.
- */
+/** One AudioContext for the whole page (iOS limits how many can exist). Call from a tap to unlock audio.
+ *  (Restored to the version that played music on iPhones; see music.ts.) */
 export function sharedAudio(): AudioContext | null {
   if (typeof window === "undefined") return null;
-  claimPlaybackSession();
-  const state = shared?.state as string | undefined;
-  if (shared && (state === "closed" || state === "interrupted")) {
-    void shared.close().catch(() => {});
-    shared = null;
-  }
   if (!shared) {
-    const C = realtimeCtor();
+    const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!C) return null;
-    shared = new C({ latencyHint: "interactive" });
+    shared = new C();
   }
-  if (shared.state !== "running") void shared.resume().catch((e: Error) => debugNote(`resume: ${e.message}`));
+  if (shared.state === "suspended") void shared.resume();
   return shared;
-}
-
-/** Decodes audio ahead of any tap without creating the playing context (decoded audio works in any context). */
-let decoder: BaseAudioContext | null = null;
-export function audioDecoder(): BaseAudioContext | null {
-  if (typeof window === "undefined") return null;
-  if (shared) return shared;
-  if (!decoder) {
-    const O =
-      window.OfflineAudioContext ?? (window as unknown as { webkitOfflineAudioContext?: OfflineCtor }).webkitOfflineAudioContext;
-    if (!O) return null;
-    try {
-      decoder = new O(2, 44_100, 44_100);
-    } catch {
-      return null;
-    }
-  }
-  return decoder;
 }
 
 export type Sfx = ReturnType<typeof createSfx>;
@@ -190,9 +57,9 @@ export function createSfx() {
 }
 
 // ---- Music volume (the slider on the left palm tree) ----
-// All music plays through one gain node, so the slider changes it instantly, even mid-track.
+// The jukebox listens (onMusicVolume) and sets each playing track's own gain, so the music keeps exactly
+// the original audio path (media element → gain → speakers) and the slider still works mid-track.
 const VOLUME_KEY = "gm-music-volume";
-let bus: GainNode | null = null;
 let volume = (() => {
   try {
     const v = Number(localStorage.getItem(VOLUME_KEY));
@@ -208,19 +75,11 @@ export function getMusicVolume() {
   return volume;
 }
 
-/** Where every music voice connects (instead of straight to the speakers). */
-export function musicBus(ctx: AudioContext): AudioNode {
-  if (!bus || bus.context !== ctx) {
-    bus = ctx.createGain();
-    bus.gain.value = volume * volume; // squared: the slider feels even to the ear
-    bus.connect(ctx.destination);
-  }
-  return bus;
-}
+/** Gain for the slider position: squared, so the slider feels even to the ear. */
+export const volumeGain = (v: number) => v * v;
 
 export function setMusicVolume(v: number) {
-  volume = Math.min(1, Math.max(0, v));
-  if (bus) bus.gain.setTargetAtTime(volume * volume, bus.context.currentTime, 0.03);
+  volume = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : volume;
   try {
     localStorage.setItem(VOLUME_KEY, String(Math.round(volume * 100) / 100));
   } catch {
