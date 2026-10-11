@@ -279,20 +279,28 @@ export const startDraw = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ count: z.number().int().min(1).max(10) }).parse(d))
   .handler(async ({ data, context }) => {
     const vrf = await import("./vrf.server");
+    const { chainErrorMessage } = await import("./rpc.server");
     const cfg = vrf.requireVrf((await getConfig("vrf")) as import("./vrf.server").VrfConfig);
     if (data.count > (cfg.max_batch ?? 5)) throw new Error(`Up to ${cfg.max_batch ?? 5} capsules per pull`);
     const db = await admin();
 
     // Settle anything this user left in flight first.
     const { data: open } = await db.from("spins").select("id, status, created_at, request_tx").eq("user_id", context.userId).eq("status", "pending");
-    if (open?.length) await settleSpins(cfg, open);
+    // (A busy network here isn't fatal: the next check settles them.)
+    if (open?.length) await settleSpins(cfg, open).catch((e) => console.warn("[startDraw] settle skipped", e));
 
     // Prize pool critically low: live spins wait for the restock.
     await assertNotRestocking();
 
     // The odds shown in the app must be the odds the contract will use.
     const { data: prizes } = await db.from("prizes").select("id, weight, inventory, active, onchain_index");
-    const chain = await vrf.readPool(cfg);
+    let chain;
+    try {
+      chain = await vrf.readPool(cfg);
+    } catch (e) {
+      console.error("[startDraw] readPool failed", e);
+      throw new Error(chainErrorMessage(e, "start the Chainlink draw"));
+    }
     if (!vrf.weightsMatch(vrf.poolArrays(prizes ?? []), chain.pool)) throw new Error("Prize odds are being updated on-chain. Try again in a minute.");
 
     const { data: ids, error } = await db.rpc("begin_spins", { _user_id: context.userId, _count: data.count });
@@ -304,7 +312,8 @@ export const startDraw = createServerFn({ method: "POST" })
       sent = await vrf.requestSpinsOnChain(cfg, spinIds);
     } catch (e) {
       await db.rpc("refund_spins", { _ids: spinIds });
-      throw new Error(`Couldn't start the Chainlink draw: ${(e as Error).message}`);
+      console.error("[startDraw] request failed", e);
+      throw new Error(chainErrorMessage(e, "start the Chainlink draw"));
     }
     await db.from("spins").update({
       request_tx: sent.hash,
@@ -334,8 +343,13 @@ export const checkDraw = createServerFn({ method: "POST" })
     };
     let rows = await load();
     if (rows.some((r: SpinOutRow) => r.status === "pending")) {
-      await settleSpins(cfg, rows);
-      rows = await load();
+      // A busy network only delays the result: the machine asks again in a moment.
+      try {
+        await settleSpins(cfg, rows);
+        rows = await load();
+      } catch (e) {
+        console.warn("[checkDraw] chain read skipped", e);
+      }
     }
     const byId = new Map<string, SpinOutRow>(rows.map((r: SpinOutRow) => [r.id, r]));
     return data.ids.flatMap((id) => {

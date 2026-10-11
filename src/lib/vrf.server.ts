@@ -1,5 +1,6 @@
 // Server-only helpers for the GotchaVRF contract (Chainlink VRF v2.5).
-import { createPublicClient, createWalletClient, defineChain, http, type Hex } from "viem";
+import { createPublicClient, createWalletClient, type Hex } from "viem";
+import { chainDef, resilientTransport } from "./rpc.server";
 import { privateKeyToAccount } from "viem/accounts";
 import { gotchaVrfAbi } from "./gotchaVrfAbi";
 
@@ -32,23 +33,27 @@ export function requireVrf(cfg: VrfConfig | null | undefined): VrfConfig {
 }
 
 function chainFor(cfg: VrfConfig) {
-  return defineChain({
-    id: cfg.chain_id,
-    name: cfg.chain ?? `chain-${cfg.chain_id}`,
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: { default: { http: [cfg.rpc_url] } },
-  });
+  return chainDef(cfg.chain_id, cfg.chain, cfg.rpc_url);
 }
 
 export function vrfPublic(cfg: VrfConfig) {
-  return createPublicClient({ chain: chainFor(cfg), transport: http(cfg.rpc_url) });
+  // Batched + Multicall reads, retries on busy RPCs, fallback RPCs (see rpc.server.ts).
+  return createPublicClient({
+    chain: chainFor(cfg),
+    transport: resilientTransport(cfg.chain_id, cfg.rpc_url),
+    batch: { multicall: true },
+    pollingInterval: 2_500,
+  });
 }
 
 function vrfWallet(cfg: VrfConfig) {
   const key = process.env["VRF_OPERATOR_PRIVATE_KEY"];
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("VRF operator key is not configured on the server.");
   const account = privateKeyToAccount(key as Hex);
-  return { account, wallet: createWalletClient({ account, chain: chainFor(cfg), transport: http(cfg.rpc_url) }) };
+  return {
+    account,
+    wallet: createWalletClient({ account, chain: chainFor(cfg), transport: resilientTransport(cfg.chain_id, cfg.rpc_url) }),
+  };
 }
 
 export function txUrl(cfg: VrfConfig, hash?: string | null) {
@@ -77,7 +82,7 @@ export async function requestSpinsOnChain(cfg: VrfConfig, spinIds: string[]) {
     requestId = sim.result;
     hash = await wallet.writeContract(sim.request);
   } catch (e) {
-    throw new BeforeBroadcastError((e as { shortMessage?: string }).shortMessage ?? (e as Error).message);
+    throw new BeforeBroadcastError((e as { shortMessage?: string }).shortMessage ?? (e as Error).message, { cause: e });
   }
   try {
     const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 40_000 });

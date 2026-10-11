@@ -19,6 +19,7 @@ import {
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import mascotUrl from "@/assets/guide-mascot.png";
 import { ContactForm } from "./ContactForm";
+import { openSignIn } from "@/components/wallet/walletUi";
 
 type GuideRow = { id: string; role: "user" | "assistant"; parts: UIMessage["parts"] };
 
@@ -30,7 +31,16 @@ const suggestions = [
   "What happens at Charleston?",
 ];
 
-export function GuidePanel({ compact = false, publicMode = false }: { compact?: boolean; publicMode?: boolean }) {
+export function GuidePanel({
+  compact = false,
+  publicMode = false,
+  onClose,
+}: {
+  compact?: boolean;
+  publicMode?: boolean;
+  /** Closes the panel this guide sits in (before the sign-in window opens). */
+  onClose?: () => void;
+}) {
   const [initial, setInitial] = useState<UIMessage[] | null>(publicMode ? [] : null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -58,6 +68,7 @@ export function GuidePanel({ compact = false, publicMode = false }: { compact?: 
     };
   }, [publicMode]);
 
+  if (publicMode) return <SignedOutGuide compact={compact} onClose={onClose} />;
   if (initial === null) {
     return <main className="mx-auto max-w-3xl px-4 py-12 font-mono text-muted-foreground">Loading…</main>;
   }
@@ -183,6 +194,41 @@ function GuideChat({
           </PromptInputFooter>
         </PromptInput>
       </div>
+    </main>
+  );
+}
+
+/** Signed out: the guide is a paid AI service, so it asks the visitor to sign in (the Contact form stays open to all). */
+function SignedOutGuide({ compact, onClose }: { compact: boolean; onClose?: (() => void) | undefined }) {
+  const [contact, setContact] = useState(false);
+  return (
+    <main className={compact ? "flex h-full flex-col overflow-y-auto" : "mx-auto max-w-3xl px-4 py-8"}>
+      <div className="flex flex-col items-center gap-3 rounded border border-border bg-card/80 p-6 text-center">
+        <img src={mascotUrl} alt="Captain Ape, your guide" width={72} height={72} className="rounded-full" />
+        <h1 className="text-xl font-bold">Captain Ape — your guide</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Sign in to chat with the guide about spins, burning NFTs, points, prizes and ApeFest 2026 in Charleston.
+        </p>
+        <button
+          type="button"
+          className="rounded-full bg-primary px-5 py-2 font-bold text-primary-foreground"
+          onClick={() => {
+            // Close this panel first: a second open window would make Glyph's sign-in cancel.
+            onClose?.();
+            window.setTimeout(() => openSignIn(), 250);
+          }}
+        >
+          Sign in to chat
+        </button>
+        <button type="button" onClick={() => setContact((c) => !c)} className="text-xs underline text-muted-foreground">
+          {contact ? "Hide the contact form" : "Or send the team a message"}
+        </button>
+      </div>
+      {contact && (
+        <div className="pt-3">
+          <ContactForm onDone={() => setContact(false)} />
+        </div>
+      )}
     </main>
   );
 }

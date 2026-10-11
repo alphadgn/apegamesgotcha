@@ -49,41 +49,25 @@ function jsonError(status: number, message: string) {
 const MAX_MESSAGES = 40; // conversation turns accepted per request (only the last 20 reach the model)
 const MAX_MESSAGE_CHARS = 2_000; // the player's new message
 const MAX_TOTAL_CHARS = 40_000; // everything in one request
-/** Signed-out visitors: requests per IP per window (best effort, per server instance). */
-const ANON_LIMIT = 20;
-const ANON_WINDOW_MS = 10 * 60_000;
-const anonHits = new Map<string, number[]>();
+/** Questions per signed-in player: counted from their saved messages, so the limit holds on every server. */
+const USER_LIMIT_SHORT = 20; // per 10 minutes
+const USER_LIMIT_DAY = 150; // per 24 hours
 
 function textOf(m: UIMessage) {
   return (m.parts ?? []).map((p) => ("text" in p && typeof p.text === "string" ? p.text : "")).join("");
 }
 
-function anonAllowed(request: Request) {
-  const ip =
-    request.headers.get("cf-connecting-ip") ??
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "unknown";
-  const now = Date.now();
-  const hits = (anonHits.get(ip) ?? []).filter((t) => now - t < ANON_WINDOW_MS);
-  if (hits.length >= ANON_LIMIT) return false;
-  hits.push(now);
-  anonHits.set(ip, hits);
-  if (anonHits.size > 5_000) anonHits.clear(); // keep memory bounded
-  return true;
-}
-
 export async function handleGuideChat(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
-  // Signed-in players get personalized answers; signed-out visitors get a
-  // public guide with general info only (no personal data, nothing persisted).
-  let authed: { supabase: ReturnType<typeof authedClient>; userId: string } | null = null;
-  if (token) {
-    if (token.split(".").length !== 3) return jsonError(401, "Sign in to chat with the guide.");
-    const supabase = authedClient(token);
-    const { data: claims, error: authError } = await supabase.auth.getClaims(token);
-    if (authError || !claims?.claims?.sub) return jsonError(401, "Sign in to chat with the guide.");
-    authed = { supabase, userId: claims.claims.sub as string };
-  }
+  // The guide is a paid AI service: signed-in players only, with per-player limits.
+  if (!token || token.split(".").length !== 3) return jsonError(401, "Sign in to chat with the guide.");
+  const authClient = authedClient(token);
+  const { data: claims, error: authError } = await authClient.auth.getClaims(token);
+  if (authError || !claims?.claims?.sub) return jsonError(401, "Sign in to chat with the guide.");
+  const authed: { supabase: ReturnType<typeof authedClient>; userId: string } = {
+    supabase: authClient,
+    userId: claims.claims.sub as string,
+  };
 
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) return jsonError(500, "The guide is not configured yet.");
@@ -103,12 +87,23 @@ export async function handleGuideChat(request: Request): Promise<Response> {
     return jsonError(413, `Please keep your question under ${MAX_MESSAGE_CHARS.toLocaleString()} characters.`);
   if (messages.reduce((n, m) => n + textOf(m).length, 0) > MAX_TOTAL_CHARS)
     return jsonError(413, "This conversation is too long. Start a new one.");
-  if (!authed && !anonAllowed(request))
-    return jsonError(429, "The guide is busy. Sign in, or try again in a few minutes.");
 
-  // Live context for the guide: general rules for everyone, plus this player's
-  // real numbers only when a verified session is present.
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  // Per-player limits, counted from the questions the server saved for them.
+  const asked = async (ms: number) => {
+    const { count } = await supabaseAdmin
+      .from("guide_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", authed.userId)
+      .eq("role", "user")
+      .gte("created_at", new Date(Date.now() - ms).toISOString());
+    return count ?? 0;
+  };
+  const [recent, today] = await Promise.all([asked(10 * 60_000), asked(24 * 60 * 60_000)]);
+  if (recent >= USER_LIMIT_SHORT) return jsonError(429, "You're asking fast! Try again in a few minutes.");
+  if (today >= USER_LIMIT_DAY) return jsonError(429, "You've reached today's guide limit. Come back tomorrow.");
+
+  // Live context for the guide: general rules plus this player's real numbers.
   type Prize = { name: string; rarity: string; points: number };
   type Cfg = {
     scoring?: { level_weights?: Record<string, number>; default_level_weight?: number };

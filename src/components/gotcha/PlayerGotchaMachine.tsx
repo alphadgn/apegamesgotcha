@@ -213,6 +213,7 @@ export function PlayerGotchaMachine({
         prizes={data?.prizes ?? []}
         onDraw={(count) => drawFn({ data: { count } })}
         onCheck={(ids) => checkFn({ data: { ids } })}
+        pollMs={3000} // each check reads the chain: gentle on the network while Chainlink draws
         resumeIds={data?.pendingIds ?? []}
         onSessionEnd={refresh}
         onError={(m) => toast.error(m)}

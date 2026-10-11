@@ -2,7 +2,7 @@
 // signs a one-time message (no transaction, no gas). The message is issued by this server and sealed with an
 // HMAC, so it can't be made up or reused later; the signature is checked on ApeChain (works for plain wallets
 // and smart-contract wallets, ERC-1271 / ERC-6492).
-import { createPublicClient, getAddress, http, isAddress, verifyMessage, type Hex } from "viem";
+import { createPublicClient, getAddress, isAddress, verifyMessage, type Hex } from "viem";
 
 /** How long a sign-in message stays valid. */
 const MAX_AGE_MS = 10 * 60_000;
@@ -96,9 +96,8 @@ export async function verifyWalletProof(
   // Regular wallets (Glyph's included): checked right here. Smart-contract wallets: checked on ApeChain.
   let ok = await verifyMessage(sig).catch(() => false);
   if (!ok) {
-    const client = createPublicClient({
-      transport: http(rpcUrl || "https://rpc.apechain.com/http"),
-    });
+    const { resilientTransport } = await import("./rpc.server");
+    const client = createPublicClient({ transport: resilientTransport(33139, rpcUrl) });
     ok = await client.verifyMessage(sig).catch(() => false);
   }
   if (!ok) throw new Error("The wallet signature didn't check out. Please sign in again.");

@@ -85,6 +85,13 @@
       "when": 1791740000000,
       "tag": "0011_personal_data_lockdown",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791750000000,
+      "tag": "0012_prize_images_scoped",
+      "breakpoints": true
     }
   ]
 }

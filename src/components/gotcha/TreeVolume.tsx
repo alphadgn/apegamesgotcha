@@ -1,7 +1,7 @@
-// Music volume slider on the trunk of the left palm tree, between two red marks: the top mark is the
-// loudest, the bottom mark is silent. Anyone can use it (signed in or not), before or during a spin.
-// It sits next to the machine, lined up with the machine's parts: the top mark with the "Every draw powered
-// by Chainlink VRF" pill, the bottom mark with the One spin / Spin all switch.
+// Music volume slider on the trunk of the left palm tree: the top of its travel is the loudest, the bottom
+// is silent. Anyone can use it (signed in or not), before or during a spin. It sits next to the machine,
+// lined up with the machine's parts: the top with the "Every draw powered by Chainlink VRF" pill, the bottom
+// with the One spin / Spin all switch (the positions the design marked; no marks are drawn).
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { getMusicVolume, onMusicVolume, setMusicVolume } from "./sound";
 
@@ -133,8 +133,6 @@ export function TreeVolume() {
           e.preventDefault();
         }}
       >
-        <span className="gm-vol-mark gm-vol-mark-max" aria-hidden />
-        <span className="gm-vol-mark gm-vol-mark-min" aria-hidden />
         <span
           className="gm-vol-fill"
           aria-hidden

@@ -293,6 +293,13 @@ function GlyphBridge() {
   /** null = idle; "connecting" = Privy's wallet picker is open; "signing" = proving ownership. */
   const external = useRef<null | "connecting" | "signing">(null);
   const externalThen = useRef<"refill" | null>(null);
+  /**
+   * When the player last opened the wallet picker. On phones, WalletConnect hands over to the wallet app and
+   * Privy's picker closes before the wallet answers, so a late "connected" callback still counts for a few
+   * minutes even after our window came back (it used to be dropped, and the wallet was never added).
+   */
+  const connectStarted = useRef(0);
+  const CONNECT_WINDOW_MS = 3 * 60_000;
   const endExternal = (ok: boolean) => {
     external.current = null;
     setBusy(false);
@@ -306,8 +313,11 @@ function GlyphBridge() {
   };
   const { connectWallet } = useConnectWallet({
     onSuccess: ({ wallet }) => {
-      if (external.current !== "connecting") return;
+      if (external.current === "signing" || Date.now() - connectStarted.current > CONNECT_WINDOW_MS) return;
+      connectStarted.current = 0;
       external.current = "signing";
+      setHandedOff(true); // the window may have come back meanwhile: step aside again while the wallet signs
+      setBusy(true);
       void (async () => {
         try {
           if (!("getEthereumProvider" in wallet))
@@ -334,6 +344,7 @@ function GlyphBridge() {
     },
     onError: (err) => {
       if (external.current !== "connecting") return;
+      connectStarted.current = 0;
       if (!/exited|cancel|closed/i.test(String(err)))
         toast.error(`Couldn't connect that wallet (${String(err)}).`);
       endExternal(false);
@@ -342,6 +353,7 @@ function GlyphBridge() {
   const connectExternal = () => {
     if (external.current || working.current) return;
     external.current = "connecting";
+    connectStarted.current = Date.now();
     externalThen.current = getWalletUi().afterSignIn;
     // Step aside first: Privy's wallet picker can't work under our open window (focus trap).
     setHandedOff(true);
@@ -362,9 +374,16 @@ function GlyphBridge() {
     }
     if (!wasModalOpen.current) return;
     wasModalOpen.current = false;
-    const t = window.setTimeout(() => {
-      if (external.current === "connecting") endExternal(false);
-    }, 800);
+    // Give a wallet app time to answer (the player may be switching apps); a late answer is still accepted.
+    let t = 0;
+    const settle = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => {
+        if (document.visibilityState === "hidden") return settle(); // still in the wallet app
+        if (external.current === "connecting") endExternal(false);
+      }, 2500);
+    };
+    settle();
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [privyModalOpen]);

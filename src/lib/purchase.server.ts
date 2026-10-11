@@ -1,4 +1,5 @@
-import { createPublicClient, defineChain, formatEther, http, parseEther, type Hex } from "viem";
+import { createPublicClient, formatEther, parseEther, type Hex } from "viem";
+import { chainDef, resilientTransport } from "./rpc.server";
 
 export type PurchaseConfig = {
   enabled: boolean;
@@ -52,13 +53,10 @@ export function purchaseData(purchaseId: string): Hex {
 }
 
 function client(cfg: PurchaseConfig) {
-  const chain = defineChain({
-    id: cfg.chain_id,
-    name: "ApeChain",
-    nativeCurrency: { name: "ApeCoin", symbol: "APE", decimals: 18 },
-    rpcUrls: { default: { http: [cfg.rpc_url] } },
+  return createPublicClient({
+    chain: chainDef(cfg.chain_id, "ApeChain", cfg.rpc_url),
+    transport: resilientTransport(cfg.chain_id, cfg.rpc_url), // retries + fallback RPCs (rpc.server.ts)
   });
-  return createPublicClient({ chain, transport: http(cfg.rpc_url) });
 }
 
 export type PaymentCheck =

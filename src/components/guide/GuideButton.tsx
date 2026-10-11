@@ -13,7 +13,9 @@ function GuideSheet({ open, onOpenChange, publicMode = false }: { open: boolean;
           <SheetTitle>Captain Ape — your guide</SheetTitle>
           <SheetDescription>Points, spins, prizes and Charleston — ask away.</SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1">{open && <GuidePanel compact publicMode={publicMode} />}</div>
+        <div className="min-h-0 flex-1">
+          {open && <GuidePanel compact publicMode={publicMode} onClose={() => onOpenChange(false)} />}
+        </div>
       </SheetContent>
     </Sheet>
   );
@@ -32,8 +34,8 @@ export function GuideButton({ className, label = "Ask the guide" }: { className?
   );
 }
 
-/** Round floating guide widget, bottom-right on every page. Signed-out visitors
- * get a public guide (general info only) instead of being sent to sign in. */
+/** Round floating guide widget, bottom-right on every page. Signed-out visitors are invited to sign in
+ * (the guide is a paid AI service) and can still use the Contact form. */
 export function FloatingGuide() {
   const [open, setOpen] = useState(false);
   const { user } = useAuth();
@@ -61,7 +63,7 @@ export function FloatingGuide() {
       <button
         type="button"
         className="gw-hit"
-        aria-label={user ? "Open the guide" : "Ask the guide — no sign-in needed"}
+        aria-label="Open the guide"
         onClick={() => setOpen(true)}
       >
         {face}

@@ -1,4 +1,5 @@
-import { createPublicClient, http, parseAbi, getAddress, type Hex } from "viem";
+import { createPublicClient, parseAbi, getAddress, type Hex } from "viem";
+import { chainDef, resilientTransport } from "./rpc.server";
 
 /** The ApeGames NFT collection ("ApeGames Digital Competition", ERC-721 on ApeChain). */
 export const APEGAMES_NFT_CONTRACT = "0x8Bb7b20291A9fA2F25705b8487194B410808c28b";
@@ -21,7 +22,8 @@ const abi = parseAbi([
 ]);
 
 export function nftClient(cfg: NftConfig) {
-  return createPublicClient({ transport: http(cfg.rpc_url || "https://rpc.apechain.com/http") });
+  const id = cfg.chain_id || 33139; // ApeChain
+  return createPublicClient({ chain: chainDef(id, undefined, cfg.rpc_url), transport: resilientTransport(id, cfg.rpc_url), batch: { multicall: true } });
 }
 
 /** The collection's contract: the configured one, or the ApeGames collection when none is set. */
