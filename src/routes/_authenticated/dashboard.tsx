@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getWalletNonce, linkWallet, syncNfts, claimBurn, setDefaultWallet, getMySpinBalance } from "@/lib/app.functions";
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { PlayerGotchaMachine } from "@/components/gotcha/PlayerGotchaMachine";
 import { useAuth } from "@/hooks/useAuth";
 import { SafeSection } from "@/components/SafeSection";
+import { MAX_WALLETS } from "@/lib/wallet-limits";
 import { IrlPrizes } from "@/components/IrlPrizes";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -117,9 +118,30 @@ function Dashboard() {
 
   const doSync = () => run("sync", async () => {
     const r = await syncFn();
-    toast.success(`Found ${r.found} NFT(s), +${r.awarded} points`);
+    const where = `${r.wallets} wallet${r.wallets === 1 ? "" : "s"}`;
+    if (r.failed.length) toast.warning(`Found ${r.found} NFT(s) in ${where}; ${r.failed.length} wallet(s) couldn't be read — try again shortly.`);
+    else toast.success(`Found ${r.found} ApeGames NFT(s) in ${where}${r.awarded ? `, +${r.awarded} points` : ""}`);
     refresh();
   });
+
+  // Check every linked wallet for ApeGames NFTs automatically: on opening the page and whenever a wallet is
+  // added (Glyph or WalletConnect), so "My ApeGames NFTs" is up to date without tapping Sync.
+  const walletKey = (data?.wallets ?? []).map((w) => w.address).sort().join(",");
+  const [autoSyncing, setAutoSyncing] = useState(false);
+  const lastAuto = useRef<string | null>(null);
+  useEffect(() => {
+    if (!walletKey || lastAuto.current === walletKey) return;
+    lastAuto.current = walletKey;
+    setAutoSyncing(true);
+    void syncFn()
+      .then((r) => {
+        if (r.awarded) toast.success(`+${r.awarded} points for your ApeGames NFTs`);
+        refresh();
+      })
+      .catch(() => undefined)
+      .finally(() => setAutoSyncing(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletKey]);
 
   // A burn that was still confirming when the page closed is finished here (the spin is added once it confirms).
   const confirmBurn = useBurnConfirmer();
@@ -194,8 +216,12 @@ function Dashboard() {
         <section className="contents">
           <div className="rounded border border-border bg-card p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-xl font-bold">Wallets</h2>
-              <Button size="sm" variant="outline" onClick={addWallet} disabled={!!busy}>{busy === "wallet" ? "Waiting…" : "Add wallet"}</Button>
+              <h2 className="text-xl font-bold">
+                Wallets <span className="font-mono text-sm text-muted-foreground">{data.wallets.length}/{MAX_WALLETS}</span>
+              </h2>
+              <Button size="sm" variant="outline" onClick={addWallet} disabled={!!busy || data.wallets.length >= MAX_WALLETS}>
+                {busy === "wallet" ? "Waiting…" : data.wallets.length >= MAX_WALLETS ? "5 wallets linked" : "Add wallet"}
+              </Button>
             </div>
             {data.wallets.length ? (
               <ul className="mt-3 space-y-2 text-sm">
@@ -203,7 +229,11 @@ function Dashboard() {
                   <li key={w.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border px-3 py-2">
                     <span className="min-w-0 break-all font-mono text-xs">{w.address}</span>
                     <span className="flex shrink-0 items-center gap-2">
-                      {w.kind === "privy" && <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] uppercase text-muted-foreground">Privy wallet</span>}
+                      {(w.kind === "glyph" || w.kind === "privy") && (
+                        <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] uppercase text-muted-foreground">
+                          {w.kind === "glyph" ? "Glyph" : "Privy wallet"}
+                        </span>
+                      )}
                       {w.is_default ? (
                         <span className="rounded bg-primary px-2 py-0.5 font-mono text-[11px] uppercase text-primary-foreground">Default</span>
                       ) : (
@@ -216,7 +246,7 @@ function Dashboard() {
                 ))}
               </ul>
             ) : <p className="mt-3 text-sm text-muted-foreground">Add your ApeChain wallet to earn holding points.</p>}
-            <p className="mt-3 text-xs text-muted-foreground">Your default wallet is used to pay for spins. Wallets you add also count for NFT holding points.</p>
+            <p className="mt-3 text-xs text-muted-foreground">Your default wallet is used to pay for spins. Add up to {MAX_WALLETS} wallets (Glyph, or any wallet through WalletConnect); ApeGames NFTs in all of them show below and count for holding points.</p>
           </div>
 
           <div className="rounded border border-border bg-card p-4 sm:p-6">
@@ -242,7 +272,15 @@ function Dashboard() {
                   </div>
                 );
               })}
-              {!data.holdings.length && <p className="col-span-full text-sm text-muted-foreground">No NFTs synced yet.</p>}
+              {!data.holdings.length && (
+                <p className="col-span-full text-sm text-muted-foreground">
+                  {busy === "sync" || autoSyncing
+                    ? "Checking your wallets for ApeGames NFTs…"
+                    : data.wallets.length
+                      ? "No ApeGames NFTs in your linked wallets yet."
+                      : "Add a wallet to see your ApeGames NFTs."}
+                </p>
+              )}
             </div>
           </div>
 

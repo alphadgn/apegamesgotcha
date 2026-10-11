@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { MAX_WALLETS } from "./wallet-limits";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
@@ -39,18 +40,27 @@ export const linkWallet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/), signature: z.string().startsWith("0x") }).parse(d))
   .handler(async ({ data, context }) => {
-    const { verifyMessage } = await import("viem");
+    const { verifyMessage, createPublicClient, http } = await import("viem");
     const db = await admin();
     const { data: row } = await db.from("wallet_nonces").select("nonce, created_at").eq("user_id", context.userId).single();
     if (!row) throw new Error("Request a new signature first");
     if (Date.now() - new Date(row.created_at).getTime() > 10 * 60_000) throw new Error("Signature request expired");
     const message = `ApeGames Gotcha wallet verification\nUser: ${context.userId}\nNonce: ${row.nonce}`;
-    const ok = await verifyMessage({ address: data.address as `0x${string}`, message, signature: data.signature as `0x${string}` });
+    const sig = { address: data.address as `0x${string}`, message, signature: data.signature as `0x${string}` };
+    let ok = await verifyMessage(sig).catch(() => false);
+    if (!ok) {
+      // Smart-contract wallets (some WalletConnect wallets) sign via ERC-1271/6492: check on ApeChain.
+      const nft = (await getConfig("nft").catch(() => null)) as { rpc_url?: string } | null;
+      const client = createPublicClient({ transport: http(nft?.rpc_url || "https://rpc.apechain.com/http") });
+      ok = await client.verifyMessage(sig).catch(() => false);
+    }
     if (!ok) throw new Error("Signature does not match wallet");
     const address = data.address.toLowerCase();
     const { data: existing } = await db.from("wallets").select("user_id").eq("address", address).maybeSingle();
     if (existing && existing.user_id !== context.userId) throw new Error("Wallet already linked to another account");
     if (!existing) {
+      const { count: total } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", context.userId);
+      if ((total ?? 0) >= MAX_WALLETS) throw new Error(`You can link up to ${MAX_WALLETS} wallets.`);
       const { count } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", context.userId).eq("is_default", true);
       await db.from("wallets").insert({ user_id: context.userId, address, kind: "external", is_default: !count });
     }
@@ -67,27 +77,44 @@ export const syncNfts = createServerFn({ method: "POST" })
     const db = await admin();
     const cfg = await getConfig("nft");
     const scoring = await getConfig("scoring");
+    // Every wallet on the account: Glyph, other signed wallets (WalletConnect / browser) and older ones.
     const { data: wallets } = await db.from("wallets").select("address").eq("user_id", context.userId);
-    let found = 0;
-    let awarded = 0;
-    for (const w of wallets ?? []) {
-      const ids = await listOwnedTokens(cfg, w.address);
-      for (const id of ids) {
-        found++;
-        const tokenId = id.toString();
-        const { data: prev } = await db.from("nft_holdings").select("level, level_override").eq("token_id", tokenId).maybeSingle();
-        const level = prev?.level ?? (await fetchLevel(cfg, id));
-        await db.from("nft_holdings").upsert({ token_id: tokenId, owner_address: w.address, user_id: context.userId, level, synced_at: new Date().toISOString() });
-        const eff = prev?.level_override ?? level;
-        const pts = Number(scoring.level_weights?.[String(eff)] ?? scoring.default_level_weight ?? 0);
-        if (pts > 0) {
-          const { error } = await db.from("points_ledger").insert({ user_id: context.userId, amount: pts, reason: "holding", ref: tokenId });
-          if (!error) awarded += pts;
+    const list = ((wallets ?? []) as { address: string }[]).map((w) => w.address.toLowerCase());
+    // Read all wallets at once; one wallet failing doesn't stop the others.
+    const reads = await Promise.all(
+      list.map(async (address) => {
+        try {
+          return { address, ids: await listOwnedTokens(cfg, address), ok: true as const };
+        } catch (e) {
+          console.error("[nft] couldn't read", address, e);
+          return { address, ids: [] as bigint[], ok: false as const };
         }
+      }),
+    );
+    const owned = new Map<string, string>(); // token id → wallet holding it
+    for (const r of reads) for (const id of r.ids) owned.set(id.toString(), r.address);
+    let awarded = 0;
+    for (const [tokenId, owner] of owned) {
+      const { data: prev } = await db.from("nft_holdings").select("level, level_override").eq("token_id", tokenId).maybeSingle();
+      const level = prev?.level ?? (await fetchLevel(cfg, BigInt(tokenId)));
+      await db.from("nft_holdings").upsert({ token_id: tokenId, owner_address: owner, user_id: context.userId, level, burned: false, synced_at: new Date().toISOString() });
+      const eff = prev?.level_override ?? level;
+      const pts = Number(scoring.level_weights?.[String(eff)] ?? scoring.default_level_weight ?? 0);
+      if (pts > 0) {
+        // Holding points are paid once per NFT (unique reason+ref).
+        const { error } = await db.from("points_ledger").insert({ user_id: context.userId, amount: pts, reason: "holding", ref: tokenId });
+        if (!error) awarded += pts;
       }
     }
-    await audit(context.userId, "nft.synced", { found, awarded });
-    return { found, awarded };
+    // NFTs that have left all of this player's wallets stop showing as theirs (only when every wallet was read).
+    const failed = reads.filter((r) => !r.ok).map((r) => r.address);
+    if (!failed.length) {
+      const { data: mine } = await db.from("nft_holdings").select("token_id").eq("user_id", context.userId).eq("burned", false);
+      const gone = ((mine ?? []) as { token_id: string }[]).map((h) => h.token_id).filter((id) => !owned.has(id));
+      if (gone.length) await db.from("nft_holdings").update({ user_id: null }).in("token_id", gone).eq("user_id", context.userId);
+    }
+    await audit(context.userId, "nft.synced", { found: owned.size, awarded, wallets: list.length, failed });
+    return { found: owned.size, awarded, wallets: list.length, failed };
   });
 
 // ---------- Burn for spin ----------
@@ -838,7 +865,7 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
       label: "Guide contact form emails the team",
       ok: envSet("LOVABLE_API_KEY") && lm?.action !== "contact.email_failed",
       detail: !envSet("LOVABLE_API_KEY") ? "LOVABLE_API_KEY not set" : !lm ? "No message sent yet — send one from the guide's Contact form to test" : lm.action === "contact.emailed" ? `Last message emailed to ${(lm.details.recipients ?? []).join(", ")}` : `Last email failed: ${lm.details.failures?.[0]?.error ?? "unknown error"}`,
-      where: "Lovable → Cloud → Emails (sender domain notify.apegamesgotcha.com must be verified). Recipients: every admin's email, or set app_config contact.notify_to",
+      where: "Lovable → Cloud → Emails (sender domain notify.apegamesgotcha.com must be verified). Recipients: app_config contact.notify_to (set to fun@ApeGamesGotcha.com), or fun@ApeGamesGotcha.com if empty",
     });
 
     // Chainlink VRF draw
@@ -928,6 +955,11 @@ async function syncPrivyWallets(userId: string, identity: import("./privy.server
       continue;
     }
     if (!existing) {
+      const { count: total } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", userId);
+      if ((total ?? 0) >= MAX_WALLETS) {
+        skipped.push(w.address); // wallet limit reached
+        continue;
+      }
       await db.from("wallets").insert({ user_id: userId, address: w.address, kind: w.kind });
       await audit(userId, "wallet.linked", { address: w.address, via: "privy", kind: w.kind });
     } else if (w.kind === "privy" && existing.kind !== "privy") {

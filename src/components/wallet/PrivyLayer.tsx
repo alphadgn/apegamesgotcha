@@ -5,16 +5,22 @@
 // can't start. Loaded on demand (first time someone opens Sign in, Refill or Add wallet)
 // and kept mounted after that.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PrivyProvider, type PrivyClientConfig } from "@privy-io/react-auth";
+import {
+  PrivyProvider,
+  useConnectWallet,
+  useModalStatus,
+  type PrivyClientConfig,
+} from "@privy-io/react-auth";
 import { apeChain } from "viem/chains";
 import { setSignInControls } from "./SignInWindow";
 import { GLYPH_LOGIN_METHOD, useGlyphAccount } from "./glyph";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { linkPrivyAccount, privySignIn } from "@/lib/app.functions";
+import { getWalletNonce, linkPrivyAccount, linkWallet, privySignIn } from "@/lib/app.functions";
+import { MAX_WALLETS } from "@/lib/wallet-limits";
 import { closeSignIn, getWalletUi, openRefill, openSignIn, useWalletUi } from "./walletUi";
 
 export type PrivyPublicConfig = {
@@ -47,6 +53,8 @@ function GlyphBridge() {
   const signInFn = useServerFn(privySignIn);
   const linkFn = useServerFn(linkPrivyAccount);
   const qc = useQueryClient();
+  const nonceFn = useServerFn(getWalletNonce);
+  const linkWalletFn = useServerFn(linkWallet);
   const [busy, setBusy] = useState(false);
   /** Open for "Add wallet" (link Glyph to the signed-in player) rather than sign-in. */
   const [linkOpen, setLinkOpen] = useState(false);
@@ -66,7 +74,7 @@ function GlyphBridge() {
       const r = await linkFn({ data: { accessToken: token } });
       if (r.skipped.length)
         toast.warning(
-          `Wallet ${short(r.skipped[0]!)} is already linked to another player, so it wasn't added.`,
+          `Wallet ${short(r.skipped[0]!)} wasn't added: it's linked to another player, or this account already has 5 wallets.`,
         );
       return "linked" as const;
     }
@@ -185,6 +193,96 @@ function GlyphBridge() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authenticated, loading, user]);
 
+  // ---- Add wallet: the player's wallets, and connecting any other wallet (WalletConnect, MetaMask…) ----
+  const { data: myWallets } = useQuery({
+    queryKey: ["my-wallet-addresses", user?.id],
+    enabled: !!user,
+    queryFn: async () =>
+      (
+        ((await supabase.from("wallets").select("address").eq("user_id", user!.id)).data ?? []) as {
+          address: string;
+        }[]
+      ).map((w) => w.address.toLowerCase()),
+  });
+  const walletCount = myWallets?.length ?? 0;
+  const walletsFull = walletCount >= MAX_WALLETS;
+  const glyphLinked = !!glyph.address && !!myWallets?.includes(glyph.address.toLowerCase());
+
+  /** null = idle; "connecting" = Privy's wallet picker is open; "signing" = proving ownership. */
+  const external = useRef<null | "connecting" | "signing">(null);
+  const externalThen = useRef<"refill" | null>(null);
+  const endExternal = (ok: boolean) => {
+    external.current = null;
+    setBusy(false);
+    setHandedOff(false);
+    if (ok) {
+      setLinkOpen(false);
+      void qc.invalidateQueries();
+      if (externalThen.current === "refill") openRefill();
+    } else setLinkOpen(true); // bring the Add wallet window back
+    externalThen.current = null;
+  };
+  const { connectWallet } = useConnectWallet({
+    onSuccess: ({ wallet }) => {
+      if (external.current !== "connecting") return;
+      external.current = "signing";
+      void (async () => {
+        try {
+          if (!("getEthereumProvider" in wallet))
+            throw new Error("Pick an Ethereum (ApeChain) wallet.");
+          const provider = await wallet.getEthereumProvider();
+          const { message } = await nonceFn();
+          const signature = (await provider.request({
+            method: "personal_sign",
+            params: [message, wallet.address],
+          })) as string;
+          await linkWalletFn({ data: { address: wallet.address, signature } });
+          toast.success(`Wallet ${short(wallet.address)} added`);
+          endExternal(true);
+        } catch (e) {
+          const m = errorText(e);
+          toast.error(
+            /reject|denied|cancel/i.test(m)
+              ? "Signature cancelled, so the wallet wasn't added."
+              : m,
+          );
+          endExternal(false);
+        }
+      })();
+    },
+    onError: (err) => {
+      if (external.current !== "connecting") return;
+      if (!/exited|cancel|closed/i.test(String(err)))
+        toast.error(`Couldn't connect that wallet (${String(err)}).`);
+      endExternal(false);
+    },
+  });
+  const connectExternal = () => {
+    if (external.current || working.current) return;
+    external.current = "connecting";
+    externalThen.current = getWalletUi().afterSignIn;
+    // Step aside first: Privy's wallet picker can't work under our open window (focus trap).
+    setHandedOff(true);
+    setBusy(true);
+    connectWallet();
+  };
+  // Privy's wallet picker closed without a wallet: bring our window back.
+  const { isOpen: privyModalOpen } = useModalStatus();
+  const wasModalOpen = useRef(false);
+  useEffect(() => {
+    if (privyModalOpen) {
+      wasModalOpen.current = true;
+      return;
+    }
+    if (!wasModalOpen.current) return;
+    wasModalOpen.current = false;
+    const t = window.setTimeout(() => {
+      if (external.current === "connecting") endExternal(false);
+    }, 800);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [privyModalOpen]);
+
   const close = () => {
     if (busy) return;
     closeSignIn();
@@ -193,6 +291,27 @@ function GlyphBridge() {
   const remembered = glyph.address;
   const origin = typeof window === "undefined" ? "" : window.location.origin;
 
+  const linking = mode === "link";
+  const linkProps = {
+    status: walletsFull
+      ? `${MAX_WALLETS} of ${MAX_WALLETS} wallets linked`
+      : glyphLinked
+        ? "Glyph wallet linked ✓"
+        : busy
+          ? "Finish in the wallet window…"
+          : undefined,
+    onContinue:
+      ready && !busy && !walletsFull && !glyphLinked ? () => void continueWithGlyph() : undefined,
+    continueLabel: remembered ? `Link Glyph wallet ${short(remembered)}` : "Link a Glyph wallet",
+    secondary: {
+      label: "Connect another wallet (WalletConnect, MetaMask…)",
+      onClick: ready && !busy && !walletsFull ? connectExternal : undefined,
+    },
+    note: walletsFull
+      ? `You've linked the maximum of ${MAX_WALLETS} wallets.`
+      : `${walletCount} of ${MAX_WALLETS} wallets linked`,
+    onSwitchAccount: undefined,
+  };
   const props = {
     open: !!mode,
     mode: mode ?? "sign-in",
@@ -210,7 +329,8 @@ function GlyphBridge() {
     onSwitchAccount: remembered && !busy ? switchAccount : undefined,
     onClose: close,
     hidden: handedOff,
-  } as const;
+    ...(linking ? linkProps : {}),
+  };
   // Feed the app's one sign-in window (rendered by WalletHost) rather than rendering a second one.
   const latest = useRef(props);
   latest.current = props;

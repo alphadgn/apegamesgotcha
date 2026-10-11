@@ -20,6 +20,8 @@ export function SignInWindow({
   onContinue,
   continueLabel = "Continue with Glyph",
   onSwitchAccount,
+  secondary,
+  note,
   onClose,
 }: {
   open: boolean;
@@ -31,6 +33,10 @@ export function SignInWindow({
   onContinue?: (() => void) | undefined;
   continueLabel?: string;
   onSwitchAccount?: (() => void) | undefined;
+  /** A second choice under the main button (e.g. "Connect another wallet"). */
+  secondary?: { label: string; onClick?: (() => void) | undefined } | undefined;
+  /** Small neutral line under the buttons (e.g. "2 of 5 wallets linked"). */
+  note?: string | undefined;
   onClose: () => void;
 }) {
   return (
@@ -38,11 +44,11 @@ export function SignInWindow({
       <DialogContent className="max-w-sm bg-card" style={{ borderColor: `${SIGN_IN_GOLD}66` }}>
         <DialogHeader className="items-center text-center sm:text-center">
           <DialogTitle className="text-2xl">
-            {mode === "link" ? "Add your Glyph wallet" : "Sign in to ApeGames Gotcha"}
+            {mode === "link" ? "Add a wallet" : "Sign in to ApeGames Gotcha"}
           </DialogTitle>
           <DialogDescription>
             {mode === "link"
-              ? "Link Glyph to this account so you can sign in with it and pay with your Glyph wallet."
+              ? "Add a wallet you own: your Glyph wallet, or any other wallet through WalletConnect, MetaMask, Coinbase or Rainbow. Each wallet signs a free message to prove it's yours."
               : "Sign in with Glyph, the ApeChain wallet, to buy spins, win real prizes and climb the leaderboard."}
           </DialogDescription>
         </DialogHeader>
@@ -56,6 +62,18 @@ export function SignInWindow({
           >
             {onContinue ? continueLabel : (status ?? "Loading Glyph…")}
           </button>
+          {secondary && (
+            <button
+              type="button"
+              onClick={secondary.onClick}
+              disabled={!secondary.onClick}
+              className="min-h-12 w-full rounded-lg border px-3 py-2 text-base font-bold transition hover:bg-white/5 disabled:cursor-default disabled:opacity-60"
+              style={{ borderColor: SIGN_IN_GOLD, color: SIGN_IN_GOLD }}
+            >
+              {secondary.label}
+            </button>
+          )}
+          {note && <p className="text-center text-xs text-muted-foreground">{note}</p>}
           {detail && <p className="break-words text-center text-xs text-destructive">{detail}</p>}
           {onSwitchAccount && (
             <button
@@ -67,9 +85,11 @@ export function SignInWindow({
               Use a different Glyph account
             </button>
           )}
-          <p className="text-center text-xs text-muted-foreground">
-            New to Glyph? Create one in the Glyph window with email, a social account or a wallet.
-          </p>
+          {mode === "sign-in" && (
+            <p className="text-center text-xs text-muted-foreground">
+              New to Glyph? Create one in the Glyph window with email, a social account or a wallet.
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>

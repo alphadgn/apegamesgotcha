@@ -50,6 +50,13 @@
       "when": 1791663950292,
       "tag": "0006_irl_prize_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791700000000,
+      "tag": "0007_contact_email_nft_contract",
+      "breakpoints": true
     }
   ]
 }
