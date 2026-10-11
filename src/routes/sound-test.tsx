@@ -1,9 +1,9 @@
 // Sound check (not linked from the menu): open /sound-test on a phone and tap each button to see which way
-// of playing audio the device actually sounds. Used to pin down "no music" reports on a specific phone.
+// of playing music the device actually sounds, and whether the volume slider changes it.
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { sharedAudio } from "@/components/gotcha/sound";
-import { createJukebox, type Jukebox } from "@/components/gotcha/music";
+import { getMusicVolume, setMusicVolume } from "@/components/gotcha/sound";
+import { createJukebox, type Jukebox, type MusicRoute } from "@/components/gotcha/music";
 
 export const Route = createFileRoute("/sound-test")({
   head: () => ({ meta: [{ title: "Sound check — ApeGames Gotcha" }, { name: "robots", content: "noindex" }] }),
@@ -14,23 +14,25 @@ const TRACK = "/music/my-dead-friends.mp3";
 
 function SoundTest() {
   const [log, setLog] = useState<string[]>([]);
-  const [state, setState] = useState("not started");
+  const [vol, setVol] = useState(1);
   const plain = useRef<HTMLAudioElement | null>(null);
-  const jukebox = useRef<Jukebox | null>(null);
+  const boxes = useRef(new Map<MusicRoute, Jukebox>());
   const note = (m: string) => setLog((l) => [`${new Date().toLocaleTimeString()} ${m}`, ...l].slice(0, 12));
 
-  useEffect(() => {
-    const t = window.setInterval(() => {
-      const ctx = (window as unknown as { __gmCtx?: AudioContext | undefined }).__gmCtx;
-      if (ctx) setState(ctx.state);
-    }, 500);
-    return () => window.clearInterval(t);
-  }, []);
+  useEffect(() => setVol(getMusicVolume()), []);
 
   const stopAll = () => {
     plain.current?.pause();
     plain.current = null;
-    jukebox.current?.stop(0.3);
+    boxes.current.forEach((b) => b.stop(0.3));
+  };
+  const jukebox = (route: MusicRoute) => {
+    let b = boxes.current.get(route);
+    if (!b) {
+      b = createJukebox(0.7, route);
+      boxes.current.set(route, b);
+    }
+    return b;
   };
 
   const tests: { label: string; help: string; run: () => void }[] = [
@@ -48,33 +50,30 @@ function SoundTest() {
       },
     },
     {
-      label: "2. Game music (spin)",
-      help: "Exactly what Click To Spin plays.",
+      label: "2. Game music (what spins play now)",
+      help: "Plain player. Does the slider below change it?",
       run: () => {
         stopAll();
-        jukebox.current ??= createJukebox();
-        jukebox.current.setEnabled(true);
-        jukebox.current.start();
-        const ctx = sharedAudio();
-        (window as unknown as { __gmCtx?: AudioContext | undefined }).__gmCtx = ctx ?? undefined;
-        note(`2 started (sound engine: ${ctx?.state ?? "unavailable"})`);
+        jukebox("plain").start();
+        note("2 started");
       },
     },
     {
-      label: "3. Beep (game sound effects)",
-      help: "The prize-reveal sound.",
+      label: "3. Music through the sound engine",
+      help: "The path that lets the slider work everywhere.",
       run: () => {
-        const ctx = sharedAudio();
-        (window as unknown as { __gmCtx?: AudioContext | undefined }).__gmCtx = ctx ?? undefined;
-        if (!ctx) return note("3 failed: no sound engine");
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.frequency.value = 660;
-        g.gain.value = 0.15;
-        o.connect(g).connect(ctx.destination);
-        o.start();
-        o.stop(ctx.currentTime + 0.6);
-        note(`3 beep (sound engine: ${ctx.state})`);
+        stopAll();
+        jukebox("engine").start();
+        note("3 started");
+      },
+    },
+    {
+      label: "4. Sound engine, unlocked for iPhone",
+      help: "Same as 3, after asking iPhone for media playback.",
+      run: () => {
+        stopAll();
+        jukebox("engine-unlocked").start();
+        note("4 started");
       },
     },
   ];
@@ -84,8 +83,8 @@ function SoundTest() {
       <div className="rounded border border-border bg-background/90 p-5">
         <h1 className="text-2xl font-bold">Sound check</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Tap each button and note which ones you hear. Phone volume up; try once with the ringer switch on and once
-          on silent.
+          Tap each button, then move the slider. Note which ones you hear and which ones the slider makes louder or
+          quieter. Reload this page between tries.
         </p>
         <div className="mt-4 grid gap-3">
           {tests.map((t) => (
@@ -100,12 +99,25 @@ function SoundTest() {
               <span className="block text-xs font-normal">{t.help}</span>
             </button>
           ))}
+          <label className="grid gap-1 text-sm">
+            Music volume: {Math.round(vol * 100)}%
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(vol * 100)}
+              onChange={(e) => {
+                const v = Number(e.target.value) / 100;
+                setVol(v);
+                setMusicVolume(v);
+              }}
+            />
+          </label>
           <button type="button" onClick={stopAll} className="rounded-lg border border-border px-4 py-2">
             Stop
           </button>
         </div>
-        <p className="mt-4 font-mono text-xs">Sound engine: {state}</p>
-        <ul className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">
+        <ul className="mt-3 space-y-1 font-mono text-xs text-muted-foreground">
           {log.map((l, i) => (
             <li key={i}>{l}</li>
           ))}

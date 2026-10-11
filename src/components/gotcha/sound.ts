@@ -27,6 +27,53 @@ export function sharedAudio(): AudioContext | null {
   return shared;
 }
 
+/** A short silent WAV, for `unlockPlayback`. */
+let silentUrl: string | null = null;
+function silentWav() {
+  if (silentUrl) return silentUrl;
+  const rate = 8000;
+  const samples = rate / 2;
+  const buf = new ArrayBuffer(44 + samples * 2);
+  const v = new DataView(buf);
+  const text = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  v.setUint32(4, 36 + samples * 2, true);
+  text(8, "WAVEfmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  text(36, "data");
+  v.setUint32(40, samples * 2, true); // zeros = silence
+  silentUrl = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  return silentUrl;
+}
+let silentEl: HTMLAudioElement | null = null;
+
+/**
+ * Ask iOS to treat the page's sound engine like media playback (not "ambient" sound, which the phone can
+ * mute): the "playback" audio session where Safari supports it, plus a silent looping plain audio player,
+ * the long-standing way to do the same on any iOS version. Call from a tap, before `sharedAudio()`.
+ */
+export function unlockPlayback() {
+  if (typeof window === "undefined") return;
+  const nav = navigator as Navigator & { audioSession?: { type: string } };
+  try {
+    if (nav.audioSession && nav.audioSession.type !== "playback") nav.audioSession.type = "playback";
+  } catch {
+    /* not available */
+  }
+  if (!silentEl) {
+    silentEl = new Audio(silentWav());
+    silentEl.loop = true;
+    silentEl.setAttribute("playsinline", "");
+  }
+  if (silentEl.paused) void silentEl.play().catch(() => {});
+}
+
 export type Sfx = ReturnType<typeof createSfx>;
 
 // The reveal effects are short tones rendered once into small WAV files and played with a plain audio
