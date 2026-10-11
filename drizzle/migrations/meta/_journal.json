@@ -78,6 +78,13 @@
       "when": 1791730000000,
       "tag": "0010_security_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791740000000,
+      "tag": "0011_personal_data_lockdown",
+      "breakpoints": true
     }
   ]
 }

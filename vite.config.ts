@@ -6,8 +6,26 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+const privyServerStub = new URL("./src/lib/privy-server-stub.ts", import.meta.url).pathname;
+
 export default defineConfig({
   vite: {
+    plugins: [
+      {
+        // Server builds get an inert @privy-io/react-auth (src/lib/privy-server-stub.ts). With the real one,
+        // viem's core landed in Privy's server chunk, so every Chainlink VRF / NFT server call loaded Privy's
+        // Node-only logger (pino + sonic-boom), whose util.inherits(...) crashes the worker runtime with
+        // `The "superCtor.prototype" property must be of type object`. Browsers still get the real package.
+        name: "privy-browser-only",
+        enforce: "pre",
+        resolveId(source) {
+          if (source !== "@privy-io/react-auth") return null;
+          const consumer = (this as { environment?: { config?: { consumer?: string } } }).environment?.config
+            ?.consumer;
+          return consumer === "server" ? privyServerStub : null;
+        },
+      },
+    ],
     resolve: {
       alias: {
         // Keep viem's optional socket transport compatible with the server runtime.
