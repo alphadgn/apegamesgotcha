@@ -3,7 +3,7 @@
 // Five My Dead Friends tracks (the files in /public/music) are the only music. Each spin picks the next
 // one from a shuffled bag (all five play before any repeats, never the same one twice in a row), and each
 // is level-matched with trimDb so none is louder than the rest.
-import { getMusicVolume, onMusicVolume, sharedAudio, unlockPlayback, volumeGain } from "./sound";
+import { getMusicVolume, onMusicVolume, relaxPlayback, sharedAudio, unlockPlayback, volumeGain } from "./sound";
 
 /** Loudness target, as RMS in dBFS at full volume; each track's trim brings it to this level. */
 const LEVEL_TARGET_DB = -18.5;
@@ -163,6 +163,7 @@ export function createJukebox(volume = 0.7, route: MusicRoute = "plain") {
   let currentLevel = 0;
   let player: Player | null = null;
   let plainPlayer: HTMLAudioElement | null = null;
+  let relaxTimer = 0;
   onMusicVolume((v) => current?.setLevel(currentLevel * volumeGain(v)));
   if (typeof window !== "undefined") TRACKS.forEach((t) => warm(t.url));
 
@@ -203,8 +204,15 @@ export function createJukebox(volume = 0.7, route: MusicRoute = "plain") {
     },
     /** Fade the music out (never a hard cut). */
     stop(fade = 1) {
-      current?.stop(fade);
+      if (!current) return;
+      current.stop(fade);
       current = null;
+      if (route === "engine-unlocked") {
+        window.clearTimeout(relaxTimer);
+        relaxTimer = window.setTimeout(() => {
+          if (!current) relaxPlayback();
+        }, fade * 1000 + 3000);
+      }
     },
     dispose() {
       this.stop(0.2);

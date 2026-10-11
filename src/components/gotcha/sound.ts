@@ -74,6 +74,11 @@ export function unlockPlayback() {
   if (silentEl.paused) void silentEl.play().catch(() => {});
 }
 
+/** Music stopped: pause the silent player (so the lock screen doesn't show a "playing" page). */
+export function relaxPlayback() {
+  silentEl?.pause();
+}
+
 export type Sfx = ReturnType<typeof createSfx>;
 
 // The reveal effects are short tones rendered once into small WAV files and played with a plain audio
