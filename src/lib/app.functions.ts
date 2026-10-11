@@ -31,6 +31,14 @@ async function assertNotRestocking() {
   if ((await readPoolStatus()).onHold) throw new Error(RESTOCK_MESSAGE);
 }
 
+/** Admins: full prize pool level, incl. the low-stock warning (20% left) players never see. */
+export const adminPoolStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    return readPoolStatus();
+  });
+
 /** Public: is the prize pool on hold for restocking? (no prize details) */
 export const getPrizePoolStatus = createServerFn({ method: "GET" }).handler(async () => {
   const s = await readPoolStatus();
@@ -45,6 +53,19 @@ async function audit(actor: string, action: string, details: unknown) {
 async function assertAdmin(ctx: { supabase: any; userId: string }) {
   const { data } = await ctx.supabase.rpc("has_role", { _user_id: ctx.userId, _role: "admin" });
   if (!data) throw new Error("Forbidden");
+}
+
+/** Super admin: the only role that manages admins, configuration, Chainlink VRF, purchases and the audit log. */
+async function isSuperAdmin(ctx: { supabase: any; userId: string }) {
+  const { data, error } = await ctx.supabase.rpc("is_super_admin", { _user_id: ctx.userId });
+  if (!error) return !!data;
+  // Before drizzle 0009 is applied there are no promoted admins yet: every admin is the super admin.
+  const { data: admin } = await ctx.supabase.rpc("has_role", { _user_id: ctx.userId, _role: "admin" });
+  return !!admin;
+}
+async function assertSuperAdmin(ctx: { supabase: any; userId: string }) {
+  await assertAdmin(ctx);
+  if (!(await isSuperAdmin(ctx))) throw new Error("Only the super admin can do this.");
 }
 
 // ---------- Wallet linking ----------
@@ -328,7 +349,7 @@ export const adminUpdateConfig = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ key: z.string().min(1), value: z.record(z.any()) }).parse(d))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const db = await admin();
     const { error } = await db.from("app_config").upsert({ key: data.key, value: data.value, updated_by: context.userId });
     if (error) throw new Error(error.message);
@@ -564,7 +585,7 @@ export const adminSetLevel = createServerFn({ method: "POST" })
 export const adminVrfStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const vrf = await import("./vrf.server");
     const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
     const db = await admin();
@@ -591,7 +612,7 @@ export const adminVrfStatus = createServerFn({ method: "POST" })
 export const adminPublishPool = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const vrf = await import("./vrf.server");
     const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
     if (!/^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "")) throw new Error("Set vrf.contract in Configuration first");
@@ -616,7 +637,7 @@ export const adminPublishPool = createServerFn({ method: "POST" })
 export const adminSettleDraws = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
     const db = await admin();
     const { data: rows } = await db.from("spins").select("id, status, created_at, request_tx").eq("status", "pending").limit(200);
@@ -662,7 +683,7 @@ export const adminVrfSetup = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const s = await import("./vrf-setup.server");
     const net = data.network === "custom" ? data.custom : s.VRF_NETWORKS[data.network];
     if (!net) throw new Error("Enter the custom network details");
@@ -683,7 +704,7 @@ export const adminVrfTopUp = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ eth: z.string().regex(/^\d+(\.\d{1,18})?$/) }).parse(d))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const s = await import("./vrf-setup.server");
     const hash = await s.topUpSubscription((await getConfig("vrf")) as import("./vrf-setup.server").VrfSetupState, data.eth);
     await audit(context.userId, "vrf.topped_up", { eth: data.eth, tx: hash });
@@ -695,7 +716,7 @@ export const adminVrfSwitch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ enabled: z.boolean() }).parse(d))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     if (data.enabled) {
       const vrf = await import("./vrf.server");
       const cfg = (await getConfig("vrf")) as import("./vrf.server").VrfConfig;
@@ -714,7 +735,7 @@ export const adminVrfSwitch = createServerFn({ method: "POST" })
 export const adminVrfSubscription = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const s = await import("./vrf-setup.server");
     const cfg = (await getConfig("vrf")) as import("./vrf-setup.server").VrfSetupState;
     let operator: string | null = null;
@@ -734,7 +755,7 @@ export const adminPurchaseSwitch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ enabled: z.boolean() }).parse(d))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     if (data.enabled) {
       const p = await import("./purchase.server");
       const cfg = (await getConfig("purchase")) as import("./purchase.server").PurchaseConfig;
@@ -752,7 +773,7 @@ export const adminPurchaseSwitch = createServerFn({ method: "POST" })
 export const adminListPurchases = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context);
+    await assertSuperAdmin(context);
     const db = await admin();
     const { data: rows, error } = await db.from("spin_purchases").select("*").order("created_at", { ascending: false }).limit(200);
     if (error) throw new Error(error.message);

@@ -64,6 +64,13 @@
       "when": 1791710000000,
       "tag": "0008_prize_stock_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791720000000,
+      "tag": "0009_super_admin_profiles",
+      "breakpoints": true
     }
   ]
 }

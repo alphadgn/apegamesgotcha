@@ -1,8 +1,10 @@
-// Prize pool "critical low": when the prizes left fall to 20% of what was stocked, live (Chainlink) spins
-// and spin purchases pause until an admin restocks. Shared by server and client.
+// Prize pool levels. Shared by server and client.
+// - Players: when the limited-stock prizes are all gone (0% left), live (Chainlink) spins and spin purchases
+//   pause and a "restocking" pop-up shows, until an admin restocks.
+// - Admins only: a low-stock warning from 20% left, so they can restock before players are affected.
 
-/** Hold live buys & spins once remaining prizes are at or below this share of the stocked amount. */
-export const RESTOCK_THRESHOLD = 0.2;
+/** Admins see a low-stock warning once remaining prizes are at or below this share of the stocked amount. */
+export const LOW_STOCK_WARNING = 0.2;
 
 export const RESTOCK_MESSAGE = "Live buys & spins are on hold for restocking.";
 
@@ -20,7 +22,10 @@ export type PoolStatus = {
   stocked: number;
   /** remaining / stocked (1 when nothing is limited). */
   ratio: number;
+  /** Players: 0% left — live buys & spins on hold until restocked. */
   onHold: boolean;
+  /** Admins only: 20% or less left — time to restock. */
+  lowStock: boolean;
 };
 
 /**
@@ -30,12 +35,20 @@ export type PoolStatus = {
 export function poolStatus(prizes: PoolPrize[]): PoolStatus {
   let remaining = 0;
   let stocked = 0;
+  let limited = 0;
   for (const p of prizes) {
     if (!p.active || p.weight <= 0 || p.inventory == null) continue;
+    limited++;
     const left = Math.max(0, p.inventory);
     remaining += left;
     stocked += Math.max(p.stocked ?? left, left);
   }
-  const ratio = stocked > 0 ? remaining / stocked : 1;
-  return { remaining, stocked, ratio, onHold: stocked > 0 && ratio <= RESTOCK_THRESHOLD };
+  const ratio = stocked > 0 ? remaining / stocked : limited ? 0 : 1;
+  return {
+    remaining,
+    stocked,
+    ratio,
+    onHold: limited > 0 && remaining === 0,
+    lowStock: limited > 0 && ratio <= LOW_STOCK_WARNING,
+  };
 }

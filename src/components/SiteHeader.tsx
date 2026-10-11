@@ -13,6 +13,7 @@ import {
   Shield,
   LogIn,
   LogOut,
+  UserRound,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -49,7 +50,7 @@ function BackButton() {
 }
 
 export function SiteHeader() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isSuperAdmin } = useAuth();
   const router = useRouter();
   const link = "min-h-11 cursor-pointer text-sm uppercase text-muted-foreground";
   return (
@@ -95,6 +96,12 @@ export function SiteHeader() {
                     Guide
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild className={link}>
+                  <Link to="/account" activeProps={{ className: "text-primary" }}>
+                    <UserRound aria-hidden="true" />
+                    My account
+                  </Link>
+                </DropdownMenuItem>
               </>
             )}
             <DropdownMenuItem asChild className={link}>
@@ -107,7 +114,7 @@ export function SiteHeader() {
               <DropdownMenuItem asChild className={link}>
                 <Link to="/admin" activeProps={{ className: "text-primary" }}>
                   <Shield aria-hidden="true" />
-                  Admin
+                  {isSuperAdmin ? "Super admin" : "Admin"}
                 </Link>
               </DropdownMenuItem>
             )}

@@ -5,7 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { SwipeToDelete } from "@/components/SwipeToDelete";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminDeletePrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminDeletePrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages, adminPoolStatus } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,12 +13,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Leaderboard, useLeaderboardMode } from "@/components/Leaderboard";
 import { adminListIrlClaims, adminUpdateClaim, type ClaimStatus } from "@/lib/claims.functions";
-import { poolStatus, RESTOCK_MESSAGE, RESTOCK_THRESHOLD, type PoolPrize } from "@/lib/prize-pool";
+import { LOW_STOCK_WARNING, poolStatus, RESTOCK_MESSAGE, type PoolPrize } from "@/lib/prize-pool";
+import { superDeleteAccount, superListAccounts, superSetRole, superUpdateAccount, type AccountRow } from "@/lib/users.functions";
+import { Avatar } from "@/components/Avatar";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
-      { title: "Admin Console — ApeGames Gotcha" },
+      { title: "Admin — ApeGames Gotcha" },
       { name: "description", content: "Manage configuration, prizes, grants and audit logs." },
       { property: "og:title", content: "Admin Console — ApeGames Gotcha" },
       { property: "og:description", content: "Manage configuration, prizes, grants and audit logs." },
@@ -31,31 +33,176 @@ export const Route = createFileRoute("/_authenticated/admin")({
 });
 
 function Admin() {
-  const { isAdmin, loading } = useAuth();
+  const { isAdmin, isSuperAdmin, loading } = useAuth();
   if (loading) return null;
   if (!isAdmin) return <main className="mx-auto max-w-3xl px-4 py-16 text-muted-foreground">Admins only.</main>;
+  // Promoted admins: Setup checklist, Prizes & odds, Grants & levels, Leaderboard & prizes.
+  // The super admin also gets Configuration, Chainlink VRF, Audit log and Admins (all enforced on the server).
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
-      <h1 className="text-3xl font-bold sm:text-4xl">Admin console</h1>
+      <h1 className="text-3xl font-bold sm:text-4xl">{isSuperAdmin ? "Super admin console" : "Admin console"}</h1>
+      <AdminPoolWarning />
       <Tabs defaultValue="setup" className="mt-6">
         <TabsList className="h-auto flex-wrap justify-center gap-1">
           <TabsTrigger value="setup">Setup checklist</TabsTrigger>
-          <TabsTrigger value="config">Configuration</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="config">Configuration</TabsTrigger>}
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
-          <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>}
           <TabsTrigger value="grants">Grants & levels</TabsTrigger>
           <TabsTrigger value="board">Leaderboard & prizes</TabsTrigger>
-          <TabsTrigger value="audit">Audit log</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="admins">Admins</TabsTrigger>}
+          {isSuperAdmin && <TabsTrigger value="audit">Audit log</TabsTrigger>}
         </TabsList>
         <TabsContent value="setup"><SetupPanel /></TabsContent>
-        <TabsContent value="config"><ConfigPanel /></TabsContent>
+        {isSuperAdmin && <TabsContent value="config"><ConfigPanel /></TabsContent>}
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
-        <TabsContent value="vrf"><VrfPanel /></TabsContent>
+        {isSuperAdmin && <TabsContent value="vrf"><VrfPanel /></TabsContent>}
         <TabsContent value="grants"><GrantsPanel /></TabsContent>
         <TabsContent value="board"><BoardPanel /></TabsContent>
-        <TabsContent value="audit"><AuditPanel /></TabsContent>
+        {isSuperAdmin && <TabsContent value="admins"><AccountsPanel /></TabsContent>}
+        {isSuperAdmin && <TabsContent value="audit"><AuditPanel /></TabsContent>}
       </Tabs>
     </main>
+  );
+}
+
+/** Admin-only warning on every tab while the prize pool is at 20% or less (players only see the 0% hold). */
+function AdminPoolWarning() {
+  const fn = useServerFn(adminPoolStatus);
+  const { data } = useQuery({ queryKey: ["admin-pool-status"], queryFn: () => fn(), refetchInterval: 60_000 });
+  if (!data?.lowStock) return null;
+  return (
+    <div className="mt-4">
+      <PoolLevel pool={data} compact />
+    </div>
+  );
+}
+
+const ROLE_LABEL = { super: "Super admin", admin: "Admin", user: "Player" } as const;
+
+/** Super admin only: promote any account to admin, make admins players again, rename or delete accounts. */
+function AccountsPanel() {
+  const list = useServerFn(superListAccounts);
+  const setRole = useServerFn(superSetRole);
+  const rename = useServerFn(superUpdateAccount);
+  const remove = useServerFn(superDeleteAccount);
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const { data, error, isFetching, refetch } = useQuery({
+    queryKey: ["accounts", search],
+    queryFn: () => list({ data: { query: search } }),
+  });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const act = async (key: string, fn: () => Promise<unknown>, ok: string) => {
+    setBusy(key);
+    try {
+      await fn();
+      toast.success(ok);
+      await refetch();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const admins = (data?.rows ?? []).filter((r) => r.role !== "user");
+  const players = (data?.rows ?? []).filter((r) => r.role === "user");
+
+  const row = (r: AccountRow) => (
+    <li key={r.id} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="flex min-w-0 items-center gap-3">
+        <Avatar path={r.avatarPath} name={r.displayName ?? r.email} size={36} />
+        <div className="min-w-0">
+          {editing?.id === r.id ? (
+            <form
+              className="flex flex-wrap gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(`rename:${r.id}`, () => rename({ data: { userId: r.id, displayName: editing.name } }), "Username saved").then(() => setEditing(null));
+              }}
+            >
+              <Input className="h-9 w-48" value={editing.name} maxLength={24} onChange={(e) => setEditing({ id: r.id, name: e.target.value })} autoFocus />
+              <Button size="sm" type="submit" disabled={busy === `rename:${r.id}`}>Save</Button>
+              <Button size="sm" type="button" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+            </form>
+          ) : (
+            <p className="truncate font-bold">
+              {r.displayName ?? "(no username)"}{" "}
+              <span className={`ml-1 rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${r.role === "user" ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground"}`}>
+                {ROLE_LABEL[r.role]}
+              </span>
+            </p>
+          )}
+          <p className="truncate text-xs text-muted-foreground">
+            {r.email ?? r.id}
+            {r.lastSignInAt ? ` · last sign-in ${new Date(r.lastSignInAt).toLocaleDateString()}` : ""}
+          </p>
+        </div>
+      </div>
+      {r.role === "super" ? (
+        <span className="text-xs text-muted-foreground">Can't be changed here</span>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {r.role === "user" ? (
+            <Button size="sm" disabled={!!busy} onClick={() => void act(`role:${r.id}`, () => setRole({ data: { userId: r.id, role: "admin" } }), "Promoted to admin")}>
+              Make admin
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void act(`role:${r.id}`, () => setRole({ data: { userId: r.id, role: "user" } }), "Now a regular player")}>
+              Make player
+            </Button>
+          )}
+          <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setEditing({ id: r.id, name: r.displayName ?? "" })}>
+            Edit name
+          </Button>
+          {confirmDelete === r.id ? (
+            <>
+              <Button size="sm" variant="destructive" disabled={!!busy} onClick={() => void act(`del:${r.id}`, () => remove({ data: { userId: r.id } }), "Account deleted").then(() => setConfirmDelete(null))}>
+                {busy === `del:${r.id}` ? "Deleting…" : "Yes, delete for good"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>Keep</Button>
+            </>
+          ) : (
+            <Button size="sm" variant="ghost" className="text-destructive" disabled={!!busy} onClick={() => setConfirmDelete(r.id)}>
+              Delete account
+            </Button>
+          )}
+        </div>
+      )}
+    </li>
+  );
+
+  return (
+    <div className="mt-4 grid gap-4">
+      <div className="rounded border border-border bg-card p-4 text-left">
+        <h3 className="font-bold">Admins</h3>
+        <p className="text-sm text-muted-foreground">
+          Promoted admins can use Setup checklist, Prizes & odds, Grants & levels and Leaderboard & prizes. Only you (the super
+          admin) can use Configuration, Chainlink VRF, the Audit log and this tab.
+        </p>
+        {error && <p className="mt-2 text-sm text-destructive">{(error as Error).message}</p>}
+        <ul className="divide-y divide-border">{admins.map(row)}</ul>
+      </div>
+      <div className="rounded border border-border bg-card p-4 text-left">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-bold">Players {data ? <span className="font-mono text-sm text-muted-foreground">({data.total} accounts)</span> : null}</h3>
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setSearch(query); }}>
+            <Input className="h-10 w-56" placeholder="Search email, username or ID" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <Button size="sm" type="submit" variant="outline" disabled={isFetching}>{isFetching ? "…" : "Search"}</Button>
+          </form>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Deleting an account removes its sign-in, username, picture, wallets (so they can be linked again), points and unused spins.
+          Spin and purchase history stays for the records. This can't be undone.
+        </p>
+        {data && !players.length && <p className="mt-3 text-sm text-muted-foreground">No players match.</p>}
+        <ul className="divide-y divide-border">{players.map(row)}</ul>
+      </div>
+    </div>
   );
 }
 
@@ -189,6 +336,38 @@ function PrizeImage({ path, onChange }: { path?: string | null | undefined; onCh
   );
 }
 
+/** Admin-only prize pool level: warning from 20% left; players are paused (pop-up) only at 0%. */
+function PoolLevel({ pool, compact = false }: { pool: ReturnType<typeof poolStatus>; compact?: boolean }) {
+  const pct = Math.round(pool.ratio * 100);
+  const tone = pool.onHold
+    ? "border-destructive bg-destructive/10"
+    : pool.lowStock
+      ? "border-amber-400 bg-amber-400/10"
+      : "border-border";
+  return (
+    <div className={`mb-3 rounded border p-3 text-sm ${tone}`} role={pool.lowStock ? "alert" : undefined}>
+      <b>{pool.onHold ? "⛔ Prize pool empty" : pool.lowStock ? "⚠️ Prize pool low" : "Prize pool"}:</b> {pool.remaining} of{" "}
+      {pool.stocked} limited-stock prizes left ({pct}%).{" "}
+      {pool.onHold ? (
+        <span className="text-destructive">
+          Players see "{RESTOCK_MESSAGE}" and live buys & spins are paused. Restock: raise the Stock of your limited prizes
+          in Prizes & odds and Save (the super admin then publishes the prize pool on-chain); everything reopens by itself.
+        </span>
+      ) : pool.lowStock ? (
+        <span>
+          Only admins see this warning (from {Math.round(LOW_STOCK_WARNING * 100)}% left). Players are paused when it reaches
+          0%{compact ? "." : ": raise the Stock of your limited prizes and Save to restock now."}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">
+          Admins are warned at {Math.round(LOW_STOCK_WARNING * 100)}% left; at 0% live buys & spins pause for players until you
+          restock.
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PrizesPanel() {
   const qc = useQueryClient();
   const save = useServerFn(adminUpsertPrize);
@@ -203,20 +382,7 @@ function PrizesPanel() {
   const pool = poolStatus(((data ?? []) as PoolPrize[]));
   return (
     <div className="mt-4 overflow-x-auto rounded border border-border bg-card p-4">
-      {pool.stocked > 0 && (
-        <div className={`mb-3 rounded border p-3 text-sm ${pool.onHold ? "border-destructive bg-destructive/10" : "border-border"}`}>
-          <b>Prize pool:</b> {pool.remaining} of {pool.stocked} limited-stock prizes left ({Math.round(pool.ratio * 100)}%).{" "}
-          {pool.onHold ? (
-            <span className="text-destructive">
-              <b>{RESTOCK_MESSAGE}</b> Raise the Stock of your limited prizes and Save to restock (then publish the prize pool on-chain); live buys & spins reopen by themselves.
-            </span>
-          ) : (
-            <span className="text-muted-foreground">
-              At {Math.round(RESTOCK_THRESHOLD * 100)}% or less, live buys & spins pause and players see a restocking notice until you restock (raise Stock and Save).
-            </span>
-          )}
-        </div>
-      )}
+      {pool.stocked > 0 && <PoolLevel pool={pool} />}
       <p className="mb-2 text-xs text-muted-foreground sm:hidden">Swipe sideways to see every column.</p>
       <div className={`${cols} font-mono text-xs uppercase text-muted-foreground`}>
         <span>Image</span><span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>IRL</span><span>Active</span><span /><span />
