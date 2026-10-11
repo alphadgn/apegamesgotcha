@@ -45,6 +45,11 @@ export function useWalletUi() {
   );
 }
 
+/** Loads the wallet layer without opening anything (e.g. a page returning from Glyph's sign-in tab). */
+export function activateWallet() {
+  if (!state.activated) set({ activated: true });
+}
+
 /** Opens the sign-in window (Privy). `then: "refill"` opens the payment window right after. */
 export function openSignIn(opts: { then?: "refill" } = {}) {
   set({ activated: true, signIn: true, afterSignIn: opts.then ?? null, refill: false });

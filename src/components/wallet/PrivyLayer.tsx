@@ -169,10 +169,19 @@ function GlyphBridge() {
     if (ui.signIn && user && !working.current) closeSignIn();
   }, [ui.signIn, user]);
 
-  // The app session is the source of truth: signed out of the app → signed out of Glyph too.
+  // Signing out of the app signs out of Glyph too. Only on an actual sign-out (a player was signed in and
+  // now isn't): Privy's session is shared by every tab of the site, so logging out just because this tab
+  // has no player yet would cut off a sign-in finishing in another tab (e.g. Glyph's returning tab).
+  const hadUser = useRef(false);
   useEffect(() => {
-    if (ready && authenticated && !loading && !user && !working.current && !ui.signIn)
-      void glyph.logout();
+    if (loading) return;
+    if (user) {
+      hadUser.current = true;
+      return;
+    }
+    if (!hadUser.current || !ready || working.current) return; // wait until Privy can act
+    if (authenticated) void glyph.logout();
+    hadUser.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authenticated, loading, user]);
 
