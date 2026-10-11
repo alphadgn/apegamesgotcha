@@ -61,7 +61,7 @@ function useSpot(selfRef: RefObject<HTMLDivElement | null>) {
 export function TreeVolume() {
   const self = useRef<HTMLDivElement>(null);
   const spot = useSpot(self);
-  const [vol, setVol] = useState(0.8);
+  const [vol, setVol] = useState(1);
   const [dragging, setDragging] = useState(false);
   const track = useRef<HTMLDivElement>(null);
 

@@ -3,12 +3,7 @@
 // Five My Dead Friends tracks (the files in /public/music) are the only music. Each spin picks the next
 // one from a shuffled bag (all five play before any repeats, never the same one twice in a row), and each
 // is level-matched with trimDb so none is louder than the rest.
-//
-// Playback is the original path that played on iPhones: an <audio> element started inside the Click To Spin
-// tap, routed through a gain node to the speakers. (A later version played pre-decoded AudioBuffers instead,
-// and iPhones stayed silent: an <audio> element playing is what lets Safari sound the page's audio.)
-// To start instantly, the five small files are downloaded when a machine appears and played from memory.
-import { getMusicVolume, onMusicVolume, sharedAudio, volumeGain } from "./sound";
+import { audioContext, getMusicVolume, onMusicVolume, sharedAudio, volumeGain } from "./sound";
 
 /** Loudness target, as RMS in dBFS at full volume; each track's trim brings it to this level. */
 const LEVEL_TARGET_DB = -18.5;
@@ -28,63 +23,89 @@ const TRACKS: { title: string; url: string; trimDb: number }[] = [
 const dbToGain = (db: number | undefined) => Math.pow(10, (db ?? 0) / 20);
 
 /** Fade-in at the start of a track: just long enough to avoid a click, short enough to feel instant. */
-const ATTACK_S = 0.05;
+const ATTACK_S = 0.03;
 
-type Voice = { setLevel: (gain: number) => void; stop: (fade: number) => void };
+type Voice = { stop: (fade: number) => void; setLevel: (gain: number) => void };
 
-// The files are small (about 1.6 MB for all five): fetched once when a machine appears and kept in memory
-// as blob: links, so a tap starts the track without waiting for the network.
-const blobUrls = new Map<string, string>();
-const loading = new Set<string>();
-function preload(url: string) {
-  if (typeof window === "undefined" || blobUrls.has(url) || loading.has(url)) return;
-  loading.add(url);
-  void fetch(url)
-    .then((r) => (r.ok ? r.blob() : null))
-    .then((b) => {
-      if (b && b.size > 0) blobUrls.set(url, URL.createObjectURL(b));
-    })
-    .catch(() => undefined)
-    .finally(() => loading.delete(url));
+/** Ramp a voice's gain down and release it — a smooth, audible fade, never a hard cut. */
+function fadeOut(ctx: AudioContext, master: GainNode, fade: number, release: () => void) {
+  const now = ctx.currentTime;
+  master.gain.cancelScheduledValues(now);
+  master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), now);
+  master.gain.linearRampToValueAtTime(0, now + fade);
+  window.setTimeout(() => {
+    release();
+    try {
+      master.disconnect();
+    } catch {
+      /* already gone */
+    }
+  }, fade * 1000 + 120);
 }
 
-/** The original playback: <audio> → gain → speakers, started inside the tap. */
-function playClip(ctx: AudioContext, url: string, level: number): Voice {
-  const audio = new Audio(blobUrls.get(url) ?? url);
-  audio.loop = true;
-  audio.preload = "auto";
-  audio.setAttribute("playsinline", "");
-  const src = ctx.createMediaElementSource(audio);
+function gainFor(ctx: AudioContext, volume: number) {
   const master = ctx.createGain();
   const now = ctx.currentTime;
   master.gain.setValueAtTime(0, now);
-  master.gain.linearRampToValueAtTime(level, now + ATTACK_S);
-  src.connect(master).connect(ctx.destination);
-  void audio.play().catch(() => {});
+  master.gain.linearRampToValueAtTime(volume, now + ATTACK_S);
+  master.connect(ctx.destination);
+  return master;
+}
+
+/** Instant playback from a track already decoded in memory: sound starts in the same tap. */
+function playBuffer(ctx: AudioContext, buffer: AudioBuffer, volume: number): Voice {
+  const master = gainFor(ctx, volume);
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  src.connect(master);
+  src.start();
   let stopped = false;
   return {
     setLevel(gain) {
+      // The palm-tree volume slider, while the track plays.
       if (stopped) return;
       master.gain.cancelScheduledValues(ctx.currentTime);
       master.gain.setTargetAtTime(gain, ctx.currentTime, 0.03);
     },
-    stop(fade: number) {
+    stop(fade) {
       if (stopped) return;
       stopped = true;
-      const t = ctx.currentTime;
-      master.gain.cancelScheduledValues(t);
-      master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), t);
-      master.gain.linearRampToValueAtTime(0, t + fade); // linear = a smooth, audible fade, not a drop-off
-      window.setTimeout(() => {
+      fadeOut(ctx, master, fade, () => {
+        try {
+          src.stop();
+        } catch {
+          /* already stopped */
+        }
+      });
+    },
+  };
+}
+
+/** Fallback while a track is still loading (very first tap on a slow connection): stream it. */
+function playStream(ctx: AudioContext, url: string, volume: number): Voice {
+  const audio = new Audio(url);
+  audio.loop = true;
+  audio.preload = "auto";
+  const master = gainFor(ctx, volume);
+  ctx.createMediaElementSource(audio).connect(master);
+  void audio.play().catch(() => {});
+  let stopped = false;
+  return {
+    setLevel(gain) {
+      // The palm-tree volume slider, while the track plays.
+      if (stopped) return;
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.setTargetAtTime(gain, ctx.currentTime, 0.03);
+    },
+    stop(fade) {
+      if (stopped) return;
+      stopped = true;
+      fadeOut(ctx, master, fade, () => {
         audio.pause();
         audio.removeAttribute("src");
         audio.load();
-        try {
-          master.disconnect();
-        } catch {
-          /* already gone */
-        }
-      }, fade * 1000 + 120);
+      });
     },
   };
 }
@@ -98,13 +119,44 @@ function shuffle<T>(xs: T[]) {
   return a;
 }
 
+// The MP3 files are small (about 1.6 MB for all five), so they're downloaded once per page as soon as a
+// machine appears, and kept compressed. Only the track that plays next is decoded ahead of time, so it
+// can start the instant the player taps without holding every track's decoded audio in memory.
+const fileCache = new Map<string, Promise<ArrayBuffer | null>>();
+function fetchTrack(url: string) {
+  let p = fileCache.get(url);
+  if (!p) {
+    p = fetch(url)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .catch(() => null);
+    fileCache.set(url, p);
+  }
+  return p;
+}
+
+async function decodeTrack(ctx: AudioContext, url: string): Promise<AudioBuffer | null> {
+  const bytes = await fetchTrack(url);
+  if (!bytes) return null;
+  try {
+    // decodeAudioData takes ownership of the bytes, so decode a copy and keep the original for repeats.
+    return await ctx.decodeAudioData(bytes.slice(0));
+  } catch {
+    return null;
+  }
+}
+
 export type Jukebox = ReturnType<typeof createJukebox>;
 
 export function createJukebox(volume = 0.7) {
   let enabled = true;
-  let current: { voice: Voice; base: number } | null = null;
+  let current: Voice | null = null;
   let bag: number[] = [];
   let lastPlayed = -1;
+  /** The track that plays on the next tap, decoded and ready (or still decoding). */
+  let next: { index: number; buffer: AudioBuffer | null } | null = null;
+  /** The playing track's level before the volume slider (so the slider can rescale it mid-track). */
+  let currentBase = 0;
+  onMusicVolume((v) => current?.setLevel(currentBase * volumeGain(v)));
 
   const nextIndex = (count: number) => {
     if (!bag.length) {
@@ -115,11 +167,23 @@ export function createJukebox(volume = 0.7) {
     return lastPlayed;
   };
 
-  // Download every track straight away (small files) so the first tap starts at once.
-  if (typeof window !== "undefined") TRACKS.forEach((t) => preload(t.url));
+  /** Pick the next track and decode it now, so the next tap plays it with no wait. */
+  const prepare = () => {
+    if (typeof window === "undefined") return;
+    const ctx = audioContext();
+    if (!ctx) return;
+    const slot: { index: number; buffer: AudioBuffer | null } = { index: nextIndex(TRACKS.length), buffer: null };
+    next = slot;
+    void decodeTrack(ctx, TRACKS[slot.index]!.url).then((b) => {
+      slot.buffer = b;
+    });
+  };
 
-  // The volume slider on the left palm tree: applies to the playing track immediately.
-  onMusicVolume((v) => current?.voice.setLevel(current.base * volumeGain(v)));
+  // Download every track straight away (small files), and get the first one decoded.
+  if (typeof window !== "undefined") {
+    TRACKS.forEach((t) => void fetchTrack(t.url));
+    prepare();
+  }
 
   return {
     setEnabled(v: boolean) {
@@ -129,19 +193,24 @@ export function createJukebox(volume = 0.7) {
     get playing() {
       return current !== null;
     },
-    /** Start the next track. Call from a tap/click so mobile browsers allow audio. */
+    /** Start the next track — immediately. Call from a tap/click so mobile browsers allow audio. */
     start() {
       if (!enabled) return;
-      const ctx = sharedAudio();
+      const ctx = sharedAudio(); // resumes the audio context inside the tap
       if (!ctx) return;
-      current?.voice.stop(0.4);
-      const t = TRACKS[nextIndex(TRACKS.length)]!;
-      const base = volume * dbToGain(t.trimDb);
-      current = { voice: playClip(ctx, t.url, base * volumeGain(getMusicVolume())), base };
+      current?.stop(0.4);
+      if (!next) prepare();
+      const slot = next;
+      if (!slot) return;
+      const t = TRACKS[slot.index]!;
+      currentBase = volume * dbToGain(t.trimDb);
+      const vol = currentBase * volumeGain(getMusicVolume()); // palm-tree volume slider
+      current = slot.buffer ? playBuffer(ctx, slot.buffer, vol) : playStream(ctx, t.url, vol);
+      prepare(); // decode the one after, ready for the next tap
     },
     /** Fade the music out (never a hard cut). */
     stop(fade = 1) {
-      current?.voice.stop(fade);
+      current?.stop(fade);
       current = null;
     },
     /** Stop playing (the machine left the page). The jukebox stays usable if the machine comes back. */

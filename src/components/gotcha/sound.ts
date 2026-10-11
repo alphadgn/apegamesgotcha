@@ -2,17 +2,23 @@
 
 let shared: AudioContext | null = null;
 
-/** One AudioContext for the whole page (iOS limits how many can exist). Call from a tap to unlock audio.
- *  (Restored to the version that played music on iPhones; see music.ts.) */
-export function sharedAudio(): AudioContext | null {
+/** The page's one AudioContext (iOS limits how many can exist), without unlocking it. Safe to call
+ *  before any tap: music is decoded ahead of time on it, and plays once a tap unlocks it. */
+export function audioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!shared) {
     const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!C) return null;
-    shared = new C();
+    shared = new C({ latencyHint: "interactive" });
   }
-  if (shared.state === "suspended") void shared.resume();
   return shared;
+}
+
+/** The shared AudioContext, unlocked. Call from a tap so mobile browsers allow audio. */
+export function sharedAudio(): AudioContext | null {
+  const ctx = audioContext();
+  if (ctx && ctx.state !== "running") void ctx.resume();
+  return ctx;
 }
 
 export type Sfx = ReturnType<typeof createSfx>;
@@ -57,15 +63,16 @@ export function createSfx() {
 }
 
 // ---- Music volume (the slider on the left palm tree) ----
-// The jukebox listens (onMusicVolume) and sets each playing track's own gain, so the music keeps exactly
-// the original audio path (media element → gain → speakers) and the slider still works mid-track.
-const VOLUME_KEY = "gm-music-volume";
+// Only a number: the jukebox applies it to the playing track's own gain, so the audio path stays as it was.
+// New key: starts everyone back at full volume (the music's original loudness); the old setting is ignored.
+const VOLUME_KEY = "gm-music-volume-v2";
 let volume = (() => {
   try {
-    const v = Number(localStorage.getItem(VOLUME_KEY));
-    return Number.isFinite(v) && localStorage.getItem(VOLUME_KEY) !== null ? Math.min(1, Math.max(0, v)) : 0.8;
+    const raw = localStorage.getItem(VOLUME_KEY);
+    const v = Number(raw);
+    return raw !== null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
   } catch {
-    return 0.8;
+    return 1;
   }
 })();
 const volumeListeners = new Set<(v: number) => void>();
@@ -75,11 +82,12 @@ export function getMusicVolume() {
   return volume;
 }
 
-/** Gain for the slider position: squared, so the slider feels even to the ear. */
-export const volumeGain = (v: number) => v * v;
+/** Gain for a slider position: the top is the original loudness, the bottom is off. */
+export const volumeGain = (v: number) => v;
 
 export function setMusicVolume(v: number) {
-  volume = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : volume;
+  if (!Number.isFinite(v)) return;
+  volume = Math.min(1, Math.max(0, v));
   try {
     localStorage.setItem(VOLUME_KEY, String(Math.round(volume * 100) / 100));
   } catch {
