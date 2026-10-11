@@ -3,7 +3,7 @@
 // Five My Dead Friends tracks (the files in /public/music) are the only music. Each spin picks the next
 // one from a shuffled bag (all five play before any repeats, never the same one twice in a row), and each
 // is level-matched with trimDb so none is louder than the rest.
-import { getMusicVolume, onMusicVolume, sharedAudio, volumeGain } from "./sound";
+import { getMusicVolume, onMusicVolume, volumeGain } from "./sound";
 
 /** Loudness target, as RMS in dBFS at full volume; each track's trim brings it to this level. */
 const LEVEL_TARGET_DB = -18.5;
@@ -22,40 +22,61 @@ const TRACKS: { title: string; url: string; trimDb: number }[] = [
 
 const dbToGain = (db: number | undefined) => Math.pow(10, (db ?? 0) / 20);
 
-type Voice = { master: GainNode; stop: (fade: number) => void };
+type Voice = { setLevel: (level: number) => void; stop: (fade: number) => void };
 
-function playClip(ctx: AudioContext, url: string, volume: number, trimDb = 0): Voice {
-  volume *= dbToGain(trimDb);
-  const audio = new Audio(url);
+/**
+ * A plain audio player, NOT routed through the Web Audio engine. On iPhones the Web Audio engine goes silent
+ * when the ringer switch is on silent, while a plain audio player keeps playing (the /sound-test check:
+ * "1. Plain music file" played on silent, "2. Game music" did not). Volume and fades use the player's own
+ * volume (iPhones keep that at the phone's volume, so there the side buttons set the loudness).
+ */
+const plays = new WeakMap<HTMLAudioElement, number>();
+
+function playClip(audio: HTMLAudioElement, url: string, level: number): Voice {
+  const token = (plays.get(audio) ?? 0) + 1; // a newer track on this player ends this one's fade
+  plays.set(audio, token);
+  const mine = () => plays.get(audio) === token;
+  // One player per machine, reused for every track: once a tap has started it, phones let it play again
+  // later without a tap (spin-all and reveal-all start the next track from a timer).
+  audio.pause();
+  audio.src = url;
   audio.loop = true;
-  audio.crossOrigin = "anonymous";
-  const src = ctx.createMediaElementSource(audio);
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(0.0001, ctx.currentTime);
-  master.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.35);
-  src.connect(master).connect(ctx.destination);
+  audio.preload = "auto";
+  audio.setAttribute("playsinline", "");
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  audio.volume = clamp(level);
   void audio.play().catch(() => {});
   let stopped = false;
+  let fader = 0;
   return {
-    master,
+    setLevel(v) {
+      if (!stopped && mine()) audio.volume = clamp(v);
+    },
     stop(fade: number) {
       if (stopped) return;
       stopped = true;
-      const now = ctx.currentTime;
-      master.gain.cancelScheduledValues(now);
-      master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), now);
-      master.gain.linearRampToValueAtTime(0, now + fade); // linear = a smooth, audible fade, not a drop-off
-      window.setTimeout(() => {
-        audio.pause();
-        audio.src = "";
-        try {
-          master.disconnect();
-        } catch {
-          /* already gone */
+      const from = audio.volume;
+      const steps = Math.max(1, Math.round((fade * 1000) / 50));
+      let k = 0;
+      fader = window.setInterval(() => {
+        if (!mine()) return window.clearInterval(fader); // the next track took over this player
+        k++;
+        audio.volume = clamp(from * (1 - k / steps)); // a smooth fade where the browser allows it
+        if (k >= steps) {
+          window.clearInterval(fader);
+          audio.pause();
         }
-      }, fade * 1000 + 120);
+      }, 50);
     },
   };
+}
+
+// Warm the browser cache with the five small tracks as soon as a machine appears, so a tap starts quickly.
+const warmed = new Set<string>();
+function warm(url: string) {
+  if (typeof window === "undefined" || warmed.has(url)) return;
+  warmed.add(url);
+  void fetch(url).catch(() => warmed.delete(url));
 }
 
 function shuffle<T>(xs: T[]) {
@@ -74,11 +95,11 @@ export function createJukebox(volume = 0.7) {
   let current: Voice | null = null;
   let bag: number[] = [];
   let lastPlayed = -1;
-  // The palm-tree volume slider: rescales the playing track (the only change from the original jukebox).
+  // The palm-tree volume slider: rescales the playing track.
   let currentLevel = 0;
-  onMusicVolume((v) => {
-    if (current) current.master.gain.setTargetAtTime(Math.max(currentLevel * volumeGain(v), 0.0001), current.master.context.currentTime, 0.05);
-  });
+  let player: HTMLAudioElement | null = null;
+  onMusicVolume((v) => current?.setLevel(currentLevel * volumeGain(v)));
+  if (typeof window !== "undefined") TRACKS.forEach((t) => warm(t.url));
 
   const nextIndex = (count: number) => {
     if (!bag.length) {
@@ -100,12 +121,11 @@ export function createJukebox(volume = 0.7) {
     /** Start a new random track. Call from a tap/click so mobile browsers allow audio. */
     start() {
       if (!enabled) return;
-      const ctx = sharedAudio();
-      if (!ctx) return;
       current?.stop(0.4);
       const t = TRACKS[nextIndex(TRACKS.length)]!;
       currentLevel = volume * dbToGain(t.trimDb);
-      current = playClip(ctx, t.url, Math.max(volume * volumeGain(getMusicVolume()), 0.0001), t.trimDb);
+      player ??= new Audio();
+      current = playClip(player, t.url, currentLevel * volumeGain(getMusicVolume()));
     },
     /** Fade the music out (never a hard cut). */
     stop(fade = 1) {

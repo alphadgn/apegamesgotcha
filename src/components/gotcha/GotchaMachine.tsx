@@ -587,6 +587,7 @@ export function GotchaMachine({
     resetToIdle();
     sfx.current ??= createSfx();
     sfx.current.setEnabled(soundOn);
+    sfx.current.prime(); // unlock the reveal sounds inside the tap (phones)
     // Start the party music right inside the tap — mobile browsers only allow audio that begins from a gesture.
     jukebox.current ??= createJukebox();
     jukebox.current.setEnabled(soundOn);

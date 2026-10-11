@@ -16,42 +16,123 @@ export function sharedAudio(): AudioContext | null {
 
 export type Sfx = ReturnType<typeof createSfx>;
 
+// The reveal effects are short tones rendered once into small WAV files and played with a plain audio
+// player (like the music), so iPhones play them with the ringer switch on silent too; the Web Audio engine
+// is muted there.
+type Note = { f: number; at: number; dur: number; vol: number; slideTo?: number };
+const RATE = 22_050;
+function renderWav(notes: Note[]) {
+  const end = Math.max(...notes.map((n) => n.at + n.dur)) + 0.05;
+  const len = Math.ceil(end * RATE);
+  const pcm = new Float32Array(len);
+  for (const n of notes) {
+    const start = Math.floor(n.at * RATE);
+    const count = Math.floor(n.dur * RATE);
+    let phase = 0;
+    for (let k = 0; k < count && start + k < len; k++) {
+      const t = k / count;
+      const f = n.slideTo ? n.f * Math.pow(n.slideTo / n.f, t) : n.f;
+      phase += f / RATE;
+      const tri = 1 - 4 * Math.abs((phase % 1) - 0.5); // triangle wave
+      const env = Math.min(1, k / (0.01 * RATE)) * Math.pow(0.0001, t); // 10 ms attack, exponential decay
+      pcm[start + k] = (pcm[start + k] ?? 0) + tri * env * n.vol;
+    }
+  }
+  const buf = new ArrayBuffer(44 + len * 2);
+  const v = new DataView(buf);
+  const text = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  v.setUint32(4, 36 + len * 2, true);
+  text(8, "WAVEfmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, RATE, true);
+  v.setUint32(28, RATE * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  text(36, "data");
+  v.setUint32(40, len * 2, true);
+  for (let k = 0; k < len; k++) v.setInt16(44 + k * 2, Math.max(-1, Math.min(1, pcm[k] ?? 0)) * 32767, true);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+
+const fanfares: Record<string, number[]> = {
+  common: [523, 659],
+  rare: [523, 659, 784],
+  epic: [523, 659, 784, 1047],
+  legendary: [523, 659, 784, 1047, 1319, 1568],
+};
+const sfxUrls = new Map<string, string>();
+function sfxUrl(key: string) {
+  let u = sfxUrls.get(key);
+  if (!u) {
+    const notes: Note[] =
+      key === "pop"
+        ? [{ f: 1200, at: 0, dur: 0.12, vol: 0.5, slideTo: 300 }]
+        : (fanfares[key] ?? fanfares["common"]!).map((f, i) => ({ f, at: 0.05 + i * 0.09, dur: 0.22, vol: 0.35 }));
+    u = renderWav(notes);
+    sfxUrls.set(key, u);
+  }
+  return u;
+}
+
 /** Short effects for the prize reveal. The spin itself is scored by the jukebox (music.ts). */
 export function createSfx() {
   let enabled = true;
-
-  const tone = (freq: number, dur: number, type: OscillatorType = "triangle", vol = 0.05, delay = 0, slideTo?: number) => {
-    const a = enabled ? sharedAudio() : null;
-    if (!a) return;
-    const t = a.currentTime + delay;
-    const o = a.createOscillator();
-    const g = a.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(a.destination);
-    o.start(t);
-    o.stop(t + dur + 0.05);
+  // One player per effect, unlocked inside the Click To Spin tap (prime) so phones let it play later,
+  // when the capsule opens.
+  const players = new Map<string, HTMLAudioElement>();
+  const player = (key: string) => {
+    let a = players.get(key);
+    if (!a) {
+      a = new Audio(sfxUrl(key));
+      a.preload = "auto";
+      a.volume = 0.6;
+      players.set(key, a);
+    }
+    return a;
   };
-
-  const fanfares: Record<string, number[]> = {
-    common: [523, 659],
-    rare: [523, 659, 784],
-    epic: [523, 659, 784, 1047],
-    legendary: [523, 659, 784, 1047, 1319, 1568],
+  const play = (key: string) => {
+    if (!enabled || typeof window === "undefined") return;
+    try {
+      const a = player(key);
+      a.muted = false;
+      a.currentTime = 0;
+      void a.play().catch(() => {});
+    } catch {
+      /* audio unavailable */
+    }
   };
-
   return {
     setEnabled(v: boolean) {
       enabled = v;
     },
-    pop: () => tone(1200, 0.12, "triangle", 0.07, 0, 300),
-    fanfare(rarity: string) {
-      (fanfares[rarity] ?? [523, 659]).forEach((f, i) => tone(f, 0.22, "triangle", 0.05, 0.05 + i * 0.09));
+    /** Call from the tap: unlocks every effect for playing later. */
+    prime() {
+      if (!enabled || typeof window === "undefined") return;
+      for (const key of ["pop", ...Object.keys(fanfares)]) {
+        try {
+          const a = player(key);
+          if (!a.paused) continue;
+          a.muted = true;
+          void a
+            .play()
+            .then(() => {
+              a.pause();
+              a.currentTime = 0;
+              a.muted = false;
+            })
+            .catch(() => {
+              a.muted = false;
+            });
+        } catch {
+          /* audio unavailable */
+        }
+      }
     },
+    pop: () => play("pop"),
+    fanfare: (rarity: string) => play(rarity in fanfares ? rarity : "common"),
   };
 }
 
