@@ -13,7 +13,7 @@ import {
 } from "@privy-io/react-auth";
 import { apeChain } from "viem/chains";
 import { setSignInControls } from "./SignInWindow";
-import { GLYPH_LOGIN_METHOD, useGlyphAccount } from "./glyph";
+import { useGlyphAccount } from "./glyph";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -29,6 +29,15 @@ export type PrivyPublicConfig = {
   rpc_url: string;
   explorer_url: string | null;
 };
+
+/** Wallets players can connect from "Add wallet" (WalletConnect covers most mobile wallets, incl. Rabby). */
+const EXTERNAL_WALLETS: NonNullable<NonNullable<PrivyClientConfig["appearance"]>["walletList"]> = [
+  "detected_ethereum_wallets",
+  "metamask",
+  "wallet_connect",
+  "coinbase_wallet",
+  "rainbow",
+];
 
 /** ApeChain, where Glyph wallets pay (Privy bundles its own viem types, hence the cast). */
 const APECHAIN = apeChain as unknown as NonNullable<PrivyClientConfig["defaultChain"]>;
@@ -264,7 +273,11 @@ function GlyphBridge() {
     // Step aside first: Privy's wallet picker can't work under our open window (focus trap).
     setHandedOff(true);
     setBusy(true);
-    connectWallet();
+    connectWallet({
+      walletList: EXTERNAL_WALLETS,
+      walletChainType: "ethereum-only",
+      description: "Pick the wallet to add. It signs a free message to prove it's yours.",
+    });
   };
   // Privy's wallet picker closed without a wallet: bring our window back.
   const { isOpen: privyModalOpen } = useModalStatus();
@@ -356,12 +369,16 @@ export default function PrivyLayer({
     <PrivyProvider
       appId={config.privy_app_id ?? ""}
       config={{
-        // Login with Glyph is the only sign-in option (Glyph itself offers email, social and wallets).
-        loginMethodsAndOrder: { primary: [GLYPH_LOGIN_METHOD] },
+        // No loginMethodsAndOrder: sign-in never uses Privy's login window (our button opens Glyph directly),
+        // and setting it makes Privy build the "connect a wallet" list from it, which emptied that list.
         appearance: {
           theme: "dark",
           accentColor: "#f6c343",
           landingHeader: "Sign in to ApeGames Gotcha",
+          // Wallets offered by "Add wallet → Connect another wallet". Installed browser wallets (Rabby,
+          // Brave, OKX…) appear under "detected" wallets; WalletConnect covers mobile wallet apps.
+          walletList: EXTERNAL_WALLETS,
+          walletChainType: "ethereum-only",
         },
         // Glyph provides the wallet; the app doesn't create Privy embedded wallets.
         embeddedWallets: { ethereum: { createOnLogin: "off" } },

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RESTOCK_MESSAGE } from "@/lib/prize-pool";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, defineChain, formatEther, http, parseEther, type Hex } from "viem";
@@ -7,6 +8,8 @@ import { Button } from "@/components/ui/button";
 
 export type PurchaseSettings = {
   enabled: boolean;
+  /** Prize pool critically low: no new purchases until it's restocked. */
+  on_hold?: boolean;
   chain_id: number;
   rpc_url: string;
   explorer_url?: string;
@@ -169,7 +172,8 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
   };
   const insufficient = balance != null && balance < total;
   // Wallet connect always works; paying waits until the organizers switch purchases on.
-  const purchasesOpen = settings.enabled && /^0x[0-9a-fA-F]{40}$/.test(settings.treasury ?? "");
+  const purchasesOpen =
+    settings.enabled && !settings.on_hold && /^0x[0-9a-fA-F]{40}$/.test(settings.treasury ?? "");
 
   if (step.kind === "done") {
     return (
@@ -250,7 +254,7 @@ export function CheckoutPanel({ settings, wallet, onPurchased }: { settings: Pur
           disabled={!purchasesOpen || step.kind === "wallet" || step.kind === "confirming" || insufficient || total === 0n}
           onClick={() => void pay()}
         >
-          {!purchasesOpen ? "Purchases open soon" : step.kind === "wallet" ? "Approve in your wallet…" : step.kind === "confirming" ? "Confirming…" : `Pay ${short4(total)} APE · ${quantity} spins`}
+          {settings.on_hold ? RESTOCK_MESSAGE : !purchasesOpen ? "Purchases open soon" : step.kind === "wallet" ? "Approve in your wallet…" : step.kind === "confirming" ? "Confirming…" : `Pay ${short4(total)} APE · ${quantity} spins`}
         </Button>
       )}
     </div>

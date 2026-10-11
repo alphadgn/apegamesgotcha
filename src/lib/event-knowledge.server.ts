@@ -277,8 +277,8 @@ export function eventPrompt(cfg: EventInfoConfig, rows: KnowledgeRow[]) {
     `THE CHARLESTON EVENT — ${cfg.name}:`,
     `- ${cfg.name} is hosted by the ${cfg.host} in ${cfg.city} on ${when}${d > 0 ? ` (${d} day${d === 1 ? "" : "s"} from today)` : d === 0 ? " (today!)" : ""}. Official site: https://boredapeyachtclub.com/ · X: https://x.com/BoredApeYC`,
     cfg.notes
-      ? `- ${cfg.notes} The Go ApeGames 2026 leaderboard on this site leads into the ApeGames at ${cfg.name}.`
-      : "",
+      ? `- ${cfg.notes} The Go ApeGames 2026 leaderboard on this site leads into the live competition of ApeGames held at ${cfg.name}.`
+      : `- The ApeGames is its own competition, held at ${cfg.name}; the Go ApeGames 2026 leaderboard on this site leads into the live competition of ApeGames held there.`,
     `- The official ApeGames account is ${cfg.games_handle} on X (https://x.com/${cfg.games_handle.replace(/^@/, "")}) — point players there for ApeGames news, schedules and results.`,
   ];
 

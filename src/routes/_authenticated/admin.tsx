@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Leaderboard, useLeaderboardMode } from "@/components/Leaderboard";
 import { adminListIrlClaims, adminUpdateClaim, type ClaimStatus } from "@/lib/claims.functions";
+import { poolStatus, RESTOCK_MESSAGE, RESTOCK_THRESHOLD, type PoolPrize } from "@/lib/prize-pool";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -198,8 +199,24 @@ function PrizesPanel() {
   const total = rows.filter((r) => r.active && (r.inventory == null || r.inventory > 0)).reduce((s, r) => s + r.weight, 0);
   const upd = (i: number, p: Partial<Prize>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const cols = "grid min-w-[920px] grid-cols-[56px_2fr_1fr_1fr_1fr_1fr_60px_50px_50px_70px_70px] gap-2";
+  // Saved stock (not unsaved edits): at 20% left or less, live buys & spins pause until a restock.
+  const pool = poolStatus(((data ?? []) as PoolPrize[]));
   return (
     <div className="mt-4 overflow-x-auto rounded border border-border bg-card p-4">
+      {pool.stocked > 0 && (
+        <div className={`mb-3 rounded border p-3 text-sm ${pool.onHold ? "border-destructive bg-destructive/10" : "border-border"}`}>
+          <b>Prize pool:</b> {pool.remaining} of {pool.stocked} limited-stock prizes left ({Math.round(pool.ratio * 100)}%).{" "}
+          {pool.onHold ? (
+            <span className="text-destructive">
+              <b>{RESTOCK_MESSAGE}</b> Raise the Stock of your limited prizes and Save to restock (then publish the prize pool on-chain); live buys & spins reopen by themselves.
+            </span>
+          ) : (
+            <span className="text-muted-foreground">
+              At {Math.round(RESTOCK_THRESHOLD * 100)}% or less, live buys & spins pause and players see a restocking notice until you restock (raise Stock and Save).
+            </span>
+          )}
+        </div>
+      )}
       <p className="mb-2 text-xs text-muted-foreground sm:hidden">Swipe sideways to see every column.</p>
       <div className={`${cols} font-mono text-xs uppercase text-muted-foreground`}>
         <span>Image</span><span>Name</span><span>Rarity</span><span>Weight</span><span>Odds</span><span>Points</span><span>Stock</span><span>IRL</span><span>Active</span><span /><span />

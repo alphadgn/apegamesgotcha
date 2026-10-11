@@ -34,7 +34,7 @@ function Index() {
   const { data: prizes } = useQuery({
     queryKey: ["public-prizes"],
     queryFn: async () => {
-      const { data } = await supabase.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at");
+      const { data } = await supabase.from("prizes").select("id, name, rarity, points, weight, inventory, image_url").eq("active", true).order("created_at");
       return (data ?? []) as GotchaPrize[];
     },
   });

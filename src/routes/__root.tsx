@@ -17,6 +17,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { PageArtwork } from "@/components/PageArtwork";
 import { FloatingGuide } from "@/components/guide/GuideButton";
 import { WalletHost } from "@/components/wallet/WalletHost";
+import { RestockPopup } from "@/components/RestockPopup";
 
 function NotFoundComponent() {
   return (
@@ -142,6 +143,7 @@ function RootComponent() {
       <Outlet />
       <FloatingGuide />
       <WalletHost />
+      <RestockPopup />
       <Toaster theme="dark" offset={{ bottom: 112 }} mobileOffset={{ bottom: 112 }} />
     </QueryClientProvider>
   );

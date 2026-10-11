@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { MotionIcon, Palmetto, Skyline, SoundIcon, TorchEmblem, prizeArt } from "./icons";
+import { PrizeImage } from "@/components/PrizeImage";
 import { createSfx, type Sfx } from "./sound";
 import { createJukebox, type Jukebox } from "./music";
 
@@ -10,6 +11,8 @@ export type GotchaPrize = {
   points: number;
   weight?: number;
   inventory?: number | null;
+  /** Uploaded prize photo (path in the private prize-images bucket), shown round in the reveal. */
+  image_url?: string | null;
 };
 
 /** One capsule's state as reported by the server (mirrors the `checkDraw` server function). */
@@ -817,6 +820,9 @@ export function GotchaMachine({
                 {phase === "revealed" && !parked && active && (
                   <div key={active.id} className={`gm-reveal r-${active.rarity}`}>
                     {(() => {
+                      // An uploaded photo of the real prize shows as a round picture; otherwise the prize art.
+                      const photo = prizes.find((p) => (active.prize_id && p.id === active.prize_id) || p.name === active.prize_name)?.image_url;
+                      if (photo) return <PrizeImage path={photo} alt={active.prize_name} className="gm-reveal-photo" />;
                       const Art = prizeArt(active.prize_name, active.rarity);
                       return <Art className="gm-reveal-art" />;
                     })()}

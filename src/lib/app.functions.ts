@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { MAX_WALLETS } from "./wallet-limits";
+import { poolStatus, RESTOCK_MESSAGE, type PoolPrize } from "./prize-pool";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
@@ -15,6 +16,26 @@ async function getConfig(key: string) {
   if (error) throw new Error(`Missing config: ${key}`);
   return data.value as any;
 }
+
+/** Prize pool status (critical low = 20% left), from the live prize inventory. */
+async function readPoolStatus() {
+  const db = await admin();
+  // `stocked` arrives with drizzle 0008; before that each prize's current inventory is its baseline.
+  let { data, error } = await db.from("prizes").select("inventory, stocked, weight, active");
+  if (error) ({ data } = await db.from("prizes").select("inventory, weight, active"));
+  return poolStatus((data ?? []) as PoolPrize[]);
+}
+
+/** Live spins and spin purchases pause while the prize pool is critically low. */
+async function assertNotRestocking() {
+  if ((await readPoolStatus()).onHold) throw new Error(RESTOCK_MESSAGE);
+}
+
+/** Public: is the prize pool on hold for restocking? (no prize details) */
+export const getPrizePoolStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const s = await readPoolStatus();
+  return { onHold: s.onHold, message: s.onHold ? RESTOCK_MESSAGE : null };
+});
 
 async function audit(actor: string, action: string, details: unknown) {
   const db = await admin();
@@ -245,6 +266,9 @@ export const startDraw = createServerFn({ method: "POST" })
     const { data: open } = await db.from("spins").select("id, status, created_at, request_tx").eq("user_id", context.userId).eq("status", "pending");
     if (open?.length) await settleSpins(cfg, open);
 
+    // Prize pool critically low: live spins wait for the restock.
+    await assertNotRestocking();
+
     // The odds shown in the app must be the odds the contract will use.
     const { data: prizes } = await db.from("prizes").select("id, weight, inventory, active, onchain_index");
     const chain = await vrf.readPool(cfg);
@@ -356,11 +380,22 @@ export const adminUpsertPrize = createServerFn({ method: "POST" })
     await assertAdmin(context);
     const db = await admin();
     const { id, ...rest } = data;
-    const { error } = id
-      ? await db.from("prizes").update(rest).eq("id", id)
-      : await db.from("prizes").insert(rest);
+    // Stock baseline for the "critical low" hold: raising a prize's inventory is a restock (the baseline
+    // becomes the new amount); lowering it or draws using it up keep the baseline.
+    let stocked: number | null = rest.inventory;
+    if (id && rest.inventory != null) {
+      const { data: old } = await db.from("prizes").select("inventory, stocked").eq("id", id).maybeSingle();
+      const before = old as { inventory: number | null; stocked?: number | null } | null;
+      if (before && before.inventory != null && rest.inventory <= before.inventory)
+        stocked = Math.max(before.stocked ?? before.inventory, rest.inventory);
+    }
+    const write = async (row: Record<string, unknown>) =>
+      id ? await db.from("prizes").update(row).eq("id", id) : await db.from("prizes").insert(row);
+    let { error } = await write({ ...rest, stocked });
+    if (error && /stocked/.test(error.message)) ({ error } = await write(rest)); // before drizzle 0008
     if (error) throw new Error(error.message);
-    await audit(context.userId, "prize.upserted", data);
+    const after = await readPoolStatus();
+    await audit(context.userId, "prize.upserted", { ...data, stocked, pool_on_hold: after.onHold });
     return { ok: true };
   });
 
@@ -598,7 +633,7 @@ export const getDrawStatus = createServerFn({ method: "GET" })
   .handler(async () => {
     const cfg = (await getConfig("vrf")) as { enabled?: boolean; contract?: string };
     const open = !!cfg?.enabled && /^0x[0-9a-fA-F]{40}$/.test(cfg?.contract ?? "");
-    return { open };
+    return { open, restocking: (await readPoolStatus()).onHold };
   });
 
 // ---------- Admin: one-click on-chain draw setup (Chainlink VRF on Base) ----------
@@ -747,7 +782,7 @@ export const getPurchaseSettings = createServerFn({ method: "GET" })
     const cfg = await getConfig("purchase") as import("./purchase.server").PurchaseConfig;
     return { enabled: cfg.enabled, chain_id: cfg.chain_id, rpc_url: cfg.rpc_url, explorer_url: cfg.explorer_url,
       treasury: cfg.treasury, price_ape_per_spin: cfg.price_ape_per_spin ?? "", price_usd_per_spin: cfg.price_usd_per_spin,
-      bundles: cfg.bundles, privy_app_id: cfg.privy_app_id };
+      bundles: cfg.bundles, privy_app_id: cfg.privy_app_id, on_hold: (await readPoolStatus()).onHold };
   });
 
 export const getSpinPriceQuote = createServerFn({ method: "GET" })
@@ -769,6 +804,7 @@ export const createSpinPurchase = createServerFn({ method: "POST" })
     if (!bundles.includes(data.quantity) || data.quantity % 5 !== 0 || data.quantity > 20) throw new Error("Choose 5, 10, 15 or 20 spins.");
     const vrf = await getConfig("vrf");
     if (!vrf.enabled || !/^0x[0-9a-fA-F]{40}$/.test(vrf.contract ?? "")) throw new Error("Purchases will open when the real prize draw is ready.");
+    await assertNotRestocking(); // no new purchases while the prize pool is being restocked
     const quote = await p.quoteSpinPrice(cfg);
     const price = BigInt(quote.eachWei) * BigInt(data.quantity);
     const db = await admin();

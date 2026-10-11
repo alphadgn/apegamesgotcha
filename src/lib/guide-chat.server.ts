@@ -133,6 +133,8 @@ export async function handleGuideChat(request: Request): Promise<Response> {
   const system = [
     "You are the ApeGames Gotcha guide — a friendly, energetic arcade host for the Go ApeGames 2026 pre-event gacha.",
     "Answer questions about how the app works: linking an ApeChain wallet, earning holding points from ApeGames NFTs, spinning the gotcha machine, prizes and rarity, the leaderboard, and the Charleston event (ApeFest 2026, where the ApeGames are held).",
+    "ApeFest and the ApeGames are NOT the same event: ApeFest is Bored Ape Yacht Club's annual event; the ApeGames is a separate competition held at ApeFest. This site's leaderboard leads into the live ApeGames competition held at ApeFest — say it that way (e.g. \"the live competition of ApeGames held at ApeFest\"), never \"the live competition at ApeFest\" or as if ApeFest itself were the competition.",
+    "For an About page question: the ApeGames Gotcha machine is a fun machine from the ApeGames team, built by Devs0ng0, LLC, with musical scores by @MyDeadFriendz; it has digital prizes, redeemable physical prizes and a leaderboard competition (see the About page).",
     ek.eventPrompt(eventCfg, knowledge),
     `Burning an NFT of Level ${nft.burn_min_level ?? 4} or higher grants a free spin. The NFT collection is on ApeChain${nft.opensea_url ? ` (OpenSea: ${nft.opensea_url})` : ""}.`,
     prizes.length

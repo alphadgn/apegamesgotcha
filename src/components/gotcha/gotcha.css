@@ -293,14 +293,22 @@
   width: max(168px, calc(var(--vault) * 0.54));
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px;
   padding: 12px 12px 14px;
-  border-radius: 20px;
-  background: radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--c) 45%, #13295a), #0a1633 75%);
-  border: 3px solid var(--c);
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35), 0 0 40px 6px color-mix(in srgb, var(--c) 70%, transparent);
+  /* No card or square frame: the prize floats in the round window over a soft round glow. */
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 38%, #0a1633) 0%, rgba(10, 22, 51, 0.82) 62%, transparent 100%);
+  box-shadow: none;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
   transform: translate(-50%, -50%);
   animation: gm-pop 0.55s cubic-bezier(.2, 1.6, .4, 1) both;
 }
 .gm-reveal-art { width: calc(var(--vault) * 0.17); height: calc(var(--vault) * 0.17); min-width: 52px; min-height: 52px; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.5)); animation: gm-float 2.2s ease-in-out infinite; }
+.gm-reveal-photo {
+  width: calc(var(--vault) * 0.24); height: calc(var(--vault) * 0.24); min-width: 64px; min-height: 64px;
+  border-radius: 50%; overflow: hidden; object-fit: cover;
+  box-shadow: 0 0 0 3px var(--c), 0 0 24px 4px color-mix(in srgb, var(--c) 60%, transparent);
+  animation: gm-float 2.2s ease-in-out infinite;
+}
 .gm-reveal-rarity { font-family: var(--gm-display); font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px; color: var(--c); }
 .gm-reveal-name { font-family: var(--gm-display); font-weight: 700; font-size: clamp(16px, calc(var(--vault) * 0.05), 21px); line-height: 1.05; text-transform: uppercase; }
 .gm-reveal-pts { margin-top: 4px; padding: 2px 12px; border-radius: 999px; background: var(--gm-gold); color: var(--gm-navy); font-family: var(--gm-display); font-weight: 700; font-size: 15px; }

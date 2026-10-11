@@ -11,6 +11,7 @@ import { GotchaMachine, type GotchaPrize } from "./GotchaMachine";
 import { DemoGotchaMachine } from "./DemoGotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 import { useMyIrlPrizes } from "@/components/IrlPrizes";
+import { RESTOCK_MESSAGE } from "@/lib/prize-pool";
 
 type MachineData = {
   credits: number;
@@ -39,7 +40,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
       const db = supabase as unknown as SupabaseClient;
       const [balance, prizes, pending, recent] = await Promise.all([
         balanceFn(), // real + granted demo spins (works before and after the grant migration)
-        db.from("prizes").select("id, name, rarity, points, weight, inventory").eq("active", true).order("created_at"),
+        db.from("prizes").select("id, name, rarity, points, weight, inventory, image_url").eq("active", true).order("created_at"),
         db.from("spins").select("id").eq("user_id", userId).eq("status", "pending"),
         db.from("spins").select("prize_name, rarity, points").eq("user_id", userId).eq("status", "fulfilled").order("created_at", { ascending: false }).limit(5),
       ]);
@@ -80,12 +81,20 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
 
   // Real spins need the on-chain draw switched on (Admin → Configuration → vrf).
   const drawStatusFn = useServerFn(getDrawStatus);
-  const { data: vrfOpen } = useQuery({
+  const { data: drawStatus } = useQuery({
     queryKey: ["vrf-open"],
-    queryFn: async () => (await drawStatusFn()).open,
+    queryFn: () => drawStatusFn(),
     staleTime: 30_000,
+    refetchInterval: 60_000, // pick up a restock (or a new hold) without a reload
   });
-  const closedReason = vrfOpen === false ? "The on-chain prize draw is being switched on. Your spins are saved." : undefined;
+  const vrfOpen = drawStatus?.open;
+  // Prize pool critically low: live spins wait for the restock (demo spins still work).
+  const restocking = !!drawStatus?.restocking;
+  const closedReason = restocking
+    ? `${RESTOCK_MESSAGE} Your spins are saved.`
+    : vrfOpen === false
+      ? "The on-chain prize draw is being switched on. Your spins are saved."
+      : undefined;
 
   // Real-world prizes won on-chain that still need the player's delivery details.
   const { data: irl } = useMyIrlPrizes();
@@ -100,7 +109,7 @@ export function PlayerGotchaMachine({ userId, footnote }: { userId: string; foot
   //   3. the free practice spin every 30 minutes — only once 1 and 2 are used up
   // So the countdown never stands in front of spins the player holds. While the on-chain draw is closed,
   // real spins stay saved and granted demo spins are still playable.
-  const drawClosed = vrfOpen === false;
+  const drawClosed = vrfOpen === false || restocking;
   const idle = !inPlay && (data?.pendingIds.length ?? 0) === 0;
   const demoFirst = !!data && idle && (credits === 0 || (drawClosed && data.demoGrants > 0));
   if (data && (demoFirst || freeInPlay)) {

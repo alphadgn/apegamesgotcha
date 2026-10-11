@@ -57,6 +57,13 @@
       "when": 1791700000000,
       "tag": "0007_contact_email_nft_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791710000000,
+      "tag": "0008_prize_stock_baseline",
+      "breakpoints": true
     }
   ]
 }

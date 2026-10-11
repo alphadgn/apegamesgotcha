@@ -1,12 +1,12 @@
 // "Your IRL prizes": physical prizes the player won in a real draw, each with its claim form and status.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { claimSchema, getMyIrlPrizes, submitPrizeClaim, type IrlWin } from "@/lib/claims.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PrizeImage } from "./PrizeImage";
 
 export const IRL_QUERY_KEY = ["irl-prizes"] as const;
 
@@ -15,24 +15,7 @@ export function useMyIrlPrizes(enabled = true) {
   return useQuery({ queryKey: IRL_QUERY_KEY, queryFn: () => fn(), enabled, staleTime: 30_000 });
 }
 
-/** A prize picture from the private prize-images bucket, shown through a short-lived signed link. */
-export function PrizeImage({ path, alt, className = "" }: { path: string | null; alt: string; className?: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    setUrl(null);
-    if (path)
-      void supabase.storage
-        .from("prize-images")
-        .createSignedUrl(path, 3600)
-        .then(({ data }) => live && setUrl(data?.signedUrl ?? null));
-    return () => {
-      live = false;
-    };
-  }, [path]);
-  if (!url) return <div className={`flex items-center justify-center bg-muted text-2xl ${className}`} aria-hidden>🎁</div>;
-  return <img src={url} alt={alt} className={`object-cover ${className}`} />;
-}
+export { PrizeImage };
 
 const STATUS: Record<string, { label: string; tone: string; help: string }> = {
   none: { label: "Claim needed", tone: "bg-destructive/20 text-destructive", help: "Tell us how you'd like to receive it." },

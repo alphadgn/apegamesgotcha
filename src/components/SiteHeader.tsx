@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { openSignIn } from "@/components/wallet/walletUi";
 import {
   ArrowLeft,
+  Info,
   Menu,
   Trophy,
   Gamepad2,
@@ -96,6 +97,12 @@ export function SiteHeader() {
                 </DropdownMenuItem>
               </>
             )}
+            <DropdownMenuItem asChild className={link}>
+              <Link to="/about" activeProps={{ className: "text-primary" }}>
+                <Info aria-hidden="true" />
+                About
+              </Link>
+            </DropdownMenuItem>
             {isAdmin && (
               <DropdownMenuItem asChild className={link}>
                 <Link to="/admin" activeProps={{ className: "text-primary" }}>
