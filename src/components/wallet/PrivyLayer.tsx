@@ -1,16 +1,14 @@
 // App-wide sign-in layer: the app's own sign-in window (ApeGames colours) whose one button opens Glyph's
 // sign-in window (Privy cross-app login to Glyph, switched on in the Privy dashboard), plus the bridge from
-// that login to the app's Supabase session. Loaded on demand (first time someone opens Sign in, Refill or Add wallet)
+// that login to the app's Supabase session. Plain PrivyProvider (not the Glyph SDK's provider, which renders
+// nothing until a request to useglyph.io succeeds) so the window always shows, with the reason if Glyph
+// can't start. Loaded on demand (first time someone opens Sign in, Refill or Add wallet)
 // and kept mounted after that.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useCrossAppAccounts, usePrivy } from "@privy-io/react-auth";
-import {
-  GLYPH_APP_LOGIN_METHOD,
-  GLYPH_PRIVY_APP_ID,
-  GlyphPrivyProvider,
-  useGlyph,
-} from "@use-glyph/sdk-react";
+import { PrivyProvider, type PrivyClientConfig } from "@privy-io/react-auth";
+import { apeChain } from "viem/chains";
 import { SignInWindow } from "./SignInWindow";
+import { GLYPH_LOGIN_METHOD, useGlyphAccount } from "./glyph";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -26,6 +24,9 @@ export type PrivyPublicConfig = {
   explorer_url: string | null;
 };
 
+/** ApeChain, where Glyph wallets pay (Privy bundles its own viem types, hence the cast). */
+const APECHAIN = apeChain as unknown as NonNullable<PrivyClientConfig["defaultChain"]>;
+
 const errorText = (e: unknown) =>
   (e as { shortMessage?: string }).shortMessage ?? (e as Error)?.message ?? "Something went wrong";
 
@@ -36,22 +37,13 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
  * Glyph's app), straight from the tap so browsers don't block it. When Glyph returns, the login is handed
  * to the app: signed out → sign in to the app; signed in → link the Glyph wallet to the account.
  */
-function GlyphBridge({
-  onUnavailable,
-  onMounted,
-}: {
-  onUnavailable: () => void;
-  onMounted: (up: boolean) => void;
-}) {
-  useEffect(() => {
-    onMounted(true);
-    return () => onMounted(false);
-  }, [onMounted]);
+function GlyphBridge() {
   const ui = useWalletUi();
   const { user, loading } = useAuth();
-  const { ready, authenticated, getAccessToken } = usePrivy();
-  const { loginWithCrossAppAccount } = useCrossAppAccounts();
-  const glyph = useGlyph();
+  const glyph = useGlyphAccount();
+  const { ready, authenticated, getAccessToken } = glyph;
+  /** Privy hasn't started after a while: most often this site's address isn't in Privy's allowed domains. */
+  const [slow, setSlow] = useState(false);
   const signInFn = useServerFn(privySignIn);
   const linkFn = useServerFn(linkPrivyAccount);
   const qc = useQueryClient();
@@ -89,7 +81,10 @@ function GlyphBridge({
     setBusy(true);
     const then = getWalletUi().afterSignIn;
     try {
-      if (!authenticated) await loginWithCrossAppAccount({ appId: GLYPH_PRIVY_APP_ID });
+      if (!authenticated || !glyph.address) {
+        if (authenticated) await glyph.logout(); // a Privy session without Glyph: start clean
+        await glyph.login();
+      }
       const result = await bridge();
       toast.success(
         result === "signed-in" ? "Signed in with Glyph" : "Glyph wallet added to your account",
@@ -100,10 +95,17 @@ function GlyphBridge({
       if (then === "refill" && result === "signed-in") openRefill();
     } catch (e) {
       const m = errorText(e);
+      console.error("[Glyph] sign-in failed:", e);
       // Closing Glyph's window isn't an error worth shouting about.
-      if (!/closed|cancel|exited|abort/i.test(m)) toast.error(m);
+      if (/closed|cancel|exited|abort/i.test(m)) {
+        /* player closed the window */
+      } else if (/popup|blocked/i.test(m)) {
+        toast.error(
+          "Your browser blocked the Glyph window. Allow pop-ups for this site and tap Continue again.",
+        );
+      } else toast.error(`Glyph sign-in didn't work: ${m}`);
       const { data: s } = await supabase.auth.getSession();
-      if (!s.session) glyph.logout();
+      if (!s.session) void glyph.logout();
     } finally {
       working.current = false;
       setBusy(false);
@@ -112,15 +114,25 @@ function GlyphBridge({
 
   /** Signed in to Glyph from an earlier visit but want another account: sign out of Glyph, then pick again. */
   const switchAccount = () => {
-    glyph.logout();
+    void glyph.logout();
   };
 
-  // Glyph couldn't start (blocked domain, wrong App ID, offline): tell the player instead of doing nothing.
+  // Privy couldn't start (site not in Privy's allowed domains, wrong App ID, offline): say why instead of
+  // loading forever. It keeps trying in the background, so the button appears if it does start.
   useEffect(() => {
-    if (ready || (!ui.signIn && !ui.refill)) return;
-    const t = window.setTimeout(onUnavailable, 10_000);
+    if (ready) {
+      setSlow(false);
+      return;
+    }
+    if (!ui.signIn && !linkOpen) return;
+    const t = window.setTimeout(() => {
+      setSlow(true);
+      console.warn(
+        `[Glyph] Privy not ready after 12s on ${window.location.origin} — check Privy → App settings → Domains`,
+      );
+    }, 12_000);
     return () => window.clearTimeout(t);
-  }, [ready, ui.signIn, ui.refill, onUnavailable]);
+  }, [ready, ui.signIn, linkOpen]);
 
   // "Add wallet" from the account page opens the same window, to link Glyph to this account.
   const lastLink = useRef(ui.linkRequest);
@@ -138,7 +150,7 @@ function GlyphBridge({
   // The app session is the source of truth: signed out of the app → signed out of Glyph too.
   useEffect(() => {
     if (ready && authenticated && !loading && !user && !working.current && !ui.signIn)
-      glyph.logout();
+      void glyph.logout();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authenticated, loading, user]);
 
@@ -147,13 +159,25 @@ function GlyphBridge({
     closeSignIn();
     setLinkOpen(false);
   };
-  const remembered = authenticated ? glyph.user?.evmWallet : null;
+  const remembered = glyph.address;
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
 
   return (
     <SignInWindow
       open={!!mode}
       mode={mode ?? "sign-in"}
-      status={busy ? "Finish in the Glyph window…" : undefined}
+      status={
+        busy
+          ? "Finish in the Glyph window…"
+          : slow
+            ? "Glyph sign-in can't start on this site yet"
+            : undefined
+      }
+      detail={
+        slow && !ready
+          ? `Privy didn't start on ${origin}. In the Privy dashboard, add this address under App settings → Domains (allowed origins), then reload.`
+          : undefined
+      }
       onContinue={ready && !busy ? () => void continueWithGlyph() : undefined}
       continueLabel={remembered ? `Continue as ${short(remembered)}` : "Continue with Glyph"}
       onSwitchAccount={remembered && !busy ? switchAccount : undefined}
@@ -171,41 +195,26 @@ export default function PrivyLayer({
   children: ReactNode;
   onUnavailable: () => void;
 }) {
-  const queryClient = useQueryClient(); // share the app's cache so purchases/burns refresh the page
-  const ui = useWalletUi();
-  const { user } = useAuth();
-  // Glyph's provider renders nothing inside it until Privy has started, so keep the sign-in window on
-  // screen (loading) until the bridge inside is up — no gap between "Loading Glyph…" and the button.
-  const [bridgeUp, setBridgeUp] = useState(false);
-  // If Glyph never starts at all (blocked, offline, wrong App ID), say so after 10s instead of loading forever.
-  useEffect(() => {
-    if (bridgeUp || (!ui.signIn && !ui.refill)) return;
-    const t = window.setTimeout(onUnavailable, 10_000);
-    return () => window.clearTimeout(t);
-  }, [bridgeUp, ui.signIn, ui.refill, onUnavailable]);
+  void onUnavailable; // the window itself now explains when Glyph can't start
   return (
-    <>
-      {!bridgeUp && (
-        <SignInWindow open={ui.signIn && !user} status="Loading Glyph…" onClose={closeSignIn} />
-      )}
-      <GlyphPrivyProvider
-        appId={config.privy_app_id ?? ""}
-        queryClient={queryClient}
-        config={{
-          // Login with Glyph is the only sign-in option (Glyph itself offers email, social and wallets).
-          loginMethodsAndOrder: { primary: [GLYPH_APP_LOGIN_METHOD] },
-          appearance: {
-            theme: "dark",
-            accentColor: "#f6c343",
-            landingHeader: "Sign in to ApeGames Gotcha",
-          },
-          // Glyph provides the wallet; the app doesn't create Privy embedded wallets any more.
-          embeddedWallets: { ethereum: { createOnLogin: "off" } },
-        }}
-      >
-        <GlyphBridge onUnavailable={onUnavailable} onMounted={setBridgeUp} />
-        {children}
-      </GlyphPrivyProvider>
-    </>
+    <PrivyProvider
+      appId={config.privy_app_id ?? ""}
+      config={{
+        // Login with Glyph is the only sign-in option (Glyph itself offers email, social and wallets).
+        loginMethodsAndOrder: { primary: [GLYPH_LOGIN_METHOD] },
+        appearance: {
+          theme: "dark",
+          accentColor: "#f6c343",
+          landingHeader: "Sign in to ApeGames Gotcha",
+        },
+        // Glyph provides the wallet; the app doesn't create Privy embedded wallets.
+        embeddedWallets: { ethereum: { createOnLogin: "off" } },
+        defaultChain: APECHAIN,
+        supportedChains: [APECHAIN],
+      }}
+    >
+      <GlyphBridge />
+      {children}
+    </PrivyProvider>
   );
 }

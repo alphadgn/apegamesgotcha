@@ -1,8 +1,7 @@
 // Refill checkout with the player's Glyph wallet (Login with Glyph, through the app's Privy app). Rendered inside the app-wide PrivyProvider (see PrivyLayer), and loaded
 // on demand so Privy adds nothing to the initial page load.
 import { useQuery } from "@tanstack/react-query";
-import { useCrossAppAccounts, usePrivy } from "@privy-io/react-auth";
-import { GLYPH_PRIVY_APP_ID, useGlyph } from "@use-glyph/sdk-react";
+import { useGlyphAccount } from "./glyph";
 import { useServerFn } from "@tanstack/react-start";
 import { linkPrivyAccount } from "@/lib/app.functions";
 import type { Hex } from "viem";
@@ -34,30 +33,26 @@ export function useDefaultWalletAddress() {
  */
 export function usePrivyWalletAdapter(prefer?: string | null): WalletAdapter {
   void prefer;
-  const glyph = useGlyph();
-  const { getAccessToken } = usePrivy();
-  const { loginWithCrossAppAccount } = useCrossAppAccounts();
+  const glyph = useGlyphAccount();
   const linkFn = useServerFn(linkPrivyAccount);
-  const address = glyph.authenticated ? (glyph.user?.evmWallet ?? null) : null;
   return {
     ready: glyph.ready,
-    address,
+    address: glyph.address,
     label: "Glyph wallet",
     // Straight to Glyph's own sign-in window (from the tap), then record the wallet on the player's account.
     connect: async () => {
       try {
-        await loginWithCrossAppAccount({ appId: GLYPH_PRIVY_APP_ID });
+        if (glyph.authenticated && !glyph.address) await glyph.logout();
+        await glyph.login();
       } catch {
         return; // Glyph window closed
       }
-      const token = await getAccessToken();
+      const token = await glyph.getAccessToken();
       if (token) await linkFn({ data: { accessToken: token } }).catch(() => undefined);
     },
-    pay: async ({ to, valueWei, data, chainId }) => {
-      if (!address) throw new Error("Sign in with Glyph first");
-      const hash = await glyph.sendTransaction({ transaction: { to, value: BigInt(valueWei), data, chainId } });
-      return hash as Hex;
-    },
+    // Glyph shows its own approval window and sends the payment on ApeChain.
+    pay: ({ to, valueWei, data, chainId }) =>
+      glyph.sendTransaction({ to, value: BigInt(valueWei), data, chainId }),
   };
 }
 

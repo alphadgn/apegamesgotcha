@@ -15,6 +15,7 @@ export function SignInWindow({
   open,
   mode = "sign-in",
   status,
+  detail,
   onContinue,
   continueLabel = "Continue with Glyph",
   onSwitchAccount,
@@ -24,6 +25,8 @@ export function SignInWindow({
   mode?: "sign-in" | "link";
   /** Shown instead of the button while Glyph isn't ready (loading, not set up, can't load). */
   status?: string | undefined;
+  /** Small print under the button (e.g. why Glyph can't start). */
+  detail?: string | undefined;
   onContinue?: (() => void) | undefined;
   continueLabel?: string;
   onSwitchAccount?: (() => void) | undefined;
@@ -52,6 +55,7 @@ export function SignInWindow({
           >
             {onContinue ? continueLabel : (status ?? "Loading Glyph…")}
           </button>
+          {detail && <p className="break-words text-center text-xs text-destructive">{detail}</p>}
           {onSwitchAccount && (
             <button
               type="button"
