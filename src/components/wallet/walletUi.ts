@@ -61,9 +61,15 @@ export function closeRefill() {
   set({ refill: false });
 }
 
-/** Account page: add another wallet to this account. */
-export function requestLinkWallet() {
-  set({ activated: true, linkRequest: state.linkRequest + 1 });
+/** Account page: add another wallet to this account. `then: "refill"` reopens the payment window after. */
+export function requestLinkWallet(opts: { then?: "refill" } = {}) {
+  set({
+    activated: true,
+    linkRequest: state.linkRequest + 1,
+    afterSignIn: opts.then ?? null,
+    refill: false,
+    burn: null,
+  });
 }
 
 /** Opens the burn window for one NFT (sends it to the burn address from the wallet that holds it). */

@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { linkPrivyAccount, privySignIn } from "@/lib/app.functions";
-import { closeSignIn, getWalletUi, openRefill, useWalletUi } from "./walletUi";
+import { closeSignIn, getWalletUi, openRefill, openSignIn, useWalletUi } from "./walletUi";
 
 export type PrivyPublicConfig = {
   privy_app_id: string | null;
@@ -50,6 +50,8 @@ function GlyphBridge() {
   const [busy, setBusy] = useState(false);
   /** Open for "Add wallet" (link Glyph to the signed-in player) rather than sign-in. */
   const [linkOpen, setLinkOpen] = useState(false);
+  /** Glyph's window has taken over: our window steps aside until it finishes (or fails). */
+  const [handedOff, setHandedOff] = useState(false);
   const working = useRef(false);
 
   const mode: "sign-in" | "link" | null =
@@ -78,8 +80,15 @@ function GlyphBridge() {
   const continueWithGlyph = async () => {
     if (working.current) return;
     working.current = true;
-    setBusy(true);
     const then = getWalletUi().afterSignIn;
+    const wasMode = mode;
+    // Get our window out of the way before Privy shows its "Connecting to Glyph" step. Two modal windows
+    // at once fight over focus and taps; Privy then reads that as the player closing its window, cancels,
+    // and the Glyph tab it already opened stays blank (about:blank). Unmounting (not just hiding) releases
+    // our window's focus trap immediately, before Privy's step appears.
+    setHandedOff(true);
+    setBusy(true);
+    let failed = false;
     try {
       if (!authenticated || !glyph.address) {
         if (authenticated) await glyph.logout(); // a Privy session without Glyph: start clean
@@ -92,16 +101,18 @@ function GlyphBridge() {
       closeSignIn();
       setLinkOpen(false);
       await qc.invalidateQueries();
-      if (then === "refill" && result === "signed-in") openRefill();
+      if (then === "refill") openRefill();
     } catch (e) {
+      failed = true;
       const m = errorText(e);
       console.error("[Glyph] sign-in failed:", e);
-      // Closing Glyph's window isn't an error worth shouting about.
-      if (/closed|cancel|exited|abort/i.test(m)) {
-        /* player closed the window */
-      } else if (/popup|blocked/i.test(m)) {
+      if (/popup|blocked/i.test(m)) {
         toast.error(
           "Your browser blocked the Glyph window. Allow pop-ups for this site and tap Continue again.",
+        );
+      } else if (/closed|cancel|exited|abort/i.test(m)) {
+        toast.message(
+          "Glyph sign-in was closed before it finished. Tap Continue with Glyph to try again.",
         );
       } else toast.error(`Glyph sign-in didn't work: ${m}`);
       const { data: s } = await supabase.auth.getSession();
@@ -109,6 +120,12 @@ function GlyphBridge() {
     } finally {
       working.current = false;
       setBusy(false);
+      setHandedOff(false);
+      // Didn't finish: bring our window back so the player can try again.
+      if (failed) {
+        if (wasMode === "sign-in") openSignIn(then === "refill" ? { then: "refill" } : {});
+        else if (wasMode === "link") setLinkOpen(true);
+      }
     }
   };
 
@@ -161,6 +178,9 @@ function GlyphBridge() {
   };
   const remembered = glyph.address;
   const origin = typeof window === "undefined" ? "" : window.location.origin;
+
+  // While Glyph's window is working, render nothing (unmounted, so no focus trap competes with Privy's step).
+  if (handedOff) return null;
 
   return (
     <SignInWindow

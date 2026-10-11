@@ -2,8 +2,7 @@
 // on demand so Privy adds nothing to the initial page load.
 import { useQuery } from "@tanstack/react-query";
 import { useGlyphAccount } from "./glyph";
-import { useServerFn } from "@tanstack/react-start";
-import { linkPrivyAccount } from "@/lib/app.functions";
+import { getWalletUi, requestLinkWallet } from "./walletUi";
 import type { Hex } from "viem";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,21 +33,16 @@ export function useDefaultWalletAddress() {
 export function usePrivyWalletAdapter(prefer?: string | null): WalletAdapter {
   void prefer;
   const glyph = useGlyphAccount();
-  const linkFn = useServerFn(linkPrivyAccount);
   return {
     ready: glyph.ready,
     address: glyph.address,
     label: "Glyph wallet",
-    // Straight to Glyph's own sign-in window (from the tap), then record the wallet on the player's account.
-    connect: async () => {
-      try {
-        if (glyph.authenticated && !glyph.address) await glyph.logout();
-        await glyph.login();
-      } catch {
-        return; // Glyph window closed
-      }
-      const token = await glyph.getAccessToken();
-      if (token) await linkFn({ data: { accessToken: token } }).catch(() => undefined);
+    // Not connected to Glyph (e.g. the Glyph session expired): this runs inside the Refill/Burn window, and
+    // Privy's "Connecting to Glyph" step can't run under another open window, so hand over to the sign-in
+    // window in "add wallet" mode, which reopens Refill once Glyph is connected.
+    connect: () => {
+      const refill = getWalletUi().refill;
+      requestLinkWallet(refill ? { then: "refill" } : {});
     },
     // Glyph shows its own approval window and sends the payment on ApeChain.
     pay: ({ to, valueWei, data, chainId }) =>
