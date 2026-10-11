@@ -4,10 +4,10 @@
 // nothing until a request to useglyph.io succeeds) so the window always shows, with the reason if Glyph
 // can't start. Loaded on demand (first time someone opens Sign in, Refill or Add wallet)
 // and kept mounted after that.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PrivyProvider, type PrivyClientConfig } from "@privy-io/react-auth";
 import { apeChain } from "viem/chains";
-import { SignInWindow } from "./SignInWindow";
+import { setSignInControls } from "./SignInWindow";
 import { GLYPH_LOGIN_METHOD, useGlyphAccount } from "./glyph";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -110,6 +110,11 @@ function GlyphBridge() {
         toast.error(
           "Your browser blocked the Glyph window. Allow pop-ups for this site and tap Continue again.",
         );
+      } else if (/redirect|origin|domain|not allowed|allowlist/i.test(m)) {
+        toast.error(
+          `Glyph sign-in isn't allowed on ${window.location.origin} yet: add it in Privy → App settings → Domains. (${m})`,
+          { duration: 15_000 },
+        );
       } else if (/closed|cancel|exited|abort/i.test(m)) {
         toast.message(
           "Glyph sign-in was closed before it finished. Tap Continue with Glyph to try again.",
@@ -179,31 +184,33 @@ function GlyphBridge() {
   const remembered = glyph.address;
   const origin = typeof window === "undefined" ? "" : window.location.origin;
 
-  // While Glyph's window is working, render nothing (unmounted, so no focus trap competes with Privy's step).
-  if (handedOff) return null;
+  const props = {
+    open: !!mode,
+    mode: mode ?? "sign-in",
+    status: busy
+      ? "Finish in the Glyph window…"
+      : slow
+        ? "Glyph sign-in can't start on this site yet"
+        : undefined,
+    detail:
+      slow && !ready
+        ? `Privy didn't start on ${origin}. In the Privy dashboard, add this address under App settings → Domains (allowed origins), then reload.`
+        : undefined,
+    onContinue: ready && !busy ? () => void continueWithGlyph() : undefined,
+    continueLabel: remembered ? `Continue as ${short(remembered)}` : "Continue with Glyph",
+    onSwitchAccount: remembered && !busy ? switchAccount : undefined,
+    onClose: close,
+    hidden: handedOff,
+  } as const;
+  // Feed the app's one sign-in window (rendered by WalletHost) rather than rendering a second one.
+  const latest = useRef(props);
+  latest.current = props;
+  useLayoutEffect(() => {
+    setSignInControls({ ...latest.current });
+  });
+  useEffect(() => () => setSignInControls(null), []);
 
-  return (
-    <SignInWindow
-      open={!!mode}
-      mode={mode ?? "sign-in"}
-      status={
-        busy
-          ? "Finish in the Glyph window…"
-          : slow
-            ? "Glyph sign-in can't start on this site yet"
-            : undefined
-      }
-      detail={
-        slow && !ready
-          ? `Privy didn't start on ${origin}. In the Privy dashboard, add this address under App settings → Domains (allowed origins), then reload.`
-          : undefined
-      }
-      onContinue={ready && !busy ? () => void continueWithGlyph() : undefined}
-      continueLabel={remembered ? `Continue as ${short(remembered)}` : "Continue with Glyph"}
-      onSwitchAccount={remembered && !busy ? switchAccount : undefined}
-      onClose={close}
-    />
-  );
+  return null;
 }
 
 export default function PrivyLayer({

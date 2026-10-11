@@ -1,5 +1,6 @@
 // The app's sign-in window, in ApeGames colours (dark panel, gold accent). One look for every state: while
 // Glyph loads, when it can't, and ready — where its button opens Glyph's own sign-in window.
+import { useSyncExternalStore } from "react";
 import {
   Dialog,
   DialogContent,
@@ -73,4 +74,38 @@ export function SignInWindow({
       </DialogContent>
     </Dialog>
   );
+}
+
+// ---- One sign-in window for the whole app ----
+// WalletHost renders a single <HostedSignInWindow> from the first tap. The Glyph layer (loaded later) feeds
+// it through this store instead of rendering a window of its own, so the window doesn't flash while
+// settings and Glyph load (each swap to a new window used to re-run the open animation).
+type SignInWindowProps = Parameters<typeof SignInWindow>[0];
+/** What the Glyph layer wants shown; `hidden` = step aside (unmounted) while Glyph's own window works. */
+export type SignInControls = (SignInWindowProps & { hidden?: boolean }) | null;
+
+let controls: SignInControls = null;
+const listeners = new Set<() => void>();
+
+export function setSignInControls(next: SignInControls) {
+  controls = next;
+  listeners.forEach((l) => l());
+}
+
+function useSignInControls() {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => controls,
+    () => null,
+  );
+}
+
+/** The app's one sign-in window: the Glyph layer's state once it's up, `fallback` until then. */
+export function HostedSignInWindow({ fallback }: { fallback: SignInWindowProps }) {
+  const c = useSignInControls();
+  if (c?.hidden) return null; // unmounted, so its focus trap can't compete with Privy's step
+  return <SignInWindow {...(c ?? fallback)} />;
 }

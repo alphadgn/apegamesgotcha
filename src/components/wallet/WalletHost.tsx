@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { RefillDialog } from "./RefillDialog";
-import { SignInWindow } from "./SignInWindow";
+import { HostedSignInWindow } from "./SignInWindow";
 import { BurnDialog } from "./BurnDialog";
 import { closeBurn, closeRefill, closeSignIn, useWalletUi } from "./walletUi";
 
@@ -97,44 +97,45 @@ export function WalletHost() {
     </>
   );
 
-  if (privyOn) {
-    return (
-      <PrivyBoundary
-        onError={() => {
-          setPrivyFailed(true);
-          toast.error("Glyph sign-in isn't available right now. Please try again in a moment.");
-        }}
-      >
-        <Suspense
-          fallback={
-            <SignInWindow open={ui.signIn && !user} status="Loading Glyph…" onClose={closeSignIn} />
-          }
-        >
-          <PrivyLayer config={cfg} onUnavailable={privyUnavailable}>
-            {refill}
-          </PrivyLayer>
-        </Suspense>
-      </PrivyBoundary>
-    );
-  }
-
-  // Glyph isn't available (not configured, or it failed to load). Sign-in is Glyph only, so say so plainly;
-  // Refill still works for signed-in players through a browser-extension wallet.
+  // One sign-in window for every stage (settings loading → Glyph loading → ready), so it never flashes.
   const waiting = !cfg && !isError && !privyFailed;
-  return (
-    <>
-      {refill}
-      <SignInWindow
-        open={ui.signIn && !user}
-        onClose={closeSignIn}
-        status={
-          waiting
+  const signIn = (
+    <HostedSignInWindow
+      fallback={{
+        open: ui.signIn && !user,
+        onClose: closeSignIn,
+        status:
+          waiting || privyOn
             ? "Loading Glyph…"
             : !cfg?.privy_app_id
               ? "Glyph sign-in isn't set up yet. Please check back soon."
-              : "Glyph sign-in couldn't load right now. Check your connection and try again in a moment."
-        }
-      />
+              : "Glyph sign-in couldn't load right now. Check your connection and try again in a moment.",
+      }}
+    />
+  );
+
+  // The sign-in window always sits first, in the same place, so it isn't rebuilt when Glyph loads.
+  return (
+    <>
+      {signIn}
+      {privyOn ? (
+        <PrivyBoundary
+          onError={() => {
+            setPrivyFailed(true);
+            toast.error("Glyph sign-in isn't available right now. Please try again in a moment.");
+          }}
+        >
+          <Suspense fallback={null}>
+            <PrivyLayer config={cfg} onUnavailable={privyUnavailable}>
+              {refill}
+            </PrivyLayer>
+          </Suspense>
+        </PrivyBoundary>
+      ) : (
+        // Glyph isn't available (not configured, or it failed to load): the window says so; Refill still
+        // works for signed-in players through a browser-extension wallet.
+        refill
+      )}
     </>
   );
 }
