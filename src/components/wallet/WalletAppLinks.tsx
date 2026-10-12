@@ -5,6 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SIGN_IN_GOLD } from "./SignInWindow";
+import { linkWalletWithCode } from "@/lib/app.functions";
+
+type Eip1193 = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 
 type Link = { userId: string; nonce: string };
 
@@ -85,35 +88,64 @@ export function WalletAppLinks({
     }
   };
 
+  // A browser that already has a wallet (computer extension, or this page opened inside a wallet app):
+  // sign right here instead of switching apps.
+  const injected =
+    typeof window !== "undefined" ? ((window as unknown as { ethereum?: Eip1193 }).ethereum ?? null) : null;
+  const [signing, setSigning] = useState(false);
+  const signHere = async () => {
+    if (!injected || !link) return;
+    setSigning(true);
+    try {
+      const accounts = (await injected.request({ method: "eth_requestAccounts" })) as string[];
+      const address = accounts?.[0];
+      if (!address) throw new Error("No wallet account was shared.");
+      const message = `ApeGames Gotcha wallet verification\nUser: ${link.userId}\nNonce: ${link.nonce}`;
+      const signature = (await injected.request({ method: "personal_sign", params: [message, address] })) as string;
+      await linkWalletWithCode({ data: { userId: link.userId, nonce: link.nonce, address, signature } });
+      toast.success("Wallet added");
+      onLinked();
+    } catch (e) {
+      const m = (e as { message?: string })?.message ?? "Something went wrong";
+      toast.error(/reject|denied|cancel/i.test(m) ? "Signature cancelled, so the wallet wasn't added." : m);
+      getLink().then(setLink, () => undefined); // a fresh one-time code for the next try
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  const btn =
+    "min-h-12 w-full rounded-lg border px-3 py-2 text-base font-bold transition hover:bg-white/5 disabled:cursor-default disabled:opacity-60";
   return (
-    <div className="grid gap-2 rounded-lg border border-border p-3 text-left">
-      <p className="text-sm font-bold">On a phone? Add it from your wallet app</p>
-      <p className="text-xs text-muted-foreground">
-        Opens this site in your wallet app's browser, where the wallet signs a free message. Works when the button above
-        can't reach your wallet.
-      </p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {APPS.map((a) => (
-          <button
-            key={a.name}
-            type="button"
-            disabled={disabled || !url}
-            onClick={() => go(a)}
-            className="min-h-11 rounded-lg border px-2 py-1 text-sm font-bold transition hover:bg-white/5 disabled:opacity-60"
-            style={{ borderColor: SIGN_IN_GOLD, color: SIGN_IN_GOLD }}
-          >
-            {a.name}
-          </button>
-        ))}
-      </div>
-      <button type="button" disabled={disabled || !url} onClick={() => void copy()} className="text-xs underline disabled:opacity-60">
-        Another wallet app? Copy the link
-      </button>
+    <>
+      {APPS.map((a) => (
+        <button
+          key={a.name}
+          type="button"
+          disabled={disabled || !url || signing}
+          onClick={() => (injected ? void signHere() : go(a))}
+          className={btn}
+          style={{ borderColor: SIGN_IN_GOLD, color: SIGN_IN_GOLD }}
+        >
+          {signing ? "Approve in your wallet…" : a.name}
+        </button>
+      ))}
+      {!injected && (
+        <button
+          type="button"
+          disabled={disabled || !url}
+          onClick={() => void copy()}
+          className="text-center text-xs underline disabled:opacity-60"
+        >
+          Another wallet app? Copy the link
+        </button>
+      )}
       {waiting && (
-        <p className="text-xs text-primary">
-          Sign in your wallet app, then come back here: the wallet appears by itself. (The link works once, for 15 minutes.)
+        <p className="text-center text-xs text-primary">
+          Approve in your wallet app, then come back here: the wallet appears by itself. (The link works once, for 15
+          minutes.)
         </p>
       )}
-    </div>
+    </>
   );
 }

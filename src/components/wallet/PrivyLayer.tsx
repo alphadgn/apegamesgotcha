@@ -25,6 +25,7 @@ import {
   linkPrivyAccount,
   linkWallet,
   privySignIn,
+  syncNfts,
 } from "@/lib/app.functions";
 import { MAX_WALLETS } from "@/lib/wallet-limits";
 import { WalletAppLinks } from "./WalletAppLinks";
@@ -84,6 +85,7 @@ function GlyphBridge() {
   const linkFn = useServerFn(linkPrivyAccount);
   const qc = useQueryClient();
   const nonceFn = useServerFn(getWalletNonce);
+  const syncNftsFn = useServerFn(syncNfts);
   const linkWalletFn = useServerFn(linkWallet);
   const [busy, setBusy] = useState(false);
   /** Open for "Add wallet" (link Glyph to the signed-in player) rather than sign-in. */
@@ -443,10 +445,9 @@ function GlyphBridge() {
     onContinue:
       ready && !busy && !walletsFull && !glyphLinked ? () => void continueWithGlyph() : undefined,
     continueLabel: remembered ? `Link Glyph wallet ${short(remembered)}` : "Link a Glyph wallet",
-    secondary: {
-      label: "Connect another wallet (WalletConnect, MetaMask…)",
-      onClick: ready && !busy && !walletsFull ? connectExternal : undefined,
-    },
+    // No "Connect another wallet" (Privy's WalletConnect picker) here any more: on phones it failed before the
+    // wallet opened, and its separate pop-up looked untrustworthy. Wallet apps are added right in this window.
+    secondary: undefined,
     note: walletsFull
       ? `You've linked the maximum of ${MAX_WALLETS} wallets.`
       : `${walletCount} of ${MAX_WALLETS} wallets linked`,
@@ -463,6 +464,13 @@ function GlyphBridge() {
         onLinked={() => {
           closeSignIn();
           setLinkOpen(false);
+          // Check the new wallet for ApeGames NFTs straight away (the same check every linked wallet gets).
+          void syncNftsFn()
+            .then((r) => {
+              if (r.found) toast.success(`Found ${r.found} ApeGames NFT${r.found === 1 ? "" : "s"}${r.awarded ? `, +${r.awarded} points` : ""}`);
+            })
+            .catch(() => undefined)
+            .finally(() => void qc.invalidateQueries());
         }}
       />
     ),

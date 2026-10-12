@@ -51,7 +51,7 @@ export function SignInWindow({
           </DialogTitle>
           <DialogDescription>
             {mode === "link"
-              ? "Add a wallet you own: your Glyph wallet, or any other wallet through WalletConnect, MetaMask, Coinbase or Rainbow. Each wallet signs a free message to prove it's yours."
+              ? "Add a wallet you own: your Glyph wallet, or MetaMask, Coinbase Wallet or Trust Wallet. Each wallet signs a free message to prove it's yours. No transaction, no fees."
               : "Sign in with Glyph, the ApeChain wallet, to buy spins, win real prizes and climb the leaderboard."}
           </DialogDescription>
         </DialogHeader>
@@ -76,8 +76,8 @@ export function SignInWindow({
               {secondary.label}
             </button>
           )}
-          {note && <p className="text-center text-xs text-muted-foreground">{note}</p>}
           {extra}
+          {note && <p className="text-center text-xs text-muted-foreground">{note}</p>}
           {detail && <p className="break-words text-center text-xs text-destructive">{detail}</p>}
           {onSwitchAccount && (
             <button
