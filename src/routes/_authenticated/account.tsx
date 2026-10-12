@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getAvatarUploadUrl, getMyProfile, setMyAvatar, updateMyProfile, usernameSchema } from "@/lib/users.functions";
+import { checkUsername, getAvatarUploadUrl, getMyProfile, setMyAvatar, updateMyProfile, USERNAME_TAKEN, usernameSchema } from "@/lib/users.functions";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ function AccountPage() {
   const saveFn = useServerFn(updateMyProfile);
   const avatarFn = useServerFn(setMyAvatar);
   const uploadUrlFn = useServerFn(getAvatarUploadUrl);
+  const checkFn = useServerFn(checkUsername);
   const { data: me, isLoading } = useQuery({
     queryKey: ["my-profile"],
     queryFn: () => profileFn(),
@@ -42,6 +43,26 @@ function AccountPage() {
     if (me) setName(me.displayName ?? "");
   }, [me]);
 
+  // Live check while typing: is this username already someone else's?
+  const [taken, setTaken] = useState<string | null>(null);
+  const unchanged = name.trim().toLowerCase() === (me?.displayName ?? "").trim().toLowerCase();
+  useEffect(() => {
+    const parsed = usernameSchema.safeParse(name);
+    if (!me || unchanged || !parsed.success) return void setTaken(null);
+    let live = true;
+    const t = setTimeout(() => {
+      checkFn({ data: { displayName: parsed.data } }).then(
+        (r) => live && setTaken(r.available ? null : parsed.data),
+        () => undefined, // the save itself checks again
+      );
+    }, 350);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [name, me, unchanged, checkFn]);
+  const isTaken = !!taken && taken.toLowerCase() === name.trim().toLowerCase();
+
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["my-profile"] });
     void qc.invalidateQueries({ queryKey: ["leaderboard"] });
@@ -53,13 +74,16 @@ function AccountPage() {
     const parsed = usernameSchema.safeParse(name);
     if (!parsed.success)
       return void toast.error(parsed.error.issues[0]?.message ?? "Check your username");
+    if (isTaken) return void toast.error(USERNAME_TAKEN);
     setBusy("name");
     try {
       await saveFn({ data: { displayName: parsed.data } });
       toast.success("Username saved");
       refresh();
     } catch (err) {
-      toast.error((err as Error).message);
+      const msg = (err as Error).message;
+      if (msg === USERNAME_TAKEN) setTaken(parsed.data);
+      toast.error(msg);
     } finally {
       setBusy(null);
     }
@@ -160,13 +184,21 @@ function AccountPage() {
               onChange={(e) => setName(e.target.value)}
               maxLength={24}
               autoComplete="nickname"
+              aria-invalid={isTaken}
+              aria-describedby={isTaken ? "username-taken" : undefined}
+              className={isTaken ? "border-destructive focus-visible:ring-destructive" : undefined}
             />
-            <Button type="submit" disabled={!!busy || name.trim() === (me.displayName ?? "")}>
+            <Button type="submit" disabled={!!busy || isTaken || name.trim() === (me.displayName ?? "")}>
               {busy === "name" ? "Saving…" : "Save"}
             </Button>
           </div>
+          {isTaken && (
+            <p id="username-taken" role="alert" className="text-sm font-medium text-destructive">
+              {USERNAME_TAKEN}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
-            Shown on the leaderboard. 3–24 letters, numbers, spaces, dots, dashes or underscores.
+            Shown on the leaderboard. Each username belongs to one player. 3–24 letters, numbers, spaces, dots, dashes or underscores.
           </p>
         </form>
 

@@ -484,7 +484,7 @@ async function findPlayer(db: any, raw: string): Promise<{ id: string; label: st
   const pattern = who.replace(/[\\%_]/g, (c) => `\\${c}`); // exact match, ignoring case
   const { data: rows, error } = await db.from("profiles").select("id, display_name").ilike("display_name", pattern).limit(2);
   if (error) throw new Error(`Couldn't look up players: ${error.message}`);
-  if ((rows ?? []).length > 1) throw new Error(`More than one player is called "${who}". Use their email instead.`);
+  if ((rows ?? []).length > 1) throw new Error(`Two accounts share the username "${who}" (from before usernames were made unique). Use their email instead.`);
   const hit = (rows ?? [])[0] as { id: string; display_name: string } | undefined;
   if (!hit) throw new Error(`No player with the username or email "${who}".`);
   return { id: hit.id, label: hit.display_name };

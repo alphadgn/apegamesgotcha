@@ -35,15 +35,23 @@ export const usernameSchema = z
   .max(24, "Username can be at most 24 characters")
   .regex(/^[A-Za-z0-9 ._-]+$/, "Use letters, numbers, spaces, dots, dashes or underscores");
 
-async function assertUsernameFree(db: any, name: string, exceptUserId: string) {
-  const pattern = name.replace(/[\\%_]/g, (c) => `\\${c}`);
-  const { data } = await db
+export const USERNAME_TAKEN = "That username is already taken. Please choose another one.";
+
+/** True when another player already has this username (ignoring capitals and surrounding spaces). */
+async function usernameTaken(db: any, name: string, exceptUserId: string) {
+  const pattern = name.trim().replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data, error } = await db
     .from("profiles")
     .select("id")
     .ilike("display_name", pattern)
     .neq("id", exceptUserId)
     .limit(1);
-  if (data?.length) throw new Error("That username is taken. Try another one.");
+  if (error) throw new Error(`Couldn't check the username: ${error.message}`);
+  return !!data?.length;
+}
+
+async function assertUsernameFree(db: any, name: string, exceptUserId: string) {
+  if (await usernameTaken(db, name, exceptUserId)) throw new Error(USERNAME_TAKEN);
 }
 
 // ---------- Profile pictures ----------
@@ -84,7 +92,8 @@ async function saveAvatarPath(db: any, userId: string, path: string | null) {
 /** Changes the username (and stamps updated_at when that column exists). */
 async function saveDisplayName(db: any, userId: string, displayName: string) {
   const { error } = await db.from("profiles").upsert({ id: userId, display_name: displayName });
-  if (error) throw new Error(error.message);
+  // 23505 = the database's unique-username rule (someone took the name a moment earlier).
+  if (error) throw new Error(error.code === "23505" ? USERNAME_TAKEN : error.message);
   await db
     .from("profiles")
     .update({ updated_at: new Date().toISOString() })
@@ -147,6 +156,14 @@ export const getMyProfile = createServerFn({ method: "GET" })
     };
   });
 
+/** Whether a username is free for the signed-in player (for the live check on My account). */
+export const checkUsername = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ displayName: usernameSchema }).parse(d))
+  .handler(async ({ data, context }) => ({
+    available: !(await usernameTaken(await admin(), data.displayName, context.userId)),
+  }));
+
 export const updateMyProfile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ displayName: usernameSchema }).parse(d))
@@ -156,7 +173,8 @@ export const updateMyProfile = createServerFn({ method: "POST" })
     try {
       await saveDisplayName(db, context.userId, data.displayName);
     } catch (e) {
-      throw new Error(`Couldn't save your username: ${(e as Error).message}`);
+      const msg = (e as Error).message;
+      throw new Error(msg === USERNAME_TAKEN ? msg : `Couldn't save your username: ${msg}`);
     }
     await audit(context.userId, "profile.updated", { display_name: data.displayName });
     return { ok: true };
