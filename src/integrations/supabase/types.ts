@@ -310,6 +310,78 @@ export type Database = {
         }
         Relationships: []
       }
+      prize_claims: {
+        Row: {
+          address: Json | null
+          admin_note: string | null
+          created_at: string
+          delivery: string
+          email: string
+          full_name: string
+          id: string
+          notes: string | null
+          phone: string | null
+          prize_id: string | null
+          prize_name: string
+          spin_id: string
+          status: string
+          tracking: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address?: Json | null
+          admin_note?: string | null
+          created_at?: string
+          delivery: string
+          email: string
+          full_name: string
+          id?: string
+          notes?: string | null
+          phone?: string | null
+          prize_id?: string | null
+          prize_name: string
+          spin_id: string
+          status?: string
+          tracking?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: Json | null
+          admin_note?: string | null
+          created_at?: string
+          delivery?: string
+          email?: string
+          full_name?: string
+          id?: string
+          notes?: string | null
+          phone?: string | null
+          prize_id?: string | null
+          prize_name?: string
+          spin_id?: string
+          status?: string
+          tracking?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prize_claims_prize_id_fkey"
+            columns: ["prize_id"]
+            isOneToOne: false
+            referencedRelation: "prizes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prize_claims_spin_id_fkey"
+            columns: ["spin_id"]
+            isOneToOne: true
+            referencedRelation: "spins"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       prizes: {
         Row: {
           active: boolean
@@ -322,6 +394,7 @@ export type Database = {
           onchain_index: number | null
           points: number
           rarity: string
+          stocked: number | null
           weight: number
         }
         Insert: {
@@ -335,6 +408,7 @@ export type Database = {
           onchain_index?: number | null
           points?: number
           rarity?: string
+          stocked?: number | null
           weight?: number
         }
         Update: {
@@ -348,25 +422,32 @@ export type Database = {
           onchain_index?: number | null
           points?: number
           rarity?: string
+          stocked?: number | null
           weight?: number
         }
         Relationships: []
       }
       profiles: {
         Row: {
+          avatar_url: string | null
           created_at: string
           display_name: string | null
           id: string
+          updated_at: string
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string
           display_name?: string | null
           id: string
+          updated_at?: string
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string
           display_name?: string | null
           id?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -563,6 +644,21 @@ export type Database = {
           },
         ]
       }
+      super_admins: {
+        Row: {
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
@@ -649,6 +745,7 @@ export type Database = {
         Args: { _count: number; _user_id: string }
         Returns: string[]
       }
+      can_view_prize_image: { Args: { _name: string }; Returns: boolean }
       complete_spin_purchase: {
         Args: { _payer: string; _purchase_id: string; _tx_hash: string }
         Returns: {
@@ -722,6 +819,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_super_admin: { Args: { _user_id: string }; Returns: boolean }
       leaderboard_mode: { Args: never; Returns: string }
       refund_spins: { Args: { _ids: string[] }; Returns: number }
       use_demo_spins: {
