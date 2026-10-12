@@ -384,13 +384,33 @@ function PoolLevel({ pool, compact = false }: { pool: ReturnType<typeof poolStat
   );
 }
 
+const RARITY_ORDER: Record<Prize["rarity"], number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
+
+/** Dollar value written in a prize name, e.g. "Charleston VIP Pass $500" → 500 (0 when there is none). */
+function dollarValue(name: string) {
+  const m = /\$\s*([\d,]+(?:\.\d+)?)/.exec(name);
+  return m ? Number(m[1]!.replace(/,/g, "")) || 0 : 0;
+}
+
+function sortPrizes(rows: Prize[]) {
+  return [...rows].sort(
+    (a, b) =>
+      (RARITY_ORDER[a.rarity] ?? 9) - (RARITY_ORDER[b.rarity] ?? 9) ||
+      dollarValue(b.name) - dollarValue(a.name) ||
+      b.points - a.points ||
+      a.name.localeCompare(b.name),
+  );
+}
+
 function PrizesPanel() {
   const qc = useQueryClient();
   const save = useServerFn(adminUpsertPrize);
   const del = useServerFn(adminDeletePrize);
   const { data } = useQuery({ queryKey: ["prizes-admin"], queryFn: async () => (await supabase.from("prizes").select("*").order("created_at")).data ?? [] });
   const [rows, setRows] = useState<Prize[]>([]);
-  useEffect(() => { if (data) setRows(data as Prize[]); }, [data]);
+  // Sorted when loaded or saved (not while typing): legendary, epic, rare, common; within a rarity the highest
+  // dollar value in the name ("… $50") first, then more points, then name. Unsaved new rows stay at the bottom.
+  useEffect(() => { if (data) setRows(sortPrizes(data as Prize[])); }, [data]);
   const total = rows.filter((r) => r.active && (r.inventory == null || r.inventory > 0)).reduce((s, r) => s + r.weight, 0);
   const upd = (i: number, p: Partial<Prize>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const cols = "grid min-w-[920px] grid-cols-[56px_2fr_1fr_1fr_1fr_1fr_60px_50px_50px_70px_70px] gap-2";
