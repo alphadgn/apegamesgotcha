@@ -151,6 +151,17 @@ function RootComponent() {
     return () => data.subscription.unsubscribe();
   }, [router, queryClient]);
 
+  // The wallet-link page opens inside a wallet app's browser: show it on its own, without the site's menu,
+  // sign-in, guide or wallet windows, so nobody lands in a signed-out copy of the site there.
+  const pathname = useRouterState({ select: (st) => st.location.pathname });
+  if (pathname === "/link-wallet")
+    return (
+      <QueryClientProvider client={queryClient}>
+        <Outlet />
+        <Toaster theme="dark" />
+      </QueryClientProvider>
+    );
+
   return (
     <QueryClientProvider client={queryClient}>
       <SiteHeader />

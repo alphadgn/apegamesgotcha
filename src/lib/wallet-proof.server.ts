@@ -103,3 +103,36 @@ export async function verifyWalletProof(
   if (!ok) throw new Error("The wallet signature didn't check out. Please sign in again.");
   return address.toLowerCase();
 }
+
+// ---------- One-time wallet links (Add wallet from a phone wallet app) ----------
+// The signed-in player's Add wallet window gets a sealed code; the wallet app's browser opens
+// /link-wallet?c=<code>, the wallet signs `walletLinkMessage`, and the server links that wallet to the player who
+// made the code. The code is self-contained (sealed with the server secret), so nothing else the player does
+// meanwhile — reopening the window, switching apps, another sign-in — can cancel it. It expires after 15 minutes;
+// replaying it can only re-add the same wallet to the same account.
+
+const LINK_MAX_AGE_MS = 15 * 60_000;
+
+export async function issueWalletLinkCode(userId: string) {
+  const exp = Date.now() + LINK_MAX_AGE_MS;
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const body = `${userId}.${exp}.${rand}`;
+  return { code: `${body}.${await hmac(`walletlink|${body}`)}`, expiresAt: new Date(exp).toISOString() };
+}
+
+export async function readWalletLinkCode(code: string) {
+  const parts = code.split(".");
+  if (parts.length !== 4) throw new Error("This link isn't valid. Start again from Add wallet.");
+  const [userId, expText, rand, mac] = parts as [string, string, string, string];
+  const body = `${userId}.${expText}.${rand}`;
+  if (!sameString(mac, await hmac(`walletlink|${body}`))) throw new Error("This link isn't valid. Start again from Add wallet.");
+  const exp = Number(expText);
+  if (!Number.isFinite(exp) || Date.now() > exp) throw new Error("This link expired (links last 15 minutes). Start again from Add wallet.");
+  if (!/^[0-9a-f-]{36}$/i.test(userId)) throw new Error("This link isn't valid.");
+  return { userId, rand, expiresAt: new Date(exp).toISOString() };
+}
+
+/** What the wallet signs for a wallet link (rebuilt by the server from the code, never trusted from the page). */
+export function walletLinkMessage(l: { userId: string; rand: string; expiresAt: string }) {
+  return `ApeGames Gotcha: add this wallet to my account\nAccount: ${l.userId}\nCode: ${l.rand}\nValid until: ${l.expiresAt}\n\nNo transaction, no fees.`;
+}

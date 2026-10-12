@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  getWalletLinkCode,
   getWalletNonce,
   getWalletSignInChallenge,
   linkPrivyAccount,
@@ -86,6 +87,7 @@ function GlyphBridge() {
   const qc = useQueryClient();
   const nonceFn = useServerFn(getWalletNonce);
   const syncNftsFn = useServerFn(syncNfts);
+  const linkCodeFn = useServerFn(getWalletLinkCode);
   const linkWalletFn = useServerFn(linkWallet);
   const [busy, setBusy] = useState(false);
   /** Open for "Add wallet" (link Glyph to the signed-in player) rather than sign-in. */
@@ -453,12 +455,10 @@ function GlyphBridge() {
       : `${walletCount} of ${MAX_WALLETS} wallets linked`,
     // Phones: add a wallet from its own app's browser, no WalletConnect (MetaMask's WalletConnect route failed on
     // iPhone with "Waiting for MetaMask — Please try connecting again", Oct 12).
-    extra: walletsFull ? undefined : (
+    extra: walletsFull || !user ? undefined : (
       <WalletAppLinks
-        getLink={async () => {
-          const r = await nonceFn();
-          return { userId: r.userId, nonce: r.nonce };
-        }}
+        userId={user?.id ?? ""}
+        getCode={() => linkCodeFn()}
         walletCount={walletCount}
         disabled={busy}
         onLinked={() => {

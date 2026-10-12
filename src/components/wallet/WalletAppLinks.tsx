@@ -1,15 +1,17 @@
-// "Add wallet" on a phone, without WalletConnect: opens this site inside the wallet app's own browser
-// (MetaMask, Coinbase Wallet, Trust), where the wallet signs the verification message on /link-wallet.
-// The link carries a one-time code (the account's fresh verification nonce, valid 15 minutes).
+// "Add wallet" with a phone wallet app, without WalletConnect: opens /link-wallet?c=<sealed one-time code> inside
+// the wallet app's own browser (MetaMask, Coinbase Wallet, Trust), where the wallet signs and is linked to this
+// signed-in player. The code is kept for its whole life (15 min) in this tab, so the window re-opening while the
+// player is away in the wallet app can't swap it for a new one (that made the wallet app's link fail as
+// "used or replaced", Oct 12). With a wallet already in this browser (computer extension, or inside a wallet
+// app), the buttons sign right here instead.
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SIGN_IN_GOLD } from "./SignInWindow";
-import { linkWalletWithCode } from "@/lib/app.functions";
+import { describeWalletLink, linkWalletWithCode } from "@/lib/app.functions";
 
 type Eip1193 = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
-
-type Link = { userId: string; nonce: string };
+export type WalletLinkCode = { code: string; expiresAt: string };
 
 const APPS: { name: string; open: (url: string) => string }[] = [
   { name: "MetaMask", open: (url) => `https://metamask.app.link/dapp/${url.replace(/^https?:\/\//, "")}` },
@@ -17,33 +19,61 @@ const APPS: { name: string; open: (url: string) => string }[] = [
   { name: "Trust Wallet", open: (url) => `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(url)}` },
 ];
 
+const STORE = "gm-wallet-link-code";
+/** Reuse this player's code while it has at least 2 minutes left. */
+function storedCode(userId: string): WalletLinkCode | null {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(STORE) ?? "null") as (WalletLinkCode & { userId: string }) | null;
+    if (s && s.userId === userId && new Date(s.expiresAt).getTime() - Date.now() > 2 * 60_000) return s;
+  } catch {
+    /* storage unavailable */
+  }
+  return null;
+}
+function storeCode(userId: string, c: WalletLinkCode | null) {
+  try {
+    if (c) sessionStorage.setItem(STORE, JSON.stringify({ ...c, userId }));
+    else sessionStorage.removeItem(STORE);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function WalletAppLinks({
-  getLink,
+  userId,
+  getCode,
   walletCount,
   disabled,
   onLinked,
 }: {
-  /** A fresh one-time code (the signed-in player's verification nonce). */
-  getLink: () => Promise<Link>;
+  userId: string;
+  /** A fresh sealed one-time code for the signed-in player. */
+  getCode: () => Promise<WalletLinkCode>;
   walletCount: number;
   disabled?: boolean;
   onLinked: () => void;
 }) {
   const qc = useQueryClient();
-  const [link, setLink] = useState<Link | null>(null);
+  const [link, setLink] = useState<WalletLinkCode | null>(() => (typeof window === "undefined" ? null : storedCode(userId)));
   const [waiting, setWaiting] = useState(false);
   const startCount = useRef(walletCount);
 
-  // Prepared as the window opens, so the tap itself can open the wallet app straight away (iPhone needs that).
+  // Ready before the tap, so the tap itself opens the wallet app (iPhone needs that).
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || link) return;
     let live = true;
-    getLink().then((l) => live && setLink(l), () => undefined);
+    getCode().then(
+      (c) => {
+        storeCode(userId, c);
+        if (live) setLink(c);
+      },
+      () => undefined,
+    );
     return () => {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled]);
+  }, [disabled, link, userId]);
 
   // After the wallet app: look for the new wallet when the player comes back, and every few seconds meanwhile.
   useEffect(() => {
@@ -62,14 +92,14 @@ export function WalletAppLinks({
   useEffect(() => {
     if (waiting && walletCount > startCount.current) {
       setWaiting(false);
+      storeCode(userId, null); // used: the next wallet gets a fresh code
+      setLink(null);
       toast.success("Wallet added");
       onLinked();
     }
-  }, [waiting, walletCount, onLinked]);
+  }, [waiting, walletCount, onLinked, userId]);
 
-  const url = link
-    ? `${window.location.origin}/link-wallet?u=${encodeURIComponent(link.userId)}&n=${encodeURIComponent(link.nonce)}`
-    : "";
+  const url = link ? `${window.location.origin}/link-wallet?c=${encodeURIComponent(link.code)}` : "";
   const go = (app: (typeof APPS)[number]) => {
     if (!url) return;
     startCount.current = walletCount;
@@ -88,8 +118,7 @@ export function WalletAppLinks({
     }
   };
 
-  // A browser that already has a wallet (computer extension, or this page opened inside a wallet app):
-  // sign right here instead of switching apps.
+  // A wallet already in this browser (computer extension, or this site opened inside a wallet app): sign here.
   const injected =
     typeof window !== "undefined" ? ((window as unknown as { ethereum?: Eip1193 }).ethereum ?? null) : null;
   const [signing, setSigning] = useState(false);
@@ -97,18 +126,19 @@ export function WalletAppLinks({
     if (!injected || !link) return;
     setSigning(true);
     try {
+      const { message } = await describeWalletLink({ data: { code: link.code } });
       const accounts = (await injected.request({ method: "eth_requestAccounts" })) as string[];
       const address = accounts?.[0];
       if (!address) throw new Error("No wallet account was shared.");
-      const message = `ApeGames Gotcha wallet verification\nUser: ${link.userId}\nNonce: ${link.nonce}`;
       const signature = (await injected.request({ method: "personal_sign", params: [message, address] })) as string;
-      await linkWalletWithCode({ data: { userId: link.userId, nonce: link.nonce, address, signature } });
+      await linkWalletWithCode({ data: { code: link.code, address, signature } });
+      storeCode(userId, null);
+      setLink(null);
       toast.success("Wallet added");
       onLinked();
     } catch (e) {
       const m = (e as { message?: string })?.message ?? "Something went wrong";
       toast.error(/reject|denied|cancel/i.test(m) ? "Signature cancelled, so the wallet wasn't added." : m);
-      getLink().then(setLink, () => undefined); // a fresh one-time code for the next try
     } finally {
       setSigning(false);
     }
@@ -142,8 +172,7 @@ export function WalletAppLinks({
       )}
       {waiting && (
         <p className="text-center text-xs text-primary">
-          Approve in your wallet app, then come back here: the wallet appears by itself. (The link works once, for 15
-          minutes.)
+          Approve in your wallet app, then tap “Back to ApeGames Gotcha”. The wallet shows up here by itself.
         </p>
       )}
     </>
