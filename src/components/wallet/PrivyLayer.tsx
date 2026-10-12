@@ -27,6 +27,7 @@ import {
   privySignIn,
 } from "@/lib/app.functions";
 import { MAX_WALLETS } from "@/lib/wallet-limits";
+import { WalletAppLinks } from "./WalletAppLinks";
 import {
   closeSignIn,
   getWalletUi,
@@ -449,6 +450,22 @@ function GlyphBridge() {
     note: walletsFull
       ? `You've linked the maximum of ${MAX_WALLETS} wallets.`
       : `${walletCount} of ${MAX_WALLETS} wallets linked`,
+    // Phones: add a wallet from its own app's browser, no WalletConnect (MetaMask's WalletConnect route failed on
+    // iPhone with "Waiting for MetaMask — Please try connecting again", Oct 12).
+    extra: walletsFull ? undefined : (
+      <WalletAppLinks
+        getLink={async () => {
+          const r = await nonceFn();
+          return { userId: r.userId, nonce: r.nonce };
+        }}
+        walletCount={walletCount}
+        disabled={busy}
+        onLinked={() => {
+          closeSignIn();
+          setLinkOpen(false);
+        }}
+      />
+    ),
     onSwitchAccount: undefined,
   };
   const props = {

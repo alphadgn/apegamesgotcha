@@ -1,6 +1,6 @@
 // The app's sign-in window, in ApeGames colours (dark panel, gold accent). One look for every state: while
 // Glyph loads, when it can't, and ready — where its button opens Glyph's own sign-in window.
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,7 @@ export function SignInWindow({
   onSwitchAccount,
   secondary,
   note,
+  extra,
   onClose,
 }: {
   open: boolean;
@@ -37,6 +38,8 @@ export function SignInWindow({
   secondary?: { label: string; onClick?: (() => void) | undefined } | undefined;
   /** Small neutral line under the buttons (e.g. "2 of 5 wallets linked"). */
   note?: string | undefined;
+  /** More choices under the buttons (e.g. "Add it from your wallet app"). */
+  extra?: ReactNode;
   onClose: () => void;
 }) {
   return (
@@ -74,6 +77,7 @@ export function SignInWindow({
             </button>
           )}
           {note && <p className="text-center text-xs text-muted-foreground">{note}</p>}
+          {extra}
           {detail && <p className="break-words text-center text-xs text-destructive">{detail}</p>}
           {onSwitchAccount && (
             <button

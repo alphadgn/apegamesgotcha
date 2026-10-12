@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
+import { Route as LinkWalletRouteImport } from './routes/link-wallet'
 import { Route as SoundTestRouteImport } from './routes/sound-test'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
@@ -44,6 +45,11 @@ const AuthRoute = AuthRouteImport.update({
 const LeaderboardRoute = LeaderboardRouteImport.update({
   id: '/leaderboard',
   path: '/leaderboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LinkWalletRoute = LinkWalletRouteImport.update({
+  id: '/link-wallet',
+  path: '/link-wallet',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SoundTestRoute = SoundTestRouteImport.update({
@@ -88,6 +94,7 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/link-wallet': typeof LinkWalletRoute
   '/sound-test': typeof SoundTestRoute
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/link-wallet': typeof LinkWalletRoute
   '/sound-test': typeof SoundTestRoute
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/link-wallet': typeof LinkWalletRoute
   '/sound-test': typeof SoundTestRoute
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/leaderboard'
+    | '/link-wallet'
     | '/sound-test'
     | '/account'
     | '/admin'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/leaderboard'
+    | '/link-wallet'
     | '/sound-test'
     | '/account'
     | '/admin'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/leaderboard'
+    | '/link-wallet'
     | '/sound-test'
     | '/_authenticated/account'
     | '/_authenticated/admin'
@@ -173,6 +185,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AuthRoute: typeof AuthRoute
   LeaderboardRoute: typeof LeaderboardRoute
+  LinkWalletRoute: typeof LinkWalletRoute
   SoundTestRoute: typeof SoundTestRoute
   ApiGuideChatRoute: typeof ApiGuideChatRoute
   LovableEmailTransactionalPreviewRoute: typeof LovableEmailTransactionalPreviewRoute
@@ -213,6 +226,13 @@ declare module '@tanstack/react-router' {
       path: '/leaderboard'
       fullPath: '/leaderboard'
       preLoaderRoute: typeof LeaderboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/link-wallet': {
+      id: '/link-wallet'
+      path: '/link-wallet'
+      fullPath: '/link-wallet'
+      preLoaderRoute: typeof LinkWalletRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sound-test': {
@@ -290,6 +310,7 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AuthRoute: AuthRoute,
   LeaderboardRoute: LeaderboardRoute,
+  LinkWalletRoute: LinkWalletRoute,
   SoundTestRoute: SoundTestRoute,
   ApiGuideChatRoute: ApiGuideChatRoute,
   LovableEmailTransactionalPreviewRoute: LovableEmailTransactionalPreviewRoute,

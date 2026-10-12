@@ -73,41 +73,68 @@ export const getWalletNonce = createServerFn({ method: "POST" })
     const nonce = crypto.randomUUID();
     const db = await admin();
     await db.from("wallet_nonces").upsert({ user_id: context.userId, nonce, created_at: new Date().toISOString() });
-    return { message: `ApeGames Gotcha wallet verification\nUser: ${context.userId}\nNonce: ${nonce}` };
+    return { message: `ApeGames Gotcha wallet verification\nUser: ${context.userId}\nNonce: ${nonce}`, userId: context.userId, nonce };
   });
+
+/**
+ * Checks a wallet's signature of the account's current verification message and links the wallet.
+ * Shared by the signed-in flow (`linkWallet`) and the wallet-app flow (`linkWalletWithCode`).
+ */
+async function linkSignedWallet(userId: string, address0: string, signature: string, nonce?: string) {
+  const { verifyMessage, createPublicClient, http } = await import("viem");
+  const db = await admin();
+  const { data: row } = await db.from("wallet_nonces").select("nonce, created_at").eq("user_id", userId).maybeSingle();
+  if (!row || (nonce !== undefined && row.nonce !== nonce))
+    throw new Error("This link has been used or replaced. Start again from Add wallet.");
+  if (Date.now() - new Date(row.created_at).getTime() > 15 * 60_000)
+    throw new Error("This request expired. Start again from Add wallet.");
+  const message = `ApeGames Gotcha wallet verification\nUser: ${userId}\nNonce: ${row.nonce}`;
+  const sig = { address: address0 as `0x${string}`, message, signature: signature as `0x${string}` };
+  let ok = await verifyMessage(sig).catch(() => false);
+  if (!ok) {
+    // Smart-contract wallets (some WalletConnect wallets) sign via ERC-1271/6492: check on ApeChain.
+    const nft = (await getConfig("nft").catch(() => null)) as { rpc_url?: string } | null;
+    const client = createPublicClient({ transport: http(nft?.rpc_url || "https://rpc.apechain.com/http") });
+    ok = await client.verifyMessage(sig).catch(() => false);
+  }
+  if (!ok) throw new Error("Signature does not match wallet");
+  const address = address0.toLowerCase();
+  const { data: existing } = await db.from("wallets").select("user_id").eq("address", address).maybeSingle();
+  if (existing && existing.user_id !== userId) throw new Error("Wallet already linked to another account");
+  if (!existing) {
+    const { count: total } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", userId);
+    if ((total ?? 0) >= MAX_WALLETS) throw new Error(`You can link up to ${MAX_WALLETS} wallets.`);
+    const { count } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_default", true);
+    await db.from("wallets").insert({ user_id: userId, address, kind: "external", is_default: !count });
+  }
+  await db.from("wallet_nonces").delete().eq("user_id", userId);
+  await audit(userId, "wallet.linked", { address });
+  return { address };
+}
 
 export const linkWallet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ address: z.string().regex(/^0x[a-fA-F0-9]{40}$/), signature: z.string().startsWith("0x") }).parse(d))
-  .handler(async ({ data, context }) => {
-    const { verifyMessage, createPublicClient, http } = await import("viem");
-    const db = await admin();
-    const { data: row } = await db.from("wallet_nonces").select("nonce, created_at").eq("user_id", context.userId).single();
-    if (!row) throw new Error("Request a new signature first");
-    if (Date.now() - new Date(row.created_at).getTime() > 10 * 60_000) throw new Error("Signature request expired");
-    const message = `ApeGames Gotcha wallet verification\nUser: ${context.userId}\nNonce: ${row.nonce}`;
-    const sig = { address: data.address as `0x${string}`, message, signature: data.signature as `0x${string}` };
-    let ok = await verifyMessage(sig).catch(() => false);
-    if (!ok) {
-      // Smart-contract wallets (some WalletConnect wallets) sign via ERC-1271/6492: check on ApeChain.
-      const nft = (await getConfig("nft").catch(() => null)) as { rpc_url?: string } | null;
-      const client = createPublicClient({ transport: http(nft?.rpc_url || "https://rpc.apechain.com/http") });
-      ok = await client.verifyMessage(sig).catch(() => false);
-    }
-    if (!ok) throw new Error("Signature does not match wallet");
-    const address = data.address.toLowerCase();
-    const { data: existing } = await db.from("wallets").select("user_id").eq("address", address).maybeSingle();
-    if (existing && existing.user_id !== context.userId) throw new Error("Wallet already linked to another account");
-    if (!existing) {
-      const { count: total } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", context.userId);
-      if ((total ?? 0) >= MAX_WALLETS) throw new Error(`You can link up to ${MAX_WALLETS} wallets.`);
-      const { count } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", context.userId).eq("is_default", true);
-      await db.from("wallets").insert({ user_id: context.userId, address, kind: "external", is_default: !count });
-    }
-    await db.from("wallet_nonces").delete().eq("user_id", context.userId);
-    await audit(context.userId, "wallet.linked", { address });
-    return { address };
-  });
+  .handler(async ({ data, context }) => linkSignedWallet(context.userId, data.address, data.signature));
+
+/**
+ * Add a wallet from a phone wallet app's own browser (MetaMask, Coinbase Wallet, Trust…), without WalletConnect
+ * and without signing in there. The signed-in player's "Add wallet" window makes a one-time link
+ * (`/link-wallet?u=<their id>&n=<fresh nonce>`, valid 15 minutes, used once); the wallet app opens it, the wallet
+ * signs the same verification message, and this links that wallet to the player who made the link.
+ */
+export const linkWalletWithCode = createServerFn({ method: "POST" })
+  .inputValidator((d) =>
+    z
+      .object({
+        userId: z.string().uuid(),
+        nonce: z.string().uuid(),
+        address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+        signature: z.string().startsWith("0x").max(20_000),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => linkSignedWallet(data.userId, data.address, data.signature, data.nonce));
 
 // ---------- NFT sync & holding points ----------
 export const syncNfts = createServerFn({ method: "POST" })
