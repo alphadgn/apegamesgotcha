@@ -203,15 +203,16 @@ export function createSfx() {
 
 // ---- Music volume (the slider on the left palm tree) ----
 // Only a number: the jukebox applies it to the playing track's own gain, so the audio path stays as it was.
-// New key: starts everyone back at full volume (the music's original loudness); the old setting is ignored.
-const VOLUME_KEY = "gm-music-volume-v2";
+// Default = the owner's chosen starting level (about 20% up the slider). New key so everyone starts there.
+const VOLUME_KEY = "gm-music-volume-v3";
+export const DEFAULT_MUSIC_VOLUME = 0.2;
 let volume = (() => {
   try {
     const raw = localStorage.getItem(VOLUME_KEY);
     const v = Number(raw);
-    return raw !== null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+    return raw !== null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : DEFAULT_MUSIC_VOLUME;
   } catch {
-    return 1;
+    return DEFAULT_MUSIC_VOLUME;
   }
 })();
 const volumeListeners = new Set<(v: number) => void>();
