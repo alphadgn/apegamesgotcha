@@ -99,6 +99,13 @@
       "when": 1791760000000,
       "tag": "0013_prize_images_server_only",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791770000000,
+      "tag": "0014_prize_images_public",
+      "breakpoints": true
     }
   ]
 }

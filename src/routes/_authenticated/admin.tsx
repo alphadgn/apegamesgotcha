@@ -307,7 +307,7 @@ type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "
 
 /** Prize images live in a private bucket; `image_url` stores the file path and is shown via a signed link. */
 function PrizeImage({ path, onChange }: { path?: string | null | undefined; onChange: (p: string | null) => void }) {
-  const url = usePrizeImageUrl(path); // signed link from the server (admins may see every prize picture)
+  const url = usePrizeImageUrl(path);
   const [busy, setBusy] = useState(false);
   return (
     <label className="relative flex h-12 w-12 cursor-pointer items-center justify-center overflow-hidden rounded border border-dashed border-border bg-background text-[10px] text-muted-foreground" title={path ? "Replace image" : "Upload image"}>
