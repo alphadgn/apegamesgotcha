@@ -437,8 +437,10 @@ export const adminGrant = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z
       .object({
-        email: z.string().email(),
-        spins: z.number().int().min(0).max(100),
+        /** Username, email or linked wallet address of the player. (`email` is the older name of this field.) */
+        who: z.string().trim().max(320).optional(),
+        email: z.string().trim().max(320).optional(),
+        spins: z.number().int().min(0, "Spins can't be negative").max(100, "Grant at most 100 spins at a time"),
         /** real = paid-equivalent on-chain spin; demo = practice spin (no prizes or points). */
         kind: z.enum(["real", "demo"]),
         points: z.number().int(),
@@ -449,8 +451,7 @@ export const adminGrant = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const db = await admin();
-    const user = await userByEmail(db, data.email);
-    if (!user) throw new Error("No user with that email");
+    const user = await findPlayer(db, data.who ?? data.email ?? "");
     if (data.spins > 0) {
       const { grantSpins } = await import("./grants.server");
       await grantSpins(db, { userId: user.id, count: data.spins, kind: data.kind, note: data.note, actor: context.userId });
@@ -460,8 +461,34 @@ export const adminGrant = createServerFn({ method: "POST" })
       if (error) throw new Error(`Couldn't adjust points: ${error.message}`);
       await audit(context.userId, "admin.points", { user_id: user.id, points: data.points, note: data.note });
     }
-    return { ok: true };
+    return { ok: true, player: user.label };
   });
+
+/**
+ * Finds one player by username (case-insensitive, exact), email, or a linked wallet address (0x…).
+ * Throws a plain message when nobody (or more than one player) matches.
+ */
+async function findPlayer(db: any, raw: string): Promise<{ id: string; label: string }> {
+  const who = raw.trim().replace(/^@/, "");
+  if (!who) throw new Error("Enter the player's username or email.");
+  if (/^0x[0-9a-fA-F]{40}$/.test(who)) {
+    const { data } = await db.from("wallets").select("user_id").eq("address", who.toLowerCase()).maybeSingle();
+    if (!data?.user_id) throw new Error(`No player has the wallet ${who} linked.`);
+    return { id: data.user_id as string, label: who };
+  }
+  if (who.includes("@")) {
+    const user = await userByEmail(db, who);
+    if (user) return { id: user.id, label: user.email ?? who };
+    // Not an email after all? Fall through and try it as a username.
+  }
+  const pattern = who.replace(/[\\%_]/g, (c) => `\\${c}`); // exact match, ignoring case
+  const { data: rows, error } = await db.from("profiles").select("id, display_name").ilike("display_name", pattern).limit(2);
+  if (error) throw new Error(`Couldn't look up players: ${error.message}`);
+  if ((rows ?? []).length > 1) throw new Error(`More than one player is called "${who}". Use their email instead.`);
+  const hit = (rows ?? [])[0] as { id: string; display_name: string } | undefined;
+  if (!hit) throw new Error(`No player with the username or email "${who}".`);
+  return { id: hit.id, label: hit.display_name };
+}
 
 async function userByEmail(db: any, email: string): Promise<{ id: string; email?: string } | undefined> {
   const want = email.trim().toLowerCase();

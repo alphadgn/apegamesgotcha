@@ -702,11 +702,23 @@ const GRANT_KINDS = {
 } as const;
 type GrantKind = keyof typeof GRANT_KINDS;
 
+/** An error's message, with raw validation output (a JSON list of issues) turned into plain sentences. */
+function friendlyError(e: unknown) {
+  const msg = (e as Error)?.message ?? String(e);
+  try {
+    const issues = JSON.parse(msg) as { message?: string }[];
+    if (Array.isArray(issues) && issues.length) return issues.map((i) => i.message ?? "Invalid value").join(" · ");
+  } catch {
+    /* not JSON: already a plain message */
+  }
+  return msg;
+}
+
 function GrantsPanel() {
   const qc = useQueryClient();
   const grant = useServerFn(adminGrant);
   const setLevel = useServerFn(adminSetLevel);
-  const [g, setG] = useState<{ email: string; spins: number; kind: GrantKind; points: number; note: string }>({ email: "", spins: 1, kind: "real", points: 0, note: "" });
+  const [g, setG] = useState<{ who: string; spins: number; kind: GrantKind; points: number; note: string }>({ who: "", spins: 1, kind: "real", points: 0, note: "" });
   const [busy, setBusy] = useState(false);
   const [lv, setLv] = useState({ tokenId: "", level: "" });
   // Paid-equivalent spins are real on-chain draws, so they can only be played while the draw is switched on.
@@ -723,7 +735,17 @@ function GrantsPanel() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-3 rounded border border-border bg-card p-4">
           <h3 className="font-bold">Grant spins / adjust points</h3>
-          <Input placeholder="user email" type="email" value={g.email} onChange={(e) => setG({ ...g, email: e.target.value })} />
+          <label className="block text-left text-xs text-muted-foreground">
+            Player
+            <Input
+              placeholder="username, email or wallet address"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={g.who}
+              onChange={(e) => setG({ ...g, who: e.target.value })}
+            />
+          </label>
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Spin type</legend>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -759,15 +781,16 @@ function GrantsPanel() {
           </div>
           <Input placeholder="reason / note (shown in the grant log)" value={g.note} onChange={(e) => setG({ ...g, note: e.target.value })} />
           <Button
-            disabled={busy || !g.email || (g.spins <= 0 && g.points === 0)}
+            disabled={busy || !g.who.trim() || (g.spins <= 0 && g.points === 0)}
             onClick={async () => {
               setBusy(true);
               try {
-                await grant({ data: g });
-                toast.success(g.spins > 0 ? `Granted ${g.spins} ${GRANT_KINDS[g.kind].label.toLowerCase()} spin${g.spins === 1 ? "" : "s"} — usable now` : "Points adjusted");
+                const res = await grant({ data: g });
+                const to = res?.player ? ` to ${res.player}` : "";
+                toast.success(g.spins > 0 ? `Granted ${g.spins} ${GRANT_KINDS[g.kind].label.toLowerCase()} spin${g.spins === 1 ? "" : "s"}${to} — usable now` : `Points adjusted${to ? ` for ${res.player}` : ""}`);
                 void qc.invalidateQueries({ queryKey: ["spin-grants"] });
               } catch (e) {
-                toast.error((e as Error).message);
+                toast.error(friendlyError(e));
               } finally {
                 setBusy(false);
               }
