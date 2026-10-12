@@ -17,6 +17,7 @@ import { adminListIrlClaims, adminUpdateClaim, type ClaimStatus } from "@/lib/cl
 import { LOW_STOCK_WARNING, poolStatus, RESTOCK_MESSAGE, type PoolPrize } from "@/lib/prize-pool";
 import { superDeleteAccount, superListAccounts, superSetRole, superUpdateAccount, type AccountRow } from "@/lib/users.functions";
 import { Avatar } from "@/components/Avatar";
+import { sortPrizes } from "@/lib/prize-order";
 import { ConfirmHost, confirmAction } from "@/components/ConfirmAction";
 
 export const Route = createFileRoute("/_authenticated/admin")({
@@ -381,24 +382,6 @@ function PoolLevel({ pool, compact = false }: { pool: ReturnType<typeof poolStat
         </span>
       )}
     </div>
-  );
-}
-
-const RARITY_ORDER: Record<Prize["rarity"], number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
-
-/** Dollar value written in a prize name, e.g. "Charleston VIP Pass $500" → 500 (0 when there is none). */
-function dollarValue(name: string) {
-  const m = /\$\s*([\d,]+(?:\.\d+)?)/.exec(name);
-  return m ? Number(m[1]!.replace(/,/g, "")) || 0 : 0;
-}
-
-function sortPrizes(rows: Prize[]) {
-  return [...rows].sort(
-    (a, b) =>
-      (RARITY_ORDER[a.rarity] ?? 9) - (RARITY_ORDER[b.rarity] ?? 9) ||
-      dollarValue(b.name) - dollarValue(a.name) ||
-      b.points - a.points ||
-      a.name.localeCompare(b.name),
   );
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { sortPrizes } from "@/lib/prize-order";
 import { MotionIcon, Palmetto, Skyline, SoundIcon, TorchEmblem, prizeArt } from "./icons";
 import { PrizeImage } from "@/components/PrizeImage";
 import { createSfx, type Sfx } from "./sound";
@@ -1009,7 +1010,7 @@ export function GotchaMachine({
         <aside className="gm-card gm-pool">
           <p className="gm-card-kicker">Prize pool</p>
           <ul>
-            {pool.map((p) => {
+            {sortPrizes(pool).map((p) => {
               const Art = prizeArt(p.name, p.rarity);
               const odds = poolTotal && p.weight != null && p.inventory !== 0 ? (p.weight / poolTotal) * 100 : null;
               return (
