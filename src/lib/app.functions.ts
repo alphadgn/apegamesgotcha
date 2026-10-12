@@ -1029,6 +1029,9 @@ export const getPrivyPublicConfig = createServerFn({ method: "GET" }).handler(as
     chain_id: cfg?.chain_id ?? 33139,
     rpc_url: cfg?.rpc_url ?? "https://rpc.apechain.com/http",
     explorer_url: cfg?.explorer_url ?? null,
+    /** Optional own WalletConnect (Reown) project ID; Privy's shared one is used when unset. Public by design. */
+    walletconnect_project_id:
+      ((cfg as { walletconnect_project_id?: string } | null)?.walletconnect_project_id ?? "").trim() || null,
   };
 });
 

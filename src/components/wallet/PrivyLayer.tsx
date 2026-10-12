@@ -11,7 +11,7 @@ import {
   useModalStatus,
   type PrivyClientConfig,
 } from "@privy-io/react-auth";
-import { apeChain } from "viem/chains";
+import { apeChain, base, mainnet } from "viem/chains";
 import { setSignInControls } from "./SignInWindow";
 import { glyphAddress, useGlyphAccount } from "./glyph";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -41,6 +41,7 @@ export type PrivyPublicConfig = {
   chain_id: number;
   rpc_url: string;
   explorer_url: string | null;
+  walletconnect_project_id?: string | null;
 };
 
 /** Wallets players can connect from "Add wallet" (WalletConnect covers most mobile wallets, incl. Rabby). */
@@ -52,8 +53,14 @@ const EXTERNAL_WALLETS: NonNullable<NonNullable<PrivyClientConfig["appearance"]>
   "rainbow",
 ];
 
-/** ApeChain, where Glyph wallets pay (Privy bundles its own viem types, hence the cast). */
-const APECHAIN = apeChain as unknown as NonNullable<PrivyClientConfig["defaultChain"]>;
+/**
+ * Networks offered to outside wallets (MetaMask, WalletConnect…) as optional. ApeChain stays first, so it's the
+ * default, but it is NOT required: when PrivyProvider gets `defaultChain`, Privy makes that chain *required* in the
+ * WalletConnect request, and phone wallets that don't have ApeChain set up (MetaMask) refuse the connection
+ * ("Waiting for MetaMask — Please try connecting again"). Adding a wallet only needs a signature, which works on
+ * any network; Glyph payments and burns name ApeChain explicitly.
+ */
+const CHAINS = [apeChain, mainnet, base] as unknown as NonNullable<PrivyClientConfig["supportedChains"]>;
 
 const errorText = (e: unknown) =>
   (e as { shortMessage?: string }).shortMessage ?? (e as Error)?.message ?? "Something went wrong";
@@ -518,8 +525,9 @@ export default function PrivyLayer({
         },
         // Glyph provides the wallet; the app doesn't create Privy embedded wallets.
         embeddedWallets: { ethereum: { createOnLogin: "off" } },
-        defaultChain: APECHAIN,
-        supportedChains: [APECHAIN],
+        // No defaultChain on purpose (see CHAINS): ApeChain is first, so it is still the default network.
+        supportedChains: CHAINS,
+        ...(config.walletconnect_project_id ? { walletConnectCloudProjectId: config.walletconnect_project_id } : {}),
       }}
     >
       <GlyphBridge />
