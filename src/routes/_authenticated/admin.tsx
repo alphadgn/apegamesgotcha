@@ -19,6 +19,7 @@ import { superDeleteAccount, superListAccounts, superSetRole, superUpdateAccount
 import { Avatar } from "@/components/Avatar";
 import { sortPrizes } from "@/lib/prize-order";
 import { ConfirmHost, confirmAction } from "@/components/ConfirmAction";
+import { PagePending } from "@/components/PagePending";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -37,7 +38,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
 
 function Admin() {
   const { isAdmin, isSuperAdmin, loading } = useAuth();
-  if (loading) return null;
+  if (loading) return <PagePending />;
   if (!isAdmin) return <main className="mx-auto max-w-3xl px-4 py-16 text-muted-foreground">Admins only.</main>;
   // Promoted admins: Setup checklist, Prizes & odds, Grants & levels, Leaderboard & prizes.
   // The super admin also gets Configuration, Chainlink VRF, Audit log and Admins (all enforced on the server).

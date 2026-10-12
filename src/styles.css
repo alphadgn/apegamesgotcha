@@ -420,3 +420,19 @@
   box-shadow: 0 1px 0 #13702f, 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 3px 7px rgba(0, 0, 0, 0.3), 0 0 16px rgba(110, 255, 150, 0.85);
 }
 .admin-tabs [role="tab"][data-state]:focus-visible { outline: 2px solid #a6f5b9; outline-offset: 2px; }
+
+/* Smooth page changes: each page fades in; the loading indicator waits a moment so quick loads never flash it. */
+.page-enter { animation: page-enter 0.22s ease-out both; }
+@keyframes page-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.page-pending { animation: page-pending-in 0.2s ease-out 0.25s both; }
+@keyframes page-pending-in { from { opacity: 0; } to { opacity: 1; } }
+.page-pending-dot {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid color-mix(in srgb, #f6c343 25%, transparent); border-top-color: #f6c343;
+  animation: page-spin 0.8s linear infinite;
+}
+@keyframes page-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .page-pending { animation: none; }
+  .page-pending-dot { animation-duration: 2s; }
+}

@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { PagePending } from "@/components/PagePending";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
@@ -126,7 +127,7 @@ function AccountPage() {
   };
 
   if (isLoading || !me)
-    return <main className="mx-auto max-w-xl px-4 py-12 text-muted-foreground">Loading…</main>;
+    return <PagePending />;
 
   return (
     <main className="mx-auto max-w-xl px-4 py-8 sm:py-12">

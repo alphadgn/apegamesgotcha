@@ -6,6 +6,8 @@ export function PageArtwork() {
       <img
         src={artwork.url}
         alt=""
+        decoding="async"
+        fetchPriority="high"
         className="h-full w-full object-cover object-center opacity-45"
       />
       <div className="absolute inset-0 bg-background/65 md:bg-background/60" />

@@ -23,6 +23,32 @@ function shareText(spins: ShareSpin[], demo: boolean) {
     .join("\n");
 }
 
+/**
+ * The share card's lettering (Oswald) is loaded only when someone shares, so the stylesheet doesn't hold up the
+ * first paint of every page.
+ */
+const SHARE_FONTS = "https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Chakra+Petch:wght@600&display=swap";
+async function loadShareFonts() {
+  try {
+    if (!document.querySelector(`link[href="${SHARE_FONTS}"]`)) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = SHARE_FONTS;
+      await new Promise<void>((done) => {
+        link.onload = link.onerror = () => done();
+        document.head.appendChild(link);
+        window.setTimeout(done, 2500);
+      });
+    }
+    await Promise.race([
+      Promise.all([document.fonts.load("700 44px Oswald"), document.fonts.load("600 28px Oswald")]),
+      new Promise((r) => window.setTimeout(r, 2500)),
+    ]);
+  } catch {
+    /* fonts optional: falls back to a system font */
+  }
+}
+
 /** Draw a 1080×1350 card (Instagram portrait) of the spins, using the same prize art as the machine. */
 async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElement): Promise<Blob | null> {
   const W = 1080, H = 1350;
@@ -31,11 +57,7 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   c.height = H;
   const g = c.getContext("2d");
   if (!g) return null;
-  try {
-    await document.fonts?.ready;
-  } catch {
-    /* fonts optional */
-  }
+  await loadShareFonts();
   const display = "Oswald, 'Chakra Petch', sans-serif";
 
   const bg = g.createLinearGradient(0, 0, 0, H);

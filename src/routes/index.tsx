@@ -43,7 +43,7 @@ function Index() {
       <section className="py-12 md:py-16">
         <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">Go ApeGames 2026 · Pre-event</p>
         <h1 className="mt-4 text-5xl font-bold leading-[0.95] md:text-7xl">
-          Click to Spin.<br /><span className="text-primary">Try Your Luck 🍀</span>
+          Click to Spin<br /><span className="text-primary">Try Your Luck 🍀</span>
         </h1>
         <p className="mt-6 max-w-lg text-lg text-muted-foreground">
           The official gacha for the Go ApeGames 2026 launch. Hold, burn and spin to stack points before Charleston.

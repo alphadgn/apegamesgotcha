@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { sortPrizes } from "@/lib/prize-order";
 import { MotionIcon, Palmetto, Skyline, SoundIcon, TorchEmblem, prizeArt } from "./icons";
 import { PrizeImage } from "@/components/PrizeImage";
@@ -158,6 +158,7 @@ export function GotchaMachine({
 }: Props) {
   const picks = !!onPlayModeChange; // DEMO / LIVE buttons on this machine
   const unpicked = picks && !playMode;
+  const arcId = `gm-arc-${useId().replace(/:/g, "")}`;
   const pool = prizes.length ? prizes : FALLBACK_PRIZES;
   const tiles = useMemo(() => {
     const n = Math.max(TILE_COUNT, pool.length);
@@ -820,8 +821,13 @@ export function GotchaMachine({
         <section className="gm-center">
           <div className="gm-machine">
             <div className="gm-marquee">
-              <span className="gm-mq-go">Go</span>
-              <span className="gm-mq-main">ApeGames</span>
+              {/* "ApeGames" arched like a rainbow (ends curving down), filling the space above where "Go" was. */}
+              <svg className="gm-mq-arc" viewBox="0 0 200 64" role="img" aria-label="ApeGames">
+                <path id={arcId} d="M 8 60 Q 100 2 192 60" fill="none" />
+                <text textAnchor="middle">
+                  <textPath href={`#${arcId}`} startOffset="50%">APEGAMES</textPath>
+                </text>
+              </svg>
               <span className="gm-mq-year">2026</span>
             </div>
 

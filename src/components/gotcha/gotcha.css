@@ -152,8 +152,12 @@
   font-family: var(--gm-display); font-weight: 700; text-transform: uppercase; line-height: 0.9;
   color: var(--gm-red);
 }
-.gm-mq-go { font-size: calc(var(--vault) * 0.06); }
-.gm-mq-main { font-size: calc(var(--vault) * 0.088); letter-spacing: 0.01em; -webkit-text-stroke: 1px var(--gm-red-deep); }
+/* Arched "ApeGames": an SVG text on a curve, scaled with the machine. */
+.gm-mq-arc { display: block; width: 100%; height: auto; overflow: visible; margin-bottom: calc(var(--vault) * -0.004); }
+.gm-mq-arc text {
+  font-size: 34px; font-weight: 700; letter-spacing: 0.02em;
+  fill: var(--gm-red); stroke: var(--gm-red-deep); stroke-width: 1.4px; paint-order: stroke fill;
+}
 .gm-mq-year { font-size: calc(var(--vault) * 0.06); color: var(--gm-navy); }
 
 .gm-vault {

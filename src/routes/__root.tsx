@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -15,6 +16,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Toaster } from "@/components/ui/sonner";
 import { PageArtwork } from "@/components/PageArtwork";
+import artwork from "@/assets/apegames-event-collage.jpeg.asset.json";
+import { PagePending } from "@/components/PagePending";
 import { FloatingGuide } from "@/components/guide/GuideButton";
 import { WalletHost } from "@/components/wallet/WalletHost";
 import { RestockPopup } from "@/components/RestockPopup";
@@ -93,17 +96,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.ico", sizes: "any" },
       { rel: "icon", type: "image/png", href: "/favicon.png" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Oswald:wght@500;600;700&family=Yellowtail&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap",
-      },
+      // The app's two fonts load first (no Google Fonts stylesheet holding up the first paint), so text appears in
+      // its final font with less jumping. Freaky Spooky = titles, Saira Semi Condensed = everything else.
+      { rel: "preload", as: "font", type: "font/otf", href: "/__l5e/assets-v1/37ee4c58-7303-448c-9303-082e081d694c/freaky-spooky.otf", crossOrigin: "anonymous" },
+      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/saira-semi-condensed/saira-semi-condensed-latin-400-normal.woff2", crossOrigin: "anonymous" },
+      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/saira-semi-condensed/saira-semi-condensed-latin-700-normal.woff2", crossOrigin: "anonymous" },
+      { rel: "preload", as: "image", href: artwork.url },
     ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
+  pendingComponent: PagePending,
   errorComponent: ErrorComponent as any,
 });
 
@@ -125,6 +129,16 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Each page fades in gently when it opens (no fade for people who turn motion off). */
+function PageFade({ children }: { children: ReactNode }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  return (
+    <div key={pathname} className="page-enter flex flex-1 flex-col">
+      {children}
+    </div>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
@@ -140,7 +154,9 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <SiteHeader />
-      <Outlet />
+      <PageFade>
+        <Outlet />
+      </PageFade>
       <FloatingGuide />
       <WalletHost />
       <RestockPopup />

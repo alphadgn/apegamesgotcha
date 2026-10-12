@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PagePending } from "@/components/PagePending";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
@@ -52,8 +53,9 @@ function useMyData() {
   return useQuery({
     queryKey: ["me"],
     queryFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      const uid = u.user!.id;
+      // Local session read (no extra network round trip); the database checks the token on every query anyway.
+      const { data: sess } = await supabase.auth.getSession();
+      const uid = sess.session!.user.id;
       const [wallets, holdings, ledger, credits, spins, nftCfg, prizes] = await Promise.all([
         supabase.from("wallets").select("*").eq("user_id", uid),
         supabase.from("nft_holdings").select("*").eq("user_id", uid).order("token_id"),
@@ -178,7 +180,7 @@ function Dashboard() {
     throw new Error("Still waiting for ApeChain to confirm that transaction. Try Verify again in a minute.");
   });
 
-  if (!data) return <main className="mx-auto max-w-6xl px-4 py-12 font-mono text-muted-foreground">Loading…</main>;
+  if (!data) return <PagePending />;
   const total = data.ledger.reduce((s, l) => s + l.amount, 0);
   const minLevel = data.nft.burn_min_level ?? 4;
 
