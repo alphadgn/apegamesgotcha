@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, type ReactNode } from "react";
 import { SwipeToDelete } from "@/components/SwipeToDelete";
 import { toast } from "sonner";
+import { usePrizeImageUrl } from "@/components/PrizeImage";
 import { supabase } from "@/integrations/supabase/client";
 import { adminUpdateConfig, adminUpsertPrize, adminDeletePrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages, adminPoolStatus } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
@@ -306,14 +307,8 @@ type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "
 
 /** Prize images live in a private bucket; `image_url` stores the file path and is shown via a signed link. */
 function PrizeImage({ path, onChange }: { path?: string | null | undefined; onChange: (p: string | null) => void }) {
-  const [url, setUrl] = useState<string | null>(null);
+  const url = usePrizeImageUrl(path); // signed link from the server (admins may see every prize picture)
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    if (!path) { setUrl(null); return; }
-    supabase.storage.from("prize-images").createSignedUrl(path, 3600).then(({ data }) => { if (live) setUrl(data?.signedUrl ?? null); });
-    return () => { live = false; };
-  }, [path]);
   return (
     <label className="relative flex h-12 w-12 cursor-pointer items-center justify-center overflow-hidden rounded border border-dashed border-border bg-background text-[10px] text-muted-foreground" title={path ? "Replace image" : "Upload image"}>
       {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : busy ? "…" : "+ img"}
