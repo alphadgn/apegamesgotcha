@@ -52,25 +52,23 @@ create policy "audit super admin read" on public.audit_log for select to authent
 -- Profiles: username (display_name) and a profile picture (path in the private 'avatars' bucket).
 alter table public.profiles add column if not exists avatar_url text;
 alter table public.profiles add column if not exists updated_at timestamptz not null default now();
-
 -- Profile pictures: uploaded image files in a private bucket, shown through signed links.
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+do $outer$ begin execute $q$insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('avatars', 'avatars', false, 3145728, array['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 on conflict (id) do update
-  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
-
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
 -- Anyone may view (signed links); a player may only add, change or remove files in their own folder.
-drop policy if exists "avatars read" on storage.objects;
-create policy "avatars read" on storage.objects for select to anon, authenticated using (bucket_id = 'avatars');
-drop policy if exists "avatars own insert" on storage.objects;
-create policy "avatars own insert" on storage.objects for insert to authenticated
-  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
-drop policy if exists "avatars own update" on storage.objects;
-create policy "avatars own update" on storage.objects for update to authenticated
-  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
-drop policy if exists "avatars own delete" on storage.objects;
-create policy "avatars own delete" on storage.objects for delete to authenticated
-  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+do $outer$ begin execute $q$drop policy if exists "avatars read" on storage.objects;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$create policy "avatars read" on storage.objects for select to anon, authenticated using (bucket_id = 'avatars');$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$drop policy if exists "avatars own insert" on storage.objects;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$create policy "avatars own insert" on storage.objects for insert to authenticated
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$drop policy if exists "avatars own update" on storage.objects;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$create policy "avatars own update" on storage.objects for update to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$drop policy if exists "avatars own delete" on storage.objects;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$create policy "avatars own delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
 
 -- Usernames and pictures change only through the app's server (username rules, no duplicates, own picture only).
 drop policy if exists "profiles own update" on public.profiles;

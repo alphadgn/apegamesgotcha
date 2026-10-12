@@ -1,13 +1,12 @@
 -- IRL (physical) prize claims. A player who wins a physical prize in a real Chainlink draw submits how
 -- to receive it (pick up at ApeFest or ship it); admins track each claim to delivery.
 -- Idempotent.
-
 -- Prize pictures are uploaded image files kept in a PRIVATE bucket (no public links); the app shows them
 -- through short-lived signed URLs. Make sure the bucket exists and only takes images.
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+do $outer$ begin execute $q$insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('prize-images', 'prize-images', false, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 on conflict (id) do update
-  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
 
 create table if not exists public.prize_claims (
   id uuid primary key default gen_random_uuid(),

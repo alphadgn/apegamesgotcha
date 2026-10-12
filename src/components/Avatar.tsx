@@ -1,7 +1,8 @@
-// A player's profile picture (private 'avatars' bucket, shown through a short-lived signed link),
-// or their initial when they haven't uploaded one.
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+// A player's profile picture (private 'avatars' bucket, shown through a short-lived signed link from the
+// server: your own picture, or anyone's for the super admin), or their initial when there's no picture.
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { getAvatarUrls } from "@/lib/users.functions";
 
 export function Avatar({
   path,
@@ -14,21 +15,15 @@ export function Avatar({
   size?: number;
   className?: string;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    setUrl(null);
-    if (path)
-      void supabase.storage
-        .from("avatars")
-        .createSignedUrl(path, 3600)
-        .then(({ data }) => live && setUrl(data?.signedUrl ?? null));
-    return () => {
-      live = false;
-    };
-  }, [path]);
+  const urlsFn = useServerFn(getAvatarUrls);
+  const { data: url } = useQuery({
+    queryKey: ["avatar", path],
+    enabled: !!path,
+    staleTime: 45 * 60_000, // links last an hour
+    queryFn: async () => (await urlsFn({ data: { paths: [path!] } })).urls[path!] ?? null,
+  });
   const style = { width: size, height: size };
-  if (url)
+  if (path && url)
     return (
       <img
         src={url}

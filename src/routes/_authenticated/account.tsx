@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getMyProfile, setMyAvatar, updateMyProfile, usernameSchema } from "@/lib/users.functions";
+import { getAvatarUploadUrl, getMyProfile, setMyAvatar, updateMyProfile, usernameSchema } from "@/lib/users.functions";
 import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ function AccountPage() {
   const profileFn = useServerFn(getMyProfile);
   const saveFn = useServerFn(updateMyProfile);
   const avatarFn = useServerFn(setMyAvatar);
+  const uploadUrlFn = useServerFn(getAvatarUploadUrl);
   const { data: me, isLoading } = useQuery({
     queryKey: ["my-profile"],
     queryFn: () => profileFn(),
@@ -44,6 +45,7 @@ function AccountPage() {
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["my-profile"] });
     void qc.invalidateQueries({ queryKey: ["leaderboard"] });
+    void qc.invalidateQueries({ queryKey: ["avatar"] });
   };
 
   const saveName = async (e: React.FormEvent) => {
@@ -69,13 +71,12 @@ function AccountPage() {
     if (f.size > MAX_BYTES) return void toast.error("Pictures must be under 3 MB");
     setBusy("picture");
     try {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) throw new Error("Sign in again to change your picture");
-      const ext = f.type.split("/")[1] === "jpeg" ? "jpg" : f.type.split("/")[1];
-      const path = `${u.user.id}/${crypto.randomUUID()}.${ext}`; // your own folder only
+      const ext = (f.type.split("/")[1] === "jpeg" ? "jpg" : f.type.split("/")[1]) as "jpg" | "png" | "webp" | "gif";
+      // The server makes a one-time upload link into your own folder (and sets up picture storage if needed).
+      const { path, token } = await uploadUrlFn({ data: { ext } });
       const { error } = await supabase.storage
         .from("avatars")
-        .upload(path, f, { contentType: f.type });
+        .uploadToSignedUrl(path, token, f, { contentType: f.type });
       if (error) throw new Error(error.message);
       await avatarFn({ data: { path } });
       toast.success("Profile picture updated");

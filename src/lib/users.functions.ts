@@ -63,6 +63,81 @@ async function assertUsernameFree(db: any, name: string, exceptUserId: string) {
   if (data?.length) throw new Error("That username is taken. Try another one.");
 }
 
+// ---------- Profile pictures ----------
+// Kept working even before the database update that adds profiles.avatar_url and the avatars bucket:
+// the server creates the bucket when it's missing, uploads go through one-time signed upload links (no storage
+// rules needed), pictures are shown through signed links from the server, and the picture's path is kept in the
+// account's server-only metadata as well as in profiles.avatar_url when that column exists.
+const AVATARS = "avatars";
+
+async function ensureAvatarBucket(db: any) {
+  const { data } = await db.storage.getBucket(AVATARS);
+  if (data) return;
+  const { error } = await db.storage.createBucket(AVATARS, {
+    public: false,
+    fileSizeLimit: 3 * 1024 * 1024,
+    allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+  });
+  if (error && !/already exists/i.test(error.message)) throw new Error(`Couldn't prepare picture storage: ${error.message}`);
+}
+
+/** The player's picture path: profiles.avatar_url when the column exists, else the account's server-only metadata. */
+async function avatarPathOf(db: any, userId: string, user?: any): Promise<string | null> {
+  const { data, error } = await db.from("profiles").select("avatar_url").eq("id", userId).maybeSingle();
+  if (!error && data?.avatar_url) return data.avatar_url as string;
+  const u = user ?? (await db.auth.admin.getUserById(userId)).data?.user;
+  return (u?.app_metadata?.avatar_path as string | undefined) ?? null;
+}
+
+async function saveAvatarPath(db: any, userId: string, path: string | null) {
+  const { data: u } = await db.auth.admin.getUserById(userId);
+  const meta = { ...(u?.user?.app_metadata ?? {}), avatar_path: path };
+  const { error: metaError } = await db.auth.admin.updateUserById(userId, { app_metadata: meta });
+  const { error } = await db.from("profiles").update({ avatar_url: path }).eq("id", userId);
+  // A missing avatar_url column is fine (the metadata copy is used); anything else is a real failure.
+  if (metaError && error) throw new Error(`Couldn't save your picture: ${error.message}`);
+}
+
+/** Changes the username (and stamps updated_at when that column exists). */
+async function saveDisplayName(db: any, userId: string, displayName: string) {
+  const { error } = await db.from("profiles").upsert({ id: userId, display_name: displayName });
+  if (error) throw new Error(error.message);
+  await db
+    .from("profiles")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", userId)
+    .then(() => undefined, () => undefined); // column may not exist yet
+}
+
+/** A one-time signed upload link for a new picture in the player's own folder. */
+export const getAvatarUploadUrl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ ext: z.enum(["jpg", "png", "webp", "gif"]) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const db = await admin();
+    await ensureAvatarBucket(db);
+    const path = `${context.userId}/${crypto.randomUUID()}.${data.ext}`;
+    const { data: up, error } = await db.storage.from(AVATARS).createSignedUploadUrl(path);
+    if (error || !up) throw new Error(`Couldn't start the upload: ${error?.message ?? "unknown error"}`);
+    return { path, token: up.token as string };
+  });
+
+/** Signed links to profile pictures: your own, or anyone's for the super admin. */
+export const getAvatarUrls = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ paths: z.array(z.string().min(1).max(300)).min(1).max(150) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const db = await admin();
+    const isSuper = (await roleOf(db, context.userId)) === "super";
+    const allowed = data.paths.filter((p) => isSuper || p.startsWith(`${context.userId}/`));
+    if (!allowed.length) return { urls: {} as Record<string, string> };
+    const { data: signed } = await db.storage.from(AVATARS).createSignedUrls(allowed, 3600);
+    const urls: Record<string, string> = {};
+    for (const r of (signed ?? []) as { path: string | null; signedUrl: string | null }[])
+      if (r.path && r.signedUrl) urls[r.path] = r.signedUrl;
+    return { urls };
+  });
+
 // ---------- The signed-in player's own account ----------
 
 /** The signed-in player's role (for showing the right admin tabs; every action is still checked on the server). */
@@ -74,24 +149,15 @@ export const getMyProfile = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const db = await admin();
-    const { data, error } = await db
+    const { data: row } = await db
       .from("profiles")
-      .select("display_name, avatar_url, created_at")
+      .select("display_name, created_at")
       .eq("id", context.userId)
       .maybeSingle();
-    const row = error
-      ? ((
-          await db
-            .from("profiles")
-            .select("display_name, created_at")
-            .eq("id", context.userId)
-            .maybeSingle()
-        ).data as any)
-      : (data as any);
     const { data: u } = await db.auth.admin.getUserById(context.userId);
     return {
       displayName: (row?.display_name as string | null) ?? null,
-      avatarPath: (row?.avatar_url as string | null) ?? null,
+      avatarPath: await avatarPathOf(db, context.userId, u?.user),
       email: (u?.user?.email as string | undefined) ?? null,
       memberSince: (row?.created_at as string | undefined) ?? u?.user?.created_at ?? null,
       role: await roleOf(db, context.userId),
@@ -104,14 +170,11 @@ export const updateMyProfile = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const db = await admin();
     await assertUsernameFree(db, data.displayName, context.userId);
-    const { error } = await db
-      .from("profiles")
-      .upsert({
-        id: context.userId,
-        display_name: data.displayName,
-        updated_at: new Date().toISOString(),
-      });
-    if (error) throw new Error(`Couldn't save your username: ${error.message}`);
+    try {
+      await saveDisplayName(db, context.userId, data.displayName);
+    } catch (e) {
+      throw new Error(`Couldn't save your username: ${(e as Error).message}`);
+    }
     await audit(context.userId, "profile.updated", { display_name: data.displayName });
     return { ok: true };
   });
@@ -124,19 +187,11 @@ export const setMyAvatar = createServerFn({ method: "POST" })
     if (data.path && !data.path.startsWith(`${context.userId}/`))
       throw new Error("That picture isn't yours.");
     const db = await admin();
-    const { data: before } = await db
-      .from("profiles")
-      .select("avatar_url")
-      .eq("id", context.userId)
-      .maybeSingle();
-    const { error } = await db
-      .from("profiles")
-      .upsert({ id: context.userId, avatar_url: data.path, updated_at: new Date().toISOString() });
-    if (error) throw new Error(`Couldn't save your picture: ${error.message}`);
+    const old = await avatarPathOf(db, context.userId);
+    await saveAvatarPath(db, context.userId, data.path);
     // Remove the old picture file (only ever the player's own).
-    const old = before?.avatar_url as string | null | undefined;
     if (old && old !== data.path && old.startsWith(`${context.userId}/`))
-      await db.storage.from("avatars").remove([old]);
+      await db.storage.from(AVATARS).remove([old]).catch(() => undefined);
     return { ok: true };
   });
 
@@ -167,7 +222,11 @@ export const superListAccounts = createServerFn({ method: "POST" })
     }
     const ids = users.map((u) => u.id);
     const [{ data: profiles }, { data: admins }, supers] = await Promise.all([
-      db.from("profiles").select("id, display_name, avatar_url").in("id", ids),
+      db
+        .from("profiles")
+        .select("id, display_name, avatar_url")
+        .in("id", ids)
+        .then((r: any) => (r.error ? db.from("profiles").select("id, display_name").in("id", ids) : r)),
       db.from("user_roles").select("user_id").eq("role", "admin"),
       db.from("super_admins").select("user_id"),
     ]);
@@ -181,7 +240,7 @@ export const superListAccounts = createServerFn({ method: "POST" })
       id: u.id,
       email: u.email ?? null,
       displayName: prof.get(u.id)?.display_name ?? null,
-      avatarPath: prof.get(u.id)?.avatar_url ?? null,
+      avatarPath: prof.get(u.id)?.avatar_url ?? u.app_metadata?.avatar_path ?? null,
       role: superSet.has(u.id) ? "super" : adminSet.has(u.id) ? "admin" : "user",
       createdAt: u.created_at ?? null,
       lastSignInAt: u.last_sign_in_at ?? null,
@@ -242,14 +301,7 @@ export const superUpdateAccount = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const db = await assertSuper(context);
     await assertUsernameFree(db, data.displayName, data.userId);
-    const { error } = await db
-      .from("profiles")
-      .upsert({
-        id: data.userId,
-        display_name: data.displayName,
-        updated_at: new Date().toISOString(),
-      });
-    if (error) throw new Error(error.message);
+    await saveDisplayName(db, data.userId, data.displayName);
     await audit(context.userId, "account.renamed", {
       user_id: data.userId,
       display_name: data.displayName,
@@ -270,11 +322,7 @@ export const superDeleteAccount = createServerFn({ method: "POST" })
     if ((await roleOf(db, data.userId)) === "super")
       throw new Error("The super admin can't be deleted.");
     const { data: u } = await db.auth.admin.getUserById(data.userId);
-    const { data: prof } = await db
-      .from("profiles")
-      .select("avatar_url")
-      .eq("id", data.userId)
-      .maybeSingle();
+    const avatar = await avatarPathOf(db, data.userId, u?.user);
     // Each table on its own: one that doesn't exist (or is already clean) doesn't stop the rest.
     const cleanups: [string, (q: any) => any][] = [
       ["wallets", (q) => q.delete().eq("user_id", data.userId)],
@@ -292,11 +340,7 @@ export const superDeleteAccount = createServerFn({ method: "POST" })
       if (error && !/does not exist|column .* does not exist/i.test(error.message))
         problems.push(`${table}: ${error.message}`);
     }
-    if (prof?.avatar_url)
-      await db.storage
-        .from("avatars")
-        .remove([prof.avatar_url])
-        .catch(() => undefined);
+    if (avatar) await db.storage.from(AVATARS).remove([avatar]).catch(() => undefined);
     const { error } = await db.auth.admin.deleteUser(data.userId);
     if (error) throw new Error(`Couldn't delete the sign-in: ${error.message}`);
     await audit(context.userId, "account.deleted", {

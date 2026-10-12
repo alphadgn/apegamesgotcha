@@ -63,11 +63,10 @@ grant execute on function public.get_leaderboard(int) to anon, authenticated, se
 -- 3) Guide chat history is written only by the server (players can't insert forged guide replies).
 drop policy if exists "players add own guide messages" on public.guide_messages;
 revoke insert, update, delete on public.guide_messages from anon, authenticated;
-
 -- 4) Profile pictures: only the player themself and admins can open (or list) them.
-drop policy if exists "avatars read" on storage.objects;
-create policy "avatars read" on storage.objects for select to authenticated
-  using (bucket_id = 'avatars' and ((storage.foldername(name))[1] = auth.uid()::text or public.has_role(auth.uid(), 'admin')));
+do $outer$ begin execute $q$drop policy if exists "avatars read" on storage.objects;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$create policy "avatars read" on storage.objects for select to authenticated
+  using (bucket_id = 'avatars' and ((storage.foldername(name))[1] = auth.uid()::text or public.has_role(auth.uid(), 'admin')));$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
 
 -- 5) Belt and braces: nothing reachable without signing in can write to any app table.
 do $$

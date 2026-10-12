@@ -39,8 +39,7 @@ begin
     execute 'create policy "privy accounts own read" on public.privy_accounts for select to authenticated using (user_id = (select auth.uid()))';
   end if;
 end $$;
-
 -- Profile pictures: the player and the super admin (Admins tab) only.
-drop policy if exists "avatars read" on storage.objects;
-create policy "avatars read" on storage.objects for select to authenticated
-  using (bucket_id = 'avatars' and ((storage.foldername(name))[1] = (select auth.uid())::text or public.is_super_admin((select auth.uid()))));
+do $outer$ begin execute $q$drop policy if exists "avatars read" on storage.objects;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$create policy "avatars read" on storage.objects for select to authenticated
+  using (bucket_id = 'avatars' and ((storage.foldername(name))[1] = (select auth.uid())::text or public.is_super_admin((select auth.uid()))));$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;

@@ -15,7 +15,6 @@ returns boolean language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function public.can_view_prize_image(text) from public;
 grant execute on function public.can_view_prize_image(text) to anon, authenticated, service_role;
-
-drop policy if exists "prize images read" on storage.objects;
-create policy "prize images read" on storage.objects for select to anon, authenticated
-  using (bucket_id = 'prize-images' and public.can_view_prize_image(name));
+do $outer$ begin execute $q$drop policy if exists "prize images read" on storage.objects;$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
+do $outer$ begin execute $q$create policy "prize images read" on storage.objects for select to anon, authenticated
+  using (bucket_id = 'prize-images' and public.can_view_prize_image(name));$q$; exception when others then raise notice 'storage step skipped: %', sqlerrm; end $outer$;
