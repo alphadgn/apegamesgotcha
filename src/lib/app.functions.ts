@@ -299,7 +299,7 @@ export const startDraw = createServerFn({ method: "POST" })
       console.error("[startDraw] readPool failed", e);
       throw new Error(chainErrorMessage(e, "start the Chainlink draw"));
     }
-    if (!vrf.weightsMatch(vrf.poolArrays(prizes ?? []), chain.pool)) throw new Error("Prize odds are being updated on-chain. Try again in a minute.");
+    if (!vrf.weightsMatch(vrf.poolArrays(prizes ?? []), chain.pool)) throw new Error("Prize odds were just changed and are waiting to be published on-chain. Live spins reopen as soon as an admin publishes them; your spins are safe.");
 
     const { data: ids, error } = await db.rpc("begin_spins", { _user_id: context.userId, _count: data.count });
     if (error) throw new Error(error.message);
