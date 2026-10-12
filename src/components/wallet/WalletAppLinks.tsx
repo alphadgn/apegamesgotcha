@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SIGN_IN_GOLD } from "./SignInWindow";
-import { describeWalletLink, linkWalletWithCode } from "@/lib/app.functions";
+import { checkWalletLink, describeWalletLink, getWalletLinkResult, linkWalletWithCode } from "@/lib/app.functions";
 
 type Eip1193 = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 export type WalletLinkCode = { code: string; expiresAt: string };
@@ -56,7 +56,7 @@ export function WalletAppLinks({
   const qc = useQueryClient();
   const [link, setLink] = useState<WalletLinkCode | null>(() => (typeof window === "undefined" ? null : storedCode(userId)));
   const [waiting, setWaiting] = useState(false);
-  const startCount = useRef(walletCount);
+  const startCount = useRef(walletCount); // kept for the waiting state (the result itself comes from the server)
 
   // Ready before the tap, so the tap itself opens the wallet app (iPhone needs that).
   useEffect(() => {
@@ -76,6 +76,32 @@ export function WalletAppLinks({
   }, [disabled, link, userId]);
 
   // After the wallet app: look for the new wallet when the player comes back, and every few seconds meanwhile.
+  // What happened in the wallet app (added, or already linked — which doesn't change the wallet count).
+  useEffect(() => {
+    if (!waiting || !link) return;
+    let live = true;
+    const ask = async () => {
+      const r = await getWalletLinkResult({ data: { code: link.code } }).catch(() => null);
+      if (!live || !r) return;
+      setWaiting(false);
+      storeCode(userId, null);
+      setLink(null);
+      if (r.result === "already")
+        toast.info(`Wallet ${r.address.slice(0, 6)}…${r.address.slice(-4)} is already linked to your account, so nothing changed.`);
+      else toast.success("Wallet added");
+      onLinked();
+    };
+    const onVisible = () => document.visibilityState === "visible" && void ask();
+    document.addEventListener("visibilitychange", onVisible);
+    const t = window.setInterval(() => void ask(), 4000);
+    return () => {
+      live = false;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, link]);
+
   useEffect(() => {
     if (!waiting) return;
     const check = () => void qc.invalidateQueries();
@@ -89,15 +115,7 @@ export function WalletAppLinks({
       window.clearTimeout(stop);
     };
   }, [waiting, qc]);
-  useEffect(() => {
-    if (waiting && walletCount > startCount.current) {
-      setWaiting(false);
-      storeCode(userId, null); // used: the next wallet gets a fresh code
-      setLink(null);
-      toast.success("Wallet added");
-      onLinked();
-    }
-  }, [waiting, walletCount, onLinked, userId]);
+
 
   const url = link ? `${window.location.origin}/link-wallet?c=${encodeURIComponent(link.code)}` : "";
   const go = (app: (typeof APPS)[number]) => {
@@ -130,11 +148,18 @@ export function WalletAppLinks({
       const accounts = (await injected.request({ method: "eth_requestAccounts" })) as string[];
       const address = accounts?.[0];
       if (!address) throw new Error("No wallet account was shared.");
+      const { status } = await checkWalletLink({ data: { code: link.code, address } });
+      if (status === "other") throw new Error("This wallet is already linked to another ApeGames Gotcha account.");
+      if (status === "mine") {
+        toast.info(`Wallet ${address.slice(0, 6)}…${address.slice(-4)} is already linked to your account, so nothing changed.`);
+        return;
+      }
       const signature = (await injected.request({ method: "personal_sign", params: [message, address] })) as string;
-      await linkWalletWithCode({ data: { code: link.code, address, signature } });
+      const r = await linkWalletWithCode({ data: { code: link.code, address, signature } });
       storeCode(userId, null);
       setLink(null);
-      toast.success("Wallet added");
+      if (r.alreadyLinked) toast.info("This wallet is already linked to your account, so nothing changed.");
+      else toast.success("Wallet added");
       onLinked();
     } catch (e) {
       const m = (e as { message?: string })?.message ?? "Something went wrong";

@@ -90,16 +90,33 @@ async function linkSignedWallet(userId: string, address0: string, signature: str
   }
   if (!ok) throw new Error("Signature does not match wallet");
   const address = address0.toLowerCase();
-  const { data: existing } = await db.from("wallets").select("user_id").eq("address", address).maybeSingle();
-  if (existing && existing.user_id !== userId) throw new Error("This wallet is already linked to another ApeGames Gotcha account.");
-  if (!existing) {
-    const { count: total } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", userId);
-    if ((total ?? 0) >= MAX_WALLETS) throw new Error(`That account already has the maximum of ${MAX_WALLETS} wallets.`);
-    const { count } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_default", true);
-    await db.from("wallets").insert({ user_id: userId, address, kind: "external", is_default: !count });
-    await audit(userId, "wallet.linked", { address });
+  const status = await walletLinkStatus(userId, address);
+  if (status === "other") throw new Error(ALREADY_OTHER);
+  if (status === "mine") return { address, alreadyLinked: true };
+  const { count: total } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", userId);
+  if ((total ?? 0) >= MAX_WALLETS) throw new Error(`That account already has the maximum of ${MAX_WALLETS} wallets.`);
+  const { count } = await db.from("wallets").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_default", true);
+  const { error } = await db.from("wallets").insert({ user_id: userId, address, kind: "external", is_default: !count });
+  if (error) {
+    // Linked a moment ago (e.g. a second tap): it's a duplicate, not a new wallet — never counted twice.
+    if (error.code === "23505") {
+      if ((await walletLinkStatus(userId, address)) === "mine") return { address, alreadyLinked: true };
+      throw new Error(ALREADY_OTHER);
+    }
+    throw new Error(error.message);
   }
-  return { address, alreadyLinked: !!existing };
+  await audit(userId, "wallet.linked", { address });
+  return { address, alreadyLinked: false };
+}
+
+const ALREADY_OTHER = "This wallet is already linked to another ApeGames Gotcha account.";
+
+/** Whether a wallet is already on this player's account, on someone else's, or free (any capitals). */
+async function walletLinkStatus(userId: string, address: string): Promise<"mine" | "other" | "free"> {
+  const db = await admin();
+  const { data } = await db.from("wallets").select("user_id").ilike("address", address.toLowerCase()).limit(1).maybeSingle();
+  if (!data) return "free";
+  return data.user_id === userId ? "mine" : "other";
 }
 
 export const linkWallet = createServerFn({ method: "POST" })
@@ -113,7 +130,7 @@ export const linkWallet = createServerFn({ method: "POST" })
     const message = `ApeGames Gotcha wallet verification\nUser: ${context.userId}\nNonce: ${row.nonce}`;
     const r = await linkSignedWallet(context.userId, data.address, data.signature, message);
     await db.from("wallet_nonces").delete().eq("user_id", context.userId);
-    return { address: r.address };
+    return r;
   });
 
 // ---- Add a wallet from a phone wallet app's own browser (MetaMask, Coinbase Wallet, Trust…) ----
@@ -137,6 +154,7 @@ export const describeWalletLink = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { readWalletLinkCode, walletLinkMessage } = await import("./wallet-proof.server");
     const link = await readWalletLinkCode(data.code);
+    await assertLinkUnused(link);
     const db = await admin();
     const { data: prof } = await db.from("profiles").select("display_name").eq("id", link.userId).maybeSingle();
     return { username: (prof?.display_name as string | null) ?? "your account", message: walletLinkMessage(link), expiresAt: link.expiresAt };
@@ -155,7 +173,64 @@ export const linkWalletWithCode = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { readWalletLinkCode, walletLinkMessage } = await import("./wallet-proof.server");
     const link = await readWalletLinkCode(data.code);
-    return linkSignedWallet(link.userId, data.address, data.signature, walletLinkMessage(link));
+    await assertLinkUnused(link);
+    const r = await linkSignedWallet(link.userId, data.address, data.signature, walletLinkMessage(link));
+    await recordLinkResult(link, r.address, r.alreadyLinked ? "already" : "added");
+    return r;
+  });
+
+/** A link works once: after it added (or found) a wallet, it's spent. */
+async function assertLinkUnused(link: { userId: string; rand: string }) {
+  const db = await admin();
+  const { data } = await db
+    .from("audit_log")
+    .select("id")
+    .eq("action", "wallet.link_code")
+    .eq("actor", link.userId)
+    .filter("details->>rand", "eq", link.rand)
+    .limit(1);
+  if (data?.length) throw new Error("This link was already used. To add another wallet, start again from Add wallet.");
+}
+
+/** Tells the player's waiting Add wallet window what happened with their link (it reads it back below). */
+async function recordLinkResult(link: { userId: string; rand: string }, address: string, result: "added" | "already") {
+  await audit(link.userId, "wallet.link_code", { rand: link.rand, address, result });
+}
+
+/**
+ * Wallet app page, after the wallet shares its address and before it signs: is this wallet already linked?
+ * "mine" needs no signature (nothing changes); "other" can't be added.
+ */
+export const checkWalletLink = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ code: linkCodeSchema, address: z.string().regex(/^0x[a-fA-F0-9]{40}$/) }).parse(d))
+  .handler(async ({ data }) => {
+    const { readWalletLinkCode } = await import("./wallet-proof.server");
+    const link = await readWalletLinkCode(data.code);
+    await assertLinkUnused(link);
+    const status = await walletLinkStatus(link.userId, data.address);
+    if (status === "mine") await recordLinkResult(link, data.address.toLowerCase(), "already");
+    return { status };
+  });
+
+/** The signed-in player's Add wallet window: what happened with its link in the wallet app (null = nothing yet). */
+export const getWalletLinkResult = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ code: linkCodeSchema }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { readWalletLinkCode } = await import("./wallet-proof.server");
+    const link = await readWalletLinkCode(data.code).catch(() => null);
+    if (!link || link.userId !== context.userId) return null;
+    const db = await admin();
+    const { data: rows } = await db
+      .from("audit_log")
+      .select("details, created_at")
+      .eq("action", "wallet.link_code")
+      .eq("actor", context.userId)
+      .filter("details->>rand", "eq", link.rand)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const d = (rows?.[0]?.details ?? null) as { address?: string; result?: "added" | "already" } | null;
+    return d?.result ? { address: d.address ?? "", result: d.result } : null;
   });
 
 // ---------- NFT sync & holding points ----------
@@ -1097,8 +1172,9 @@ async function privyIdentityFromToken(accessToken: string) {
 async function syncPrivyWallets(userId: string, identity: import("./privy.server").PrivyIdentity) {
   const db = await admin();
   const skipped: string[] = [];
+  const already: string[] = []; // already on this account: not added again, not counted twice
   for (const w of identity.wallets) {
-    const { data: existing } = await db.from("wallets").select("user_id, kind").eq("address", w.address).maybeSingle();
+    const { data: existing } = await db.from("wallets").select("user_id, kind").ilike("address", w.address.toLowerCase()).limit(1).maybeSingle();
     if (existing && existing.user_id !== userId) {
       skipped.push(w.address);
       continue;
@@ -1111,7 +1187,10 @@ async function syncPrivyWallets(userId: string, identity: import("./privy.server
       }
       await db.from("wallets").insert({ user_id: userId, address: w.address, kind: w.kind });
       await audit(userId, "wallet.linked", { address: w.address, via: "privy", kind: w.kind });
-    } else if (w.kind === "privy" && existing.kind !== "privy") {
+    } else {
+      already.push(w.address);
+    }
+    if (existing && existing.user_id === userId && w.kind === "privy" && existing.kind !== "privy") {
       await db.from("wallets").update({ kind: "privy" }).eq("address", w.address);
     }
   }
@@ -1122,7 +1201,7 @@ async function syncPrivyWallets(userId: string, identity: import("./privy.server
     const pick = rows.find((r) => r.kind === "glyph") ?? rows.find((r) => r.kind === "privy") ?? rows.find((r) => identity.wallets.some((w) => w.address === r.address)) ?? rows[0]!;
     await db.from("wallets").update({ is_default: true }).eq("user_id", userId).eq("address", pick.address);
   }
-  return { skipped };
+  return { skipped, already };
 }
 
 /** A one-time message for the player's Glyph wallet to sign before sign-in / linking (proof of ownership). */
@@ -1202,8 +1281,8 @@ export const linkPrivyAccount = createServerFn({ method: "POST" })
     const { data: row } = await db.from("privy_accounts").select("user_id").eq("privy_did", identity.did).maybeSingle();
     if (row && row.user_id !== context.userId) throw new Error("That Privy login belongs to another player. Sign out and sign in with it instead.");
     if (!row) await db.from("privy_accounts").insert({ privy_did: identity.did, user_id: context.userId });
-    const { skipped } = await syncPrivyWallets(context.userId, identity);
-    return { skipped };
+    const { skipped, already } = await syncPrivyWallets(context.userId, identity);
+    return { skipped, already };
   });
 
 /** Account preferences: choose which linked wallet is the default (used to pay for spins). */

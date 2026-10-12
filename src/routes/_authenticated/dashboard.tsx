@@ -113,8 +113,9 @@ function Dashboard() {
     const [address] = await eth.request({ method: "eth_requestAccounts" });
     const { message } = await nonceFn();
     const signature = await eth.request({ method: "personal_sign", params: [message, address] });
-    await linkFn({ data: { address, signature } });
-    toast.success("Wallet linked");
+    const r = await linkFn({ data: { address, signature } });
+    if (r.alreadyLinked) toast.info("This wallet is already linked to your account, so nothing changed.");
+    else toast.success("Wallet linked");
     refresh();
   });
 

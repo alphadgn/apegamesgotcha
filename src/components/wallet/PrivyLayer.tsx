@@ -111,6 +111,8 @@ function GlyphBridge() {
         toast.warning(
           `Wallet ${short(r.skipped[0]!)} wasn't added: it's linked to another player, or this account already has 5 wallets.`,
         );
+      else if (r.already.length)
+        toast.info(`Wallet ${short(r.already[0]!)} is already linked to your account, so nothing changed.`);
       return "linked" as const;
     }
     const { tokenHash } = await signInFn({ data: { accessToken: token, proof } });
@@ -340,8 +342,9 @@ function GlyphBridge() {
             method: "personal_sign",
             params: [message, wallet.address],
           })) as string;
-          await linkWalletFn({ data: { address: wallet.address, signature } });
-          toast.success(`Wallet ${short(wallet.address)} added`);
+          const linked = await linkWalletFn({ data: { address: wallet.address, signature } });
+          if (linked.alreadyLinked) toast.info(`Wallet ${short(wallet.address)} is already linked to your account.`);
+          else toast.success(`Wallet ${short(wallet.address)} added`);
           endExternal(true);
         } catch (e) {
           const m = errorText(e);

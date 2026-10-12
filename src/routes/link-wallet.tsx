@@ -5,7 +5,7 @@
 // sign-in), so nobody wanders into a signed-out copy of the site inside the wallet app. See `linkWalletWithCode`.
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { describeWalletLink, linkWalletWithCode } from "@/lib/app.functions";
+import { checkWalletLink, describeWalletLink, linkWalletWithCode } from "@/lib/app.functions";
 
 export const Route = createFileRoute("/link-wallet")({
   ssr: false,
@@ -19,15 +19,45 @@ type Eip1193 = { request: (a: { method: string; params?: unknown[] }) => Promise
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const GOLD = "#f6c343";
 
-/** Back to the player's usual browser. On iPhone, x-safari-https:// opens Safari from inside another app. */
-function returnLink() {
+/** Where "Back" goes: the player's usual browser (where they're signed in), opened from inside the wallet app. */
+function returnTarget() {
   const target = `${window.location.host}/dashboard`;
-  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  return ios ? `x-safari-https://${target}` : `https://${target}`;
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return `x-safari-https://${target}`; // opens Safari
+  if (/Android/i.test(navigator.userAgent)) return `intent://${target}#Intent;scheme=https;end`; // default browser
+  return null;
+}
+
+/** Leave nothing behind in the wallet app: disconnect the site from the wallet, then close or blank this page. */
+async function closeOut(provider: Eip1193 | null | undefined) {
+  try {
+    // MetaMask and others: drop this site's permission to see the wallet (ignored where unsupported).
+    await Promise.race([
+      provider?.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }),
+      new Promise((r) => window.setTimeout(r, 800)),
+    ]);
+  } catch {
+    /* not supported: nothing to drop */
+  }
+  try {
+    window.close(); // works where the wallet app opened this as a closable window
+  } catch {
+    /* not allowed */
+  }
+  // Otherwise replace the page (and its history entry) with a blank one.
+  window.location.replace("about:blank");
 }
 
 function LinkWalletPage() {
-  const { c } = Route.useSearch();
+  const search = Route.useSearch();
+  // Read the code once, then take it out of the address bar and history right away.
+  const [c] = useState(search.c);
+  useEffect(() => {
+    try {
+      window.history.replaceState(null, "", "/link-wallet");
+    } catch {
+      /* not allowed */
+    }
+  }, []);
   const [info, setInfo] = useState<{ username: string; message: string } | { error: string } | null>(null);
   const [provider, setProvider] = useState<Eip1193 | null | undefined>(undefined);
   const [state, setState] = useState<{ kind: "idle" | "busy" | "done" | "error"; text?: string }>({ kind: "idle" });
@@ -53,6 +83,13 @@ function LinkWalletPage() {
     return () => window.clearTimeout(t);
   }, []);
 
+  // Finished but left open: close it out anyway after a minute and a half.
+  useEffect(() => {
+    if (state.kind !== "done") return;
+    const t = window.setTimeout(() => void closeOut(provider), 90_000);
+    return () => window.clearTimeout(t);
+  }, [state.kind, provider]);
+
   const sign = async () => {
     if (!provider || !info || "error" in info) return;
     setState({ kind: "busy", text: "Approve in your wallet…" });
@@ -60,6 +97,12 @@ function LinkWalletPage() {
       const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
       const address = accounts?.[0];
       if (!address) throw new Error("No wallet account was shared.");
+      // Already linked? Then there's nothing to sign and nothing changes (it's never counted twice).
+      const { status } = await checkWalletLink({ data: { code: c, address } });
+      if (status === "mine")
+        return setState({ kind: "done", text: `Wallet ${short(address)} is already linked to ${info.username}, so nothing changed.` });
+      if (status === "other")
+        throw new Error(`Wallet ${short(address)} is already linked to another ApeGames Gotcha account, so it can't be added here.`);
       const signature = (await provider.request({ method: "personal_sign", params: [info.message, address] })) as string;
       setState({ kind: "busy", text: "Checking the signature…" });
       const r = await linkWalletWithCode({ data: { code: c, address, signature } });
@@ -91,16 +134,21 @@ function LinkWalletPage() {
           <>
             <p className="mt-4 text-lg font-bold text-primary">Done!</p>
             <p className="mt-2">{state.text}</p>
-            <a
-              href={returnLink()}
+            <button
+              type="button"
+              onClick={() => {
+                const target = returnTarget();
+                if (target) window.location.href = target;
+                window.setTimeout(() => void closeOut(provider), target ? 600 : 0);
+              }}
               className="mt-6 flex min-h-12 w-full items-center justify-center rounded-lg px-4 py-2 text-base font-bold"
               style={{ backgroundColor: GOLD, color: "#141414" }}
             >
               Back to ApeGames Gotcha
-            </a>
+            </button>
             <p className="mt-3 text-xs text-muted-foreground">
-              Or switch back to the browser you started in (on iPhone, tap “◀ Safari” at the top left). The wallet is
-              already on your account there.
+              This page closes itself and the link stops working. You can also switch back to the browser you started
+              in (on iPhone, tap “◀ Safari” at the top left).
             </p>
           </>
         ) : (
