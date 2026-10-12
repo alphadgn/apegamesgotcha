@@ -50,8 +50,8 @@ function SoundTest() {
       },
     },
     {
-      label: "2. Game music (what spins play now)",
-      help: "Plain player. Does the slider below change it?",
+      label: "2. Plain player",
+      help: "Plays everywhere; on iPhone the slider can't change it.",
       run: () => {
         stopAll();
         jukebox("plain").start();
@@ -65,6 +65,15 @@ function SoundTest() {
         stopAll();
         jukebox("engine").start();
         note("3 started");
+      },
+    },
+    {
+      label: "5. Game music (plain player, slider built in)",
+      help: "What spins play now: plain player with the volume baked into the audio.",
+      run: () => {
+        stopAll();
+        jukebox("rendered").start();
+        note("5 started");
       },
     },
     {

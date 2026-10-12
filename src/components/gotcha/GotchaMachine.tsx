@@ -267,7 +267,7 @@ export function GotchaMachine({
   }, []);
 
   useEffect(() => {
-    jukebox.current ??= createJukebox(0.7, "engine-unlocked");
+    jukebox.current ??= createJukebox(0.7, "rendered");
   }, []);
 
   useEffect(() => {
@@ -589,7 +589,7 @@ export function GotchaMachine({
     sfx.current.setEnabled(soundOn);
     sfx.current.prime(); // unlock the reveal sounds inside the tap (phones)
     // Start the party music right inside the tap — mobile browsers only allow audio that begins from a gesture.
-    jukebox.current ??= createJukebox(0.7, "engine-unlocked");
+    jukebox.current ??= createJukebox(0.7, "rendered");
     jukebox.current.setEnabled(soundOn);
     jukebox.current.start();
     setLeverKey((k) => k + 1);

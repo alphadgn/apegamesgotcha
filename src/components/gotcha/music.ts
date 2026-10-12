@@ -125,6 +125,152 @@ function playEngine(p: Player, url: string, level: number): Voice {
   };
 }
 
+/**
+ * "rendered": a plain audio player (plays on every iPhone setting, like the reveal sounds) whose loudness is
+ * baked into the audio itself, because iPhones ignore a web page's volume for plain players. Each track is
+ * decoded once in memory; at the slider's level it's written out as a WAV and played. Moving the slider
+ * re-writes it at the new level and swaps it in at the same spot in the song.
+ */
+const decoded = new Map<string, Promise<AudioBuffer | null>>();
+let decoder: BaseAudioContext | null = null;
+function decodeTrack(url: string): Promise<AudioBuffer | null> {
+  let p = decoded.get(url);
+  if (p) return p;
+  p = (async () => {
+    if (typeof window === "undefined") return null;
+    try {
+      if (!decoder) {
+        const O =
+          window.OfflineAudioContext ??
+          (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+        if (!O) return null;
+        decoder = new O(2, 44_100, 44_100); // decoding only: never plays, so phone settings don't matter
+      }
+      const bytes = await (await fetch(url)).arrayBuffer();
+      return await decoder.decodeAudioData(bytes);
+    } catch {
+      return null;
+    }
+  })();
+  decoded.set(url, p);
+  return p;
+}
+
+/** The track at `level` (0..1) as a 16-bit WAV blob link. */
+function renderWav(buf: AudioBuffer, level: number) {
+  const ch = Math.min(2, buf.numberOfChannels);
+  const len = buf.length;
+  const data = Array.from({ length: ch }, (_, c) => buf.getChannelData(c));
+  const out = new ArrayBuffer(44 + len * ch * 2);
+  const v = new DataView(out);
+  const text = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  v.setUint32(4, 36 + len * ch * 2, true);
+  text(8, "WAVEfmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, ch, true);
+  v.setUint32(24, buf.sampleRate, true);
+  v.setUint32(28, buf.sampleRate * ch * 2, true);
+  v.setUint16(32, ch * 2, true);
+  v.setUint16(34, 16, true);
+  text(36, "data");
+  v.setUint32(40, len * ch * 2, true);
+  const pcm = new Int16Array(out, 44);
+  const g = Math.max(0, Math.min(1, level)) * 32767;
+  for (let i = 0, k = 0; i < len; i++) for (let c = 0; c < ch; c++, k++) pcm[k] = (data[c]![i]! * g) | 0;
+  return URL.createObjectURL(new Blob([out], { type: "audio/wav" }));
+}
+
+const blobs = new WeakMap<HTMLAudioElement, string>();
+
+function playRendered(audio: HTMLAudioElement, url: string, level: number): Voice {
+  const token = (plays.get(audio) ?? 0) + 1;
+  plays.set(audio, token);
+  const mine = () => plays.get(audio) === token;
+  let stopped = false;
+  let swapTimer = 0;
+  let fader = 0;
+  /** Free the previous rendered copy on this player (each is a few MB). */
+  const setSrc = (src: string) => {
+    const old = blobs.get(audio);
+    if (src.startsWith("blob:")) blobs.set(audio, src);
+    else blobs.delete(audio);
+    if (old && old !== src) URL.revokeObjectURL(old);
+  };
+  audio.pause();
+  audio.loop = true;
+  audio.preload = "auto";
+  audio.setAttribute("playsinline", "");
+  audio.muted = level <= 0;
+  // Use the ready, decoded track when we have it (instant); otherwise stream the file this once.
+  const ready = decodedNow.get(url);
+  if (ready) {
+    const src = renderWav(ready, level);
+    setSrc(src);
+    audio.src = src;
+  } else {
+    setSrc(url);
+    audio.src = url;
+    audio.volume = Math.min(1, Math.max(0, level)); // honoured off iPhone
+  }
+  void audio.play().catch(() => {});
+  return {
+    setLevel(v) {
+      if (stopped || !mine()) return;
+      audio.muted = v <= 0;
+      if (v <= 0) return;
+      window.clearTimeout(swapTimer);
+      swapTimer = window.setTimeout(() => {
+        const buf = decodedNow.get(url);
+        if (stopped || !mine()) return;
+        if (!buf) {
+          audio.volume = Math.min(1, Math.max(0, v));
+          return;
+        }
+        const at = audio.currentTime;
+        const src = renderWav(buf, v);
+        setSrc(src);
+        audio.src = src;
+        const seek = () => {
+          try {
+            audio.currentTime = at;
+          } catch {
+            /* not seekable yet */
+          }
+        };
+        audio.addEventListener("loadedmetadata", seek, { once: true });
+        audio.volume = 1;
+        void audio.play().catch(() => {});
+      }, 150);
+    },
+    stop(fade: number) {
+      if (stopped) return;
+      stopped = true;
+      window.clearTimeout(swapTimer);
+      const from = audio.volume;
+      const steps = Math.max(1, Math.round((fade * 1000) / 50));
+      let k = 0;
+      fader = window.setInterval(() => {
+        if (!mine()) return window.clearInterval(fader);
+        k++;
+        audio.volume = Math.min(1, Math.max(0, from * (1 - k / steps))); // smooth fade where the browser allows it
+        if (k >= steps) {
+          window.clearInterval(fader);
+          audio.pause();
+          audio.volume = 1;
+        }
+      }, 50);
+    },
+  };
+}
+const decodedNow = new Map<string, AudioBuffer>();
+function predecode(url: string) {
+  void decodeTrack(url).then((b) => {
+    if (b) decodedNow.set(url, b);
+  });
+}
+
 // Warm the browser cache with the five small tracks as soon as a machine appears, so a tap starts quickly.
 const warmed = new Set<string>();
 function warm(url: string) {
@@ -150,9 +296,12 @@ export type Jukebox = ReturnType<typeof createJukebox>;
  *   page's volume for it, so the palm-tree slider can't change it there.
  * - "engine": through the sound engine (gain node), so the slider works everywhere. On the owner's iPhone this
  *   was silent (screen recording 18:36: no music until the reveal sounds), so the game doesn't use it yet.
- * - "engine-unlocked": "engine" after asking iOS for media playback (`unlockPlayback`). Under test on /sound-test.
+ * - "engine-unlocked": "engine" after asking iOS for media playback (`unlockPlayback`). Played on the phone in
+ *   /sound-test, but went silent again in the game (Oct 11, 21:18).
+ * - "rendered" (the game's default): plain player + loudness baked into the audio (see playRendered), so it
+ *   plays on every iPhone setting AND follows the palm-tree slider.
  */
-export type MusicRoute = "plain" | "engine" | "engine-unlocked";
+export type MusicRoute = "plain" | "rendered" | "engine" | "engine-unlocked";
 
 export function createJukebox(volume = 0.7, route: MusicRoute = "plain") {
   let enabled = true;
@@ -165,7 +314,8 @@ export function createJukebox(volume = 0.7, route: MusicRoute = "plain") {
   let plainPlayer: HTMLAudioElement | null = null;
   let relaxTimer = 0;
   onMusicVolume((v) => current?.setLevel(currentLevel * volumeGain(v)));
-  if (typeof window !== "undefined") TRACKS.forEach((t) => warm(t.url));
+  if (typeof window !== "undefined")
+    TRACKS.forEach((t) => (route === "rendered" ? predecode(t.url) : warm(t.url)));
 
   const nextIndex = (count: number) => {
     if (!bag.length) {
@@ -191,9 +341,9 @@ export function createJukebox(volume = 0.7, route: MusicRoute = "plain") {
       const t = TRACKS[nextIndex(TRACKS.length)]!;
       currentLevel = volume * dbToGain(t.trimDb);
       const level = currentLevel * volumeGain(getMusicVolume());
-      if (route === "plain") {
+      if (route === "plain" || route === "rendered") {
         plainPlayer ??= new Audio();
-        current = playPlain(plainPlayer, t.url, level);
+        current = (route === "plain" ? playPlain : playRendered)(plainPlayer, t.url, level);
         return;
       }
       if (route === "engine-unlocked") unlockPlayback();
