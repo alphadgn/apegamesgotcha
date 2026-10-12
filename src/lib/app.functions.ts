@@ -413,14 +413,15 @@ export const adminUpsertPrize = createServerFn({ method: "POST" })
     await assertAdmin(context);
     const db = await admin();
     const { id, ...rest } = data;
-    // Stock baseline for the "critical low" hold: raising a prize's inventory is a restock (the baseline
-    // becomes the new amount); lowering it or draws using it up keep the baseline.
+    // Stock baseline for the low-stock warning ("X of Y left"): whatever stock an admin types and saves becomes
+    // the new baseline (up or down), so Y is always the total the admins set. Draws lower the stock but not the
+    // baseline; saving other fields of a prize (name, odds…) with its stock unchanged keeps the baseline.
     let stocked: number | null = rest.inventory;
     if (id && rest.inventory != null) {
       const { data: old } = await db.from("prizes").select("inventory, stocked").eq("id", id).maybeSingle();
       const before = old as { inventory: number | null; stocked?: number | null } | null;
-      if (before && before.inventory != null && rest.inventory <= before.inventory)
-        stocked = Math.max(before.stocked ?? before.inventory, rest.inventory);
+      if (before && before.inventory === rest.inventory)
+        stocked = Math.max(before.stocked ?? rest.inventory, rest.inventory);
     }
     const write = async (row: Record<string, unknown>) =>
       id ? await db.from("prizes").update(row).eq("id", id) : await db.from("prizes").insert(row);
