@@ -78,14 +78,15 @@ export const getWalletNonce = createServerFn({ method: "POST" })
 
 /** Checks a wallet's signature of `message` (plain or smart-contract wallet) and links the wallet to `userId`. */
 async function linkSignedWallet(userId: string, address0: string, signature: string, message: string) {
-  const { verifyMessage, createPublicClient, http } = await import("viem");
+  const { verifyMessage, createPublicClient } = await import("viem");
   const db = await admin();
   const sig = { address: address0 as `0x${string}`, message, signature: signature as `0x${string}` };
   let ok = await verifyMessage(sig).catch(() => false);
   if (!ok) {
     // Smart-contract wallets (some WalletConnect wallets) sign via ERC-1271/6492: check on ApeChain.
     const nft = (await getConfig("nft").catch(() => null)) as { rpc_url?: string } | null;
-    const client = createPublicClient({ transport: http(nft?.rpc_url || "https://rpc.apechain.com/http") });
+    const { resilientTransport } = await import("./rpc.server");
+    const client = createPublicClient({ transport: resilientTransport(33139, nft?.rpc_url) });
     ok = await client.verifyMessage(sig).catch(() => false);
   }
   if (!ok) throw new Error("Signature does not match wallet");
@@ -1098,15 +1099,31 @@ export const adminSetupStatus = createServerFn({ method: "POST" })
     if (keyOk && isAddr(vrf?.contract) && vrf?.rpc_url) {
       try {
         const { privateKeyToAccount } = await import("viem/accounts");
-        const { createPublicClient, http, parseAbi } = await import("viem");
+        const { createPublicClient, parseAbi } = await import("viem");
+        const { chainDef, resilientTransport } = await import("./rpc.server");
         const me = privateKeyToAccount(key as `0x${string}`).address;
-        const pub = createPublicClient({ transport: http(vrf.rpc_url) });
+        // Same resilient connection as the draws (private RPC secret, configured RPC, public backups, retries):
+        // the public Base RPC alone answered "429 Too Many Requests" here (Oct 12).
+        const chainId = Number((vrf as { chain_id?: number }).chain_id ?? 8453);
+        const pub = createPublicClient({
+          chain: chainDef(chainId, (vrf as { chain?: string }).chain, vrf.rpc_url),
+          transport: resilientTransport(chainId, vrf.rpc_url),
+        });
         const op = await pub.readContract({ address: vrf.contract as `0x${string}`, abi: parseAbi(["function operator() view returns (address)"]), functionName: "operator" });
         const bal = await pub.getBalance({ address: me });
         items.push({ group: "Chainlink draw (Base)", label: "Operator key matches the contract", ok: op.toLowerCase() === me.toLowerCase(), detail: op.toLowerCase() === me.toLowerCase() ? `Operator ${me}` : `Contract operator is ${op}, key is for ${me}`, where: "Use the key for the OPERATOR you deployed with" });
         items.push({ group: "Chainlink draw (Base)", label: "Operator wallet has ETH for gas", ok: bal > 0n, detail: `${Number(bal) / 1e18} ETH`, where: `Send a little ETH (Base) to ${me}` });
       } catch (e) {
-        items.push({ group: "Chainlink draw (Base)", label: "Contract reachable", ok: false, detail: (e as Error).message.slice(0, 160), where: "Check vrf.rpc_url and vrf.contract" });
+        const { isRpcBusy, chainErrorMessage } = await import("./rpc.server");
+        items.push({
+          group: "Chainlink draw (Base)",
+          label: "Contract reachable",
+          ok: false,
+          detail: chainErrorMessage(e, "reach the draw contract"),
+          where: isRpcBusy(e)
+            ? "Every Base network server was busy just now: press Re-check in a minute. For a steady connection, add a private Base RPC URL (Alchemy, QuickNode…) as the VRF_RPC_URL secret in Lovable → Cloud → Secrets."
+            : "Check vrf.rpc_url and vrf.contract",
+        });
       }
     }
     if (isAddr(vrf?.contract)) {

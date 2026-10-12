@@ -11,15 +11,16 @@
 import {
   createPublicClient,
   createWalletClient,
-  defineChain,
+
   formatEther,
-  http,
+
   parseAbi,
   parseEther,
   parseEventLogs,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { chainDef, resilientTransport } from "./rpc.server";
 import { gotchaVrfAbi } from "./gotchaVrfAbi";
 import { GOTCHA_VRF_BYTECODE } from "./gotchaVrfBytecode.server";
 
@@ -104,17 +105,14 @@ function operatorKey(): Hex {
 }
 
 function clients(net: VrfNetwork, key: Hex) {
-  const chain = defineChain({
-    id: net.chain_id,
-    name: net.chain,
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: { default: { http: [net.rpc_url] } },
-  });
+  // Same resilient connection as the draws: private RPC secret first, then the configured RPC, then public
+  // backups, with retries — the public Base RPC alone answers "429 Too Many Requests" when busy.
+  const chain = chainDef(net.chain_id, net.chain, net.rpc_url);
   const account = privateKeyToAccount(key);
   return {
     account,
-    pub: createPublicClient({ chain, transport: http(net.rpc_url) }),
-    wallet: createWalletClient({ account, chain, transport: http(net.rpc_url) }),
+    pub: createPublicClient({ chain, transport: resilientTransport(net.chain_id, net.rpc_url) }),
+    wallet: createWalletClient({ account, chain, transport: resilientTransport(net.chain_id, net.rpc_url) }),
   };
 }
 
@@ -297,13 +295,8 @@ export async function subscriptionStatus(state: VrfSetupState) {
     key_hash: state.key_hash ?? "",
   };
   const pub = createPublicClient({
-    chain: defineChain({
-      id: net.chain_id,
-      name: net.chain,
-      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: { default: { http: [net.rpc_url] } },
-    }),
-    transport: http(net.rpc_url),
+    chain: chainDef(net.chain_id, net.chain, net.rpc_url),
+    transport: resilientTransport(net.chain_id, net.rpc_url),
   });
   const sub = await pub.readContract({
     address: net.coordinator as Hex,
