@@ -21,6 +21,7 @@ import { PagePending } from "@/components/PagePending";
 import { FloatingGuide } from "@/components/guide/GuideButton";
 import { WalletHost } from "@/components/wallet/WalletHost";
 import { RestockPopup } from "@/components/RestockPopup";
+import { InactivityGuard } from "@/components/InactivityGuard";
 
 function NotFoundComponent() {
   return (
@@ -171,6 +172,7 @@ function RootComponent() {
       <FloatingGuide />
       <WalletHost />
       <RestockPopup />
+      <InactivityGuard />
       <Toaster theme="dark" offset={{ bottom: 112 }} mobileOffset={{ bottom: 112 }} />
     </QueryClientProvider>
   );

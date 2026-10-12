@@ -33,10 +33,24 @@ function clearPrivyStorage() {
 
 let inProgress = false;
 
-export async function signOutEverywhere() {
+/** Shown once on the next page after an automatic sign-out. */
+export const SIGN_OUT_NOTICE_KEY = "gm-signed-out-notice";
+
+/**
+ * `scope: "local"` ends the session only in this browser (used by the inactivity timer, so a quiet laptop doesn't
+ * sign the player out on their phone). `notice` is shown after the page reloads.
+ */
+export async function signOutEverywhere(opts: { scope?: "global" | "local"; notice?: string } = {}) {
   if (inProgress) return;
   inProgress = true;
   toast.loading("Signing out…");
+  if (opts.notice) {
+    try {
+      sessionStorage.setItem(SIGN_OUT_NOTICE_KEY, opts.notice);
+    } catch {
+      /* storage unavailable */
+    }
+  }
   // Glyph / Privy first (revokes the session with Privy), but never let it block signing out.
   try {
     const logout = await getPrivyLogout();
@@ -46,7 +60,7 @@ export async function signOutEverywhere() {
   }
   clearPrivyStorage();
   // App session: revoke it everywhere; if the network fails, at least end it in this browser.
-  const { error } = await supabase.auth.signOut({ scope: "global" });
+  const { error } = await supabase.auth.signOut({ scope: opts.scope ?? "global" });
   if (error) await supabase.auth.signOut({ scope: "local" });
   clearPrivyStorage();
   window.location.replace("/");
