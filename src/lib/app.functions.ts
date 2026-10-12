@@ -57,11 +57,9 @@ async function assertAdmin(ctx: { supabase: any; userId: string }) {
 
 /** Super admin: the only role that manages admins, configuration, Chainlink VRF, purchases and the audit log. */
 async function isSuperAdmin(ctx: { supabase: any; userId: string }) {
-  const { data, error } = await ctx.supabase.rpc("is_super_admin", { _user_id: ctx.userId });
-  if (!error) return !!data;
-  // Before drizzle 0009 is applied there are no promoted admins yet: every admin is the super admin.
-  const { data: admin } = await ctx.supabase.rpc("has_role", { _user_id: ctx.userId, _role: "admin" });
-  return !!admin;
+  // One super admin only (see roles.server.ts); promoted admins are not super admins.
+  const { superAdminId } = await import("./roles.server");
+  return (await superAdminId(await admin())) === ctx.userId;
 }
 async function assertSuperAdmin(ctx: { supabase: any; userId: string }) {
   await assertAdmin(ctx);

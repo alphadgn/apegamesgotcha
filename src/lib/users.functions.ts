@@ -12,25 +12,8 @@ async function admin() {
   return supabaseAdmin as any;
 }
 
-export type Role = "super" | "admin" | "user";
-
-async function roleOf(db: any, userId: string): Promise<Role> {
-  const { data: sup, error } = await db
-    .from("super_admins")
-    .select("user_id")
-    .eq("user_id", userId)
-    .maybeSingle();
-  const { data: adm } = await db
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (!adm) return "user";
-  // Before drizzle 0009 (no super_admins table yet) every admin is the super admin.
-  if (error) return "super";
-  return sup ? "super" : "admin";
-}
+import { roleOf, superAdminId, type Role } from "./roles.server";
+export type { Role };
 
 async function assertSuper(ctx: { userId: string }) {
   const db = await admin();
@@ -221,20 +204,18 @@ export const superListAccounts = createServerFn({ method: "POST" })
       if ((res?.users ?? []).length < 1000) break;
     }
     const ids = users.map((u) => u.id);
-    const [{ data: profiles }, { data: admins }, supers] = await Promise.all([
+    const [{ data: profiles }, { data: admins }, superId] = await Promise.all([
       db
         .from("profiles")
         .select("id, display_name, avatar_url")
         .in("id", ids)
         .then((r: any) => (r.error ? db.from("profiles").select("id, display_name").in("id", ids) : r)),
       db.from("user_roles").select("user_id").eq("role", "admin"),
-      db.from("super_admins").select("user_id"),
+      superAdminId(db),
     ]);
     const prof = new Map(((profiles ?? []) as any[]).map((p) => [p.id, p]));
     const adminSet = new Set(((admins ?? []) as any[]).map((a) => a.user_id));
-    const superSet = new Set(
-      supers.error ? [...adminSet] : ((supers.data ?? []) as any[]).map((a) => a.user_id),
-    );
+    const superSet = new Set(superId ? [superId] : []);
     const q = data.query.toLowerCase();
     const rows: AccountRow[] = users.map((u) => ({
       id: u.id,

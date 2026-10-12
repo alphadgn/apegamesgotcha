@@ -16,11 +16,16 @@ drop policy if exists "super admins own read" on public.super_admins;
 create policy "super admins own read" on public.super_admins for select to authenticated using (user_id = auth.uid());
 
 -- Today's administrator account(s) become the super admin (only when no super admin exists yet).
+-- Exactly ONE: the account already marked super admin by the app (app_metadata.super_admin), else the admin who
+-- promoted another admin first (only the super admin can promote), else the earliest-created admin.
 insert into public.super_admins (user_id)
-select distinct r.user_id from public.user_roles r
- where r.role = 'admin'
-   and exists (select 1 from auth.users u where u.id = r.user_id)
-   and not exists (select 1 from public.super_admins)
+select u.id from auth.users u
+  join public.user_roles r on r.user_id = u.id and r.role = 'admin'
+ where not exists (select 1 from public.super_admins)
+ order by (u.raw_app_meta_data ->> 'super_admin') = 'true' desc nulls last,
+          (select min(a.created_at) from public.audit_log a where a.actor = u.id and a.action = 'role.promoted') asc nulls last,
+          u.created_at asc
+ limit 1
 on conflict do nothing;
 
 create or replace function public.is_super_admin(_user_id uuid)

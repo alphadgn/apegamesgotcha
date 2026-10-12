@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { getMyRole } from "@/lib/users.functions";
 
 /**
  * The signed-in player and their role. `isAdmin` is true for the super admin and promoted admins;
@@ -27,14 +27,10 @@ export function useAuth() {
         const admin = !!data;
         let sup = false;
         if (admin) {
-          // Untyped: super_admins arrives with drizzle 0009; before that every admin is the super admin.
-          const db = supabase as unknown as SupabaseClient;
-          const { data: s, error } = await db
-            .from("super_admins")
-            .select("user_id")
-            .eq("user_id", u.id)
-            .maybeSingle();
-          sup = error ? true : !!s;
+          // Asked of the server: there is exactly one super admin (promoted admins are not).
+          sup = await getMyRole()
+            .then((r) => r.role === "super")
+            .catch(() => false);
         }
         setIsAdmin(admin);
         setIsSuperAdmin(sup);
