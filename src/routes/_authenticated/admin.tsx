@@ -17,6 +17,7 @@ import { adminListIrlClaims, adminUpdateClaim, type ClaimStatus } from "@/lib/cl
 import { LOW_STOCK_WARNING, poolStatus, RESTOCK_MESSAGE, type PoolPrize } from "@/lib/prize-pool";
 import { superDeleteAccount, superListAccounts, superSetRole, superUpdateAccount, type AccountRow } from "@/lib/users.functions";
 import { Avatar } from "@/components/Avatar";
+import { ConfirmHost, confirmAction } from "@/components/ConfirmAction";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -42,6 +43,7 @@ function Admin() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
       <h1 className="text-3xl font-bold sm:text-4xl">{isSuperAdmin ? "Super admin console" : "Admin console"}</h1>
+      <ConfirmHost />
       <AdminPoolWarning />
       <Tabs defaultValue="setup" className="mt-6">
         <TabsList className="h-auto flex-wrap justify-center gap-1">
@@ -95,20 +97,24 @@ function AccountsPanel() {
   });
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  const act = async (key: string, fn: () => Promise<unknown>, ok: string) => {
+  /** Asks first, then runs the action. Resolves true when it was done. */
+  const act = async (key: string, ask: Parameters<typeof confirmAction>[0], fn: () => Promise<unknown>, ok: string) => {
+    if (!(await confirmAction(ask))) return false;
     setBusy(key);
     try {
       await fn();
       toast.success(ok);
       await refetch();
+      return true;
     } catch (e) {
       toast.error((e as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
   };
+  const nameOf = (r: AccountRow) => r.displayName ?? r.email ?? "this account";
 
   const admins = (data?.rows ?? []).filter((r) => r.role !== "user");
   const players = (data?.rows ?? []).filter((r) => r.role === "user");
@@ -123,7 +129,14 @@ function AccountsPanel() {
               className="flex flex-wrap gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                void act(`rename:${r.id}`, () => rename({ data: { userId: r.id, displayName: editing.name } }), "Username saved").then(() => setEditing(null));
+                const name = editing.name.trim();
+                if (name === (r.displayName ?? "")) return setEditing(null);
+                void act(
+                  `rename:${r.id}`,
+                  { title: "Change this username?", description: `"${r.displayName ?? "(no username)"}" will be renamed to "${name}". The new name shows on the leaderboard.`, confirmLabel: "Rename" },
+                  () => rename({ data: { userId: r.id, displayName: name } }),
+                  "Username saved",
+                ).then((done) => done && setEditing(null));
               }}
             >
               <Input className="h-9 w-48" value={editing.name} maxLength={24} onChange={(e) => setEditing({ id: r.id, name: e.target.value })} autoFocus />
@@ -149,29 +162,33 @@ function AccountsPanel() {
       ) : (
         <div className="flex flex-wrap gap-2">
           {r.role === "user" ? (
-            <Button size="sm" disabled={!!busy} onClick={() => void act(`role:${r.id}`, () => setRole({ data: { userId: r.id, role: "admin" } }), "Promoted to admin")}>
+            <Button size="sm" disabled={!!busy} onClick={() => void act(`role:${r.id}`, { title: `Promote ${nameOf(r)} to admin?`, description: "They'll get Setup checklist, Prizes & odds, Grants & levels and Leaderboard & prizes. You stay the only super admin.", confirmLabel: "Make admin" }, () => setRole({ data: { userId: r.id, role: "admin" } }), "Promoted to admin")}>
               Make admin
             </Button>
           ) : (
-            <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void act(`role:${r.id}`, () => setRole({ data: { userId: r.id, role: "user" } }), "Now a regular player")}>
+            <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void act(`role:${r.id}`, { title: `Demote ${nameOf(r)} to player?`, description: "They lose access to the admin console straight away. Their account, spins and points stay.", confirmLabel: "Make player", destructive: true }, () => setRole({ data: { userId: r.id, role: "user" } }), "Now a regular player")}>
               Make player
             </Button>
           )}
           <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setEditing({ id: r.id, name: r.displayName ?? "" })}>
             Edit name
           </Button>
-          {confirmDelete === r.id ? (
-            <>
-              <Button size="sm" variant="destructive" disabled={!!busy} onClick={() => void act(`del:${r.id}`, () => remove({ data: { userId: r.id } }), "Account deleted").then(() => setConfirmDelete(null))}>
-                {busy === `del:${r.id}` ? "Deleting…" : "Yes, delete for good"}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>Keep</Button>
-            </>
-          ) : (
-            <Button size="sm" variant="ghost" className="text-destructive" disabled={!!busy} onClick={() => setConfirmDelete(r.id)}>
-              Delete account
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-destructive"
+            disabled={!!busy}
+            onClick={() =>
+              void act(
+                `del:${r.id}`,
+                { title: `Delete ${nameOf(r)}'s account for good?`, description: "This removes their sign-in, username, picture, wallets, points and unused spins. Spin and purchase history stays. This can't be undone.", confirmLabel: "Delete for good", destructive: true },
+                () => remove({ data: { userId: r.id } }),
+                "Account deleted",
+              )
+            }
+          >
+            {busy === `del:${r.id}` ? "Deleting…" : "Delete account"}
+          </Button>
         </div>
       )}
     </li>
@@ -250,6 +267,7 @@ function EventInfoCard({ onRefreshed }: { onRefreshed: () => void }) {
   const { data, refetch } = useQuery({ queryKey: ["event-info-pages"], queryFn: () => list() });
   const [busy, setBusy] = useState(false);
   const run = async () => {
+    if (!(await confirmAction({ title: "Refresh ApeFest info now?", description: "Fetches the BAYC pages again with Firecrawl (uses Firecrawl credits) and replaces what the guide reads.", confirmLabel: "Refresh" }))) return;
     setBusy(true);
     try {
       const r = await refresh();
@@ -296,7 +314,10 @@ function ConfigEditor({ row }: { row: { key: string; value: unknown; version: nu
       <div className="flex justify-between"><h3 className="font-bold">{row.key}</h3><span className="font-mono text-xs text-muted-foreground">v{row.version}</span></div>
       <Textarea className="mt-2 h-48 font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} />
       <Button size="sm" className="mt-2" onClick={async () => {
-        try { await save({ data: { key: row.key, value: JSON.parse(text) } }); toast.success(`Saved ${row.key}`); qc.invalidateQueries({ queryKey: ["config"] }); }
+        let value: unknown;
+        try { value = JSON.parse(text); } catch { toast.error("That isn't valid JSON — check commas, quotes and brackets."); return; }
+        if (!(await confirmAction({ title: `Save a new version of ${row.key}?`, description: "The app starts using these settings straight away.", confirmLabel: "Save" }))) return;
+        try { await save({ data: { key: row.key, value } }); toast.success(`Saved ${row.key}`); qc.invalidateQueries({ queryKey: ["config"] }); }
         catch (e) { toast.error((e as Error).message); }
       }}>Save new version</Button>
     </div>
@@ -399,11 +420,12 @@ function PrizesPanel() {
           <input type="checkbox" aria-label="IRL physical prize" checked={!!r.is_physical} onChange={(e) => upd(i, { is_physical: e.target.checked })} />
           <input type="checkbox" aria-label="Active" checked={r.active} onChange={(e) => upd(i, { active: e.target.checked })} />
           <Button size="sm" onClick={async () => {
+            if (!(await confirmAction({ title: r.id ? `Save changes to "${r.name}"?` : `Add the prize "${r.name}"?`, description: "Changes the prize pool players draw from. If the draw is on-chain, publish the prize pool afterwards (Chainlink VRF tab).", confirmLabel: "Save" }))) return;
             try { await save({ data: { ...r, image_url: r.image_url ?? null, is_physical: !!r.is_physical } }); toast.success("Saved"); qc.invalidateQueries({ queryKey: ["prizes-admin"] }); } catch (e) { toast.error((e as Error).message); }
           }}>Save</Button>
           <Button size="sm" variant="destructive" onClick={async () => {
             if (!r.id) { setRows(rows.filter((_, j) => j !== i)); return; }
-            if (!window.confirm(`Delete "${r.name}"?`)) return;
+            if (!(await confirmAction({ title: `Delete the prize "${r.name}"?`, description: "If players already won it or it's on-chain, it's switched off instead of deleted.", confirmLabel: "Delete", destructive: true }))) return;
             try {
               const res = await del({ data: { id: r.id } });
               if (res.deleted) toast.success("Prize deleted");
@@ -428,7 +450,8 @@ function VrfPanel() {
   const qc = useQueryClient();
   const { data, error, isFetching } = useQuery({ queryKey: ["vrf-status"], queryFn: () => status() });
   const [busy, setBusy] = useState<string | null>(null);
-  const act = async (k: string, fn: () => Promise<string>) => {
+  const act = async (k: string, ask: Parameters<typeof confirmAction>[0], fn: () => Promise<string>) => {
+    if (!(await confirmAction(ask))) return;
     setBusy(k);
     try { toast.success(await fn()); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); qc.invalidateQueries({ queryKey: ["vrf-status"] }); }
   };
@@ -462,12 +485,12 @@ function VrfPanel() {
         <div>
           <h3 className="font-bold">Publish odds on-chain</h3>
           <p className="mt-1 text-sm text-muted-foreground">Sends the current prize weights and stock to the contract. Spins stay blocked while the app's odds differ from the contract's. The contract refuses changes while a draw is pending.</p>
-          <Button className="mt-2" disabled={!!busy} onClick={() => act("publish", async () => { const r = await publish(); return `Published (${r.txHash.slice(0, 10)}…)`; })}>{busy === "publish" ? "Publishing…" : "Publish prize pool"}</Button>
+          <Button className="mt-2" disabled={!!busy} onClick={() => act("publish", { title: "Publish the prize pool on-chain?", description: "Sends the current prize weights and stock to the draw contract (an on-chain transaction paid by the operator wallet).", confirmLabel: "Publish" }, async () => { const r = await publish(); return `Published (${r.txHash.slice(0, 10)}…)`; })}>{busy === "publish" ? "Publishing…" : "Publish prize pool"}</Button>
         </div>
         <div>
           <h3 className="font-bold">Settle pending draws</h3>
           <p className="mt-1 text-sm text-muted-foreground">Records results Chainlink has delivered for players who left mid-draw, and returns credits for requests that never reached the chain.</p>
-          <Button variant="secondary" className="mt-2" disabled={!!busy} onClick={() => act("settle", async () => { const r = await settle(); return `Settled ${r.before - r.after} of ${r.before}`; })}>{busy === "settle" ? "Settling…" : "Settle now"}</Button>
+          <Button variant="secondary" className="mt-2" disabled={!!busy} onClick={() => act("settle", { title: "Settle pending draws now?", description: "Records results Chainlink has delivered and returns spins for requests that never reached the chain.", confirmLabel: "Settle" }, async () => { const r = await settle(); return `Settled ${r.before - r.after} of ${r.before}`; })}>{busy === "settle" ? "Settling…" : "Settle now"}</Button>
         </div>
       </div>
     </div>
@@ -525,6 +548,7 @@ function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: 
           className="min-h-11 w-full sm:w-auto"
           disabled={!!busy || enabled || (!loadError && !sub?.operator)}
           onClick={async () => {
+            if (!(await confirmAction({ title: "Set up the on-chain draw?", description: `Creates a Chainlink VRF subscription on ${network === "base" ? "Base (real ETH)" : network === "base-sepolia" ? "Base Sepolia (test)" : "your custom network"}, funds it with ${fundEth} ETH from the operator wallet and deploys the draw contract.`, confirmLabel: "Set up" }))) return;
             setBusy("setup");
             setSteps([]);
             try {
@@ -583,6 +607,7 @@ function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: 
             variant="outline"
             disabled={!!busy}
             onClick={async () => {
+              if (!(await confirmAction({ title: `Add ${topEth} ETH to the subscription?`, description: "Sends ETH from the operator wallet to the Chainlink VRF subscription. This can't be undone.", confirmLabel: "Send ETH" }))) return;
               setBusy("top");
               try {
                 await topUp({ data: { eth: topEth } });
@@ -607,6 +632,9 @@ function DrawSetupCard({ enabled, oddsInSync }: { enabled: boolean; oddsInSync: 
           variant={enabled ? "outline" : "default"}
           disabled={!!busy}
           onClick={async () => {
+            if (!(await confirmAction(enabled
+              ? { title: "Switch real spins off?", description: "Players can't play live spins until you switch them back on. Their spins are kept.", confirmLabel: "Switch off", destructive: true }
+              : { title: "Switch real spins on?", description: "Every live spin is then drawn on-chain by Chainlink VRF and paid from the subscription.", confirmLabel: "Switch on" }))) return;
             setBusy("switch");
             try {
               const r = await toggle({ data: { enabled: !enabled } });
@@ -645,6 +673,9 @@ function PurchasesCard({ drawOn }: { drawOn: boolean }) {
           variant={on ? "outline" : "default"}
           disabled={busy || (!on && !drawOn)}
           onClick={async () => {
+            if (!(await confirmAction(on
+              ? { title: "Switch purchases off?", description: "Players can't buy spins with APE until you switch purchases back on.", confirmLabel: "Switch off", destructive: true }
+              : { title: "Switch purchases on?", description: "Refill starts charging players APE and adding spins.", confirmLabel: "Switch on" }))) return;
             setBusy(true);
             try {
               const r = await toggle({ data: { enabled: !on } });
@@ -783,9 +814,16 @@ function GrantsPanel() {
           <Button
             disabled={busy || !g.who.trim() || (g.spins <= 0 && g.points === 0)}
             onClick={async () => {
+              const who = g.who.trim();
+              const what = [
+                g.spins > 0 ? `${g.spins} ${GRANT_KINDS[g.kind].label.toLowerCase()} spin${g.spins === 1 ? "" : "s"}` : "",
+                g.points !== 0 ? `${g.points > 0 ? "+" : ""}${g.points} points` : "",
+              ].filter(Boolean).join(" and ");
+              if (!(await confirmAction({ title: `Give ${what} to ${who}?`, description: g.note ? `Note: ${g.note}` : "Usable straight away.", confirmLabel: "Grant" }))) return;
               setBusy(true);
               try {
-                const res = await grant({ data: g });
+                const res = await grant({ data: { ...g, who } });
+                setG({ who: "", spins: 0, kind: g.kind, points: 0, note: "" }); // cleared so it can't be granted twice by accident
                 const to = res?.player ? ` to ${res.player}` : "";
                 toast.success(g.spins > 0 ? `Granted ${g.spins} ${GRANT_KINDS[g.kind].label.toLowerCase()} spin${g.spins === 1 ? "" : "s"}${to} — usable now` : `Points adjusted${to ? ` for ${res.player}` : ""}`);
                 void qc.invalidateQueries({ queryKey: ["spin-grants"] });
@@ -806,7 +844,22 @@ function GrantsPanel() {
             <Input placeholder="token ID" value={lv.tokenId} onChange={(e) => setLv({ ...lv, tokenId: e.target.value })} />
             <Input placeholder="level" value={lv.level} onChange={(e) => setLv({ ...lv, level: e.target.value })} />
           </div>
-          <Button onClick={async () => { try { await setLevel({ data: { tokenId: lv.tokenId, level: lv.level === "" ? null : +lv.level } }); toast.success("Updated"); } catch (e) { toast.error((e as Error).message); } }}>Save</Button>
+          <Button
+            disabled={!lv.tokenId.trim()}
+            onClick={async () => {
+              const level = lv.level.trim() === "" ? null : +lv.level;
+              if (!(await confirmAction({ title: level == null ? `Clear the level override for NFT #${lv.tokenId}?` : `Set NFT #${lv.tokenId} to level ${level}?`, confirmLabel: "Save" }))) return;
+              try {
+                await setLevel({ data: { tokenId: lv.tokenId.trim(), level } });
+                toast.success("Updated");
+                setLv({ tokenId: "", level: "" });
+              } catch (e) {
+                toast.error(friendlyError(e));
+              }
+            }}
+          >
+            Save
+          </Button>
         </div>
       </div>
       <GrantLog />
@@ -868,7 +921,7 @@ function GrantLog() {
           const left = r.count - r.used;
           const canDelete = left > 0 && /^[0-9a-f-]{36}$/.test(r.id);
           const remove = async () => {
-            if (!window.confirm(`Delete ${left} unused ${GRANT_KINDS[r.kind].label.toLowerCase()} spin${left === 1 ? "" : "s"} granted to ${r.player}? Only the spins are removed — the account stays. Spins already played stay.`)) return false;
+            if (!(await confirmAction({ title: `Delete ${left} unused ${GRANT_KINDS[r.kind].label.toLowerCase()} spin${left === 1 ? "" : "s"} granted to ${r.player}?`, description: "Only the spins are removed — the account stays. Spins already played stay.", confirmLabel: "Delete spins", destructive: true }))) return false;
             setDeleting(r.id);
             try {
               const { removed } = await del({ data: { grantId: r.id } });
@@ -917,6 +970,8 @@ function BoardPanel() {
   const { data: winners, error, isFetching, refetch } = useQuery({ queryKey: ["winners", minRarity], queryFn: () => listWinners({ data: { minRarity } }) });
   const [busy, setBusy] = useState<string | null>(null);
   const switchTo = async (m: "demo" | "live") => {
+    if (m === mode) return;
+    if (!(await confirmAction({ title: `Show the ${m === "live" ? "live" : "demo"} leaderboard to everyone?`, description: m === "live" ? "The public leaderboard switches to points from real spins." : "The public leaderboard switches to points from demo spins.", confirmLabel: "Switch" }))) return;
     setBusy("mode");
     try {
       await setMode({ data: { mode: m } });
@@ -979,6 +1034,9 @@ function BoardPanel() {
                   variant={w.delivered_at ? "outline" : "default"}
                   disabled={busy === w.id}
                   onClick={async () => {
+                    if (!(await confirmAction(w.delivered_at
+                      ? { title: `Undo "delivered" for ${w.prize}?`, description: `${w.player}'s prize goes back to not delivered.`, confirmLabel: "Undo" }
+                      : { title: `Mark ${w.prize} as delivered?`, description: `Confirms you've handed it to ${w.player}.`, confirmLabel: "Mark delivered" }))) return;
                     setBusy(w.id);
                     try {
                       await mark({ data: { spinId: w.id, delivered: !w.delivered_at } });
@@ -1020,6 +1078,7 @@ function IrlClaimsCard() {
   const save = async (claimId: string) => {
     const e = edits[claimId];
     if (!e) return;
+    if (!(await confirmAction({ title: `Update this claim to "${e.status}"?`, description: "The winner sees the new status, note and tracking number.", confirmLabel: "Save" }))) return;
     setBusy(claimId);
     try {
       await update({ data: { claimId, status: e.status, adminNote: e.note, tracking: e.tracking } });
