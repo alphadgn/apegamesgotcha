@@ -47,8 +47,9 @@ function Admin() {
       <ConfirmHost />
       <AdminPoolWarning />
       <Tabs defaultValue="setup" className="mt-6">
-        <TabsList className="h-auto flex-wrap justify-center gap-1">
+        <TabsList className="admin-tabs h-auto flex-wrap justify-center gap-2 p-1">
           <TabsTrigger value="setup">Setup checklist</TabsTrigger>
+          <TabsTrigger value="claims">IRL claims</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="config">Configuration</TabsTrigger>}
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>}
@@ -58,6 +59,7 @@ function Admin() {
           {isSuperAdmin && <TabsTrigger value="audit">Audit log</TabsTrigger>}
         </TabsList>
         <TabsContent value="setup"><SetupPanel /></TabsContent>
+        <TabsContent value="claims"><IrlClaimsPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="config"><ConfigPanel /></TabsContent>}
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="vrf"><VrfPanel /></TabsContent>}
@@ -1060,33 +1062,63 @@ function BoardPanel() {
           ))}
         </ul>
       </div>
-      <IrlClaimsCard />
     </div>
   );
 }
 
 const CLAIM_STATUSES: ClaimStatus[] = ["submitted", "approved", "shipped", "delivered", "rejected"];
+const CLAIM_LABEL: Record<ClaimStatus, string> = {
+  submitted: "New",
+  approved: "Approved",
+  shipped: "Shipped",
+  delivered: "Delivered",
+  rejected: "Rejected",
+};
+const DONE: ClaimStatus[] = ["delivered", "rejected"];
 
-/** IRL prizes won in real draws and the delivery details each winner sent. */
-function IrlClaimsCard() {
+type ClaimRow = Awaited<ReturnType<typeof adminListIrlClaims>>["rows"][number];
+
+function addressText(a: Record<string, string> | null | undefined) {
+  if (!a) return "";
+  return [a["line1"], a["line2"], `${a["city"] ?? ""}${a["region"] ? `, ${a["region"]}` : ""} ${a["postal"] ?? ""}`.trim(), a["country"]]
+    .filter((x) => x && x.trim())
+    .join("\n");
+}
+
+/**
+ * IRL claims dashboard (every admin): physical prizes won in live draws, who won them, how they want them
+ * (shipping address or pickup at ApeFest) and where each one is in fulfilment.
+ */
+function IrlClaimsPanel() {
   const list = useServerFn(adminListIrlClaims);
   const update = useServerFn(adminUpdateClaim);
-  const [filter, setFilter] = useState<"open" | "all">("open");
-  const { data, error, isFetching, refetch } = useQuery({ queryKey: ["irl-claims"], queryFn: () => list() });
+  const [view, setView] = useState<"ship" | "pickup" | "unclaimed" | "done" | "all">("ship");
+  const { data, error, isFetching, refetch } = useQuery({ queryKey: ["irl-claims"], queryFn: () => list(), refetchInterval: 60_000 });
   const [edits, setEdits] = useState<Record<string, { status: ClaimStatus; note: string; tracking: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const rows = (data?.rows ?? []).filter((r) => filter === "all" || !r.claim || !["delivered", "rejected"].includes(r.claim.status));
-  const waiting = (data?.rows ?? []).filter((r) => !r.claim).length;
 
-  const save = async (claimId: string) => {
-    const e = edits[claimId];
+  const all = data?.rows ?? [];
+  const open = (r: ClaimRow) => !!r.claim && !DONE.includes(r.claim.status);
+  const groups = {
+    ship: all.filter((r) => open(r) && r.claim!.delivery === "ship"),
+    pickup: all.filter((r) => open(r) && r.claim!.delivery === "pickup"),
+    unclaimed: all.filter((r) => !r.claim),
+    done: all.filter((r) => !!r.claim && DONE.includes(r.claim.status)),
+    all,
+  };
+  const rows = groups[view];
+
+  const save = async (r: ClaimRow) => {
+    const c = r.claim!;
+    const e = edits[c.id];
     if (!e) return;
-    if (!(await confirmAction({ title: `Update this claim to "${e.status}"?`, description: "The winner sees the new status, note and tracking number.", confirmLabel: "Save" }))) return;
-    setBusy(claimId);
+    const who = r.username ?? c.full_name;
+    if (!(await confirmAction({ title: `Mark ${r.prize} for ${who} as "${CLAIM_LABEL[e.status]}"?`, description: "The winner sees the new status, note and tracking number.", confirmLabel: "Save" }))) return;
+    setBusy(c.id);
     try {
-      await update({ data: { claimId, status: e.status, adminNote: e.note, tracking: e.tracking } });
+      await update({ data: { claimId: c.id, status: e.status, adminNote: e.note, tracking: e.tracking } });
       toast.success("Claim updated");
-      setEdits(({ [claimId]: _, ...rest }) => rest);
+      setEdits(({ [c.id]: _, ...rest }) => rest);
       await refetch();
     } catch (err) {
       toast.error((err as Error).message);
@@ -1095,59 +1127,116 @@ function IrlClaimsCard() {
     }
   };
 
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${what} copied`);
+    } catch {
+      toast.error("Couldn't copy — select the text instead");
+    }
+  };
+
+  const tiles: { key: typeof view; label: string; count: number; tone?: string | undefined }[] = [
+    { key: "ship", label: "To ship", count: groups.ship.length, tone: groups.ship.length ? "border-primary" : undefined },
+    { key: "pickup", label: "Pick up at ApeFest", count: groups.pickup.length, tone: groups.pickup.length ? "border-primary" : undefined },
+    { key: "unclaimed", label: "Won, not claimed yet", count: groups.unclaimed.length, tone: groups.unclaimed.length ? "border-amber-400" : undefined },
+    { key: "done", label: "Delivered / closed", count: groups.done.length },
+  ];
+
   return (
-    <div className="space-y-3 rounded border border-border bg-card p-4 text-left md:col-span-2">
+    <div className="mt-4 space-y-4 text-left">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-bold">IRL prize claims</h3>
-        <div className="flex flex-wrap items-center gap-2">
-          <select className="h-10 rounded border border-border bg-background px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
-            <option value="open">Open</option>
-            <option value="all">All</option>
-          </select>
-          <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Loading…" : "Refresh"}</Button>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Physical (IRL) prizes won in live draws. Winners send their details and pick shipping or pickup at ApeFest; the team
+          is emailed for each claim. Any admin can fulfil them here.
+        </p>
+        <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Loading…" : "Refresh"}</Button>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Physical prizes (marked IRL) won in real draws. Winners send their contact details and choose pickup at ApeFest or shipping; you're emailed for each claim.
-        {waiting > 0 && <b className="text-destructive"> {waiting} winner{waiting === 1 ? " hasn't" : "s haven't"} claimed yet.</b>}
-      </p>
-      {data && !data.ready && <p className="text-sm text-destructive">Claims turn on after the database update (publish to apply it).</p>}
+      {data && !data.ready && <p className="text-sm text-destructive">Claims turn on after the database update.</p>}
       {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
-      {data && !rows.length && <p className="text-sm text-muted-foreground">Nothing here.</p>}
-      <ul className="divide-y divide-border text-sm">
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4" role="group" aria-label="Claim groups">
+        {tiles.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            aria-pressed={view === t.key}
+            onClick={() => setView(t.key)}
+            className={`rounded border bg-card p-3 text-left transition ${t.tone ?? "border-border"} ${view === t.key ? "ring-2 ring-primary" : "opacity-80 hover:opacity-100"}`}
+          >
+            <span className="block text-3xl font-bold">{data ? t.count : "–"}</span>
+            <span className="text-xs text-muted-foreground">{t.label}</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="text-xs underline" onClick={() => setView("all")}>Show all {all.length} IRL wins</button>
+
+      {data && !rows.length && <p className="rounded border border-border bg-card p-4 text-sm text-muted-foreground">Nothing here.</p>}
+      <ul className="grid gap-3 lg:grid-cols-2">
         {rows.map((r) => {
           const c = r.claim;
           const e = c ? (edits[c.id] ?? { status: c.status, note: c.admin_note ?? "", tracking: c.tracking ?? "" }) : null;
           const setE = (patch: Partial<NonNullable<typeof e>>) => c && e && setEdits({ ...edits, [c.id]: { ...e, ...patch } });
-          const a = c?.address;
+          const addr = c?.delivery === "ship" ? addressText(c.address) : "";
+          const label = [c?.full_name, addr].filter(Boolean).join("\n");
           return (
-            <li key={r.spin_id} className="grid gap-2 py-3">
-              <div>
-                <b>{r.prize}</b> <span className="text-xs uppercase text-muted-foreground">{r.rarity}</span>
-                <span className="block break-all text-xs text-muted-foreground">{r.player} · won {new Date(r.won_at).toLocaleString()}</span>
+            <li key={r.spin_id} className="space-y-3 rounded border border-border bg-card p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-bold">{r.prize} <span className="text-xs uppercase text-muted-foreground">{r.rarity}</span></p>
+                  <p className="break-all text-sm">
+                    <b>{r.username ?? "(no username)"}</b> <span className="text-muted-foreground">· {r.player}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">Won {new Date(r.won_at).toLocaleString()}</p>
+                </div>
+                <span className={`rounded px-2 py-0.5 text-xs font-bold uppercase ${!c ? "bg-amber-400/20 text-amber-300" : DONE.includes(c.status) ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground"}`}>
+                  {!c ? "Not claimed" : CLAIM_LABEL[c.status]}
+                </span>
               </div>
+
               {!c ? (
-                <p className="text-xs text-destructive">Not claimed yet: the winner sees a "Claim prize" prompt on their dashboard.</p>
+                <p className="text-sm text-muted-foreground">The winner hasn't sent their details yet. They see a "Claim your IRL prize" prompt on My Machine.</p>
               ) : (
                 <>
-                  <div className="grid gap-1 rounded bg-muted/40 p-2 text-xs sm:grid-cols-2">
-                    <span><b>{c.full_name}</b> · <a className="underline" href={`mailto:${c.email}`}>{c.email}</a>{c.phone ? ` · ${c.phone}` : ""}</span>
-                    <span>{c.delivery === "pickup" ? "Pick up at ApeFest Charleston" : "Ship it"}</span>
-                    {a && (
-                      <span className="whitespace-pre-line sm:col-span-2">
-                        {[a["line1"], a["line2"], `${a["city"] ?? ""}${a["region"] ? `, ${a["region"]}` : ""} ${a["postal"] ?? ""}`, a["country"]].filter(Boolean).join("\n")}
-                      </span>
+                  <div className="grid gap-2 rounded bg-muted/40 p-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs uppercase text-muted-foreground">Recipient</p>
+                      <p className="font-bold">{c.full_name}</p>
+                      <a className="block break-all underline" href={`mailto:${c.email}`}>{c.email}</a>
+                      {c.phone && <a className="block underline" href={`tel:${c.phone}`}>{c.phone}</a>}
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase text-muted-foreground">{c.delivery === "ship" ? "Ship to" : "Delivery"}</p>
+                      {c.delivery === "ship" ? (
+                        addr ? <p className="whitespace-pre-line">{addr}</p> : <p className="text-destructive">No address given</p>
+                      ) : (
+                        <p className="font-bold">Pick up at ApeFest Charleston</p>
+                      )}
+                    </div>
+                    {c.notes && <p className="sm:col-span-2"><span className="text-xs uppercase text-muted-foreground">Winner's note: </span>{c.notes}</p>}
+                    {c.delivery === "ship" && addr && (
+                      <div className="sm:col-span-2">
+                        <Button size="sm" variant="outline" onClick={() => void copy(label, "Shipping label")}>Copy shipping label</Button>
+                      </div>
                     )}
-                    {c.notes && <span className="sm:col-span-2">Note: {c.notes}</span>}
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr_auto]">
-                    <select className="h-10 rounded border border-border bg-background px-2 text-sm" value={e!.status} onChange={(ev) => setE({ status: ev.target.value as ClaimStatus })}>
-                      {CLAIM_STATUSES.map((s) => <option key={s} value={s}>{s[0]!.toUpperCase() + s.slice(1)}</option>)}
-                    </select>
-                    <Input placeholder="Note to the winner (optional)" value={e!.note} onChange={(ev) => setE({ note: ev.target.value })} maxLength={1000} />
-                    <Input placeholder="Tracking number (optional)" value={e!.tracking} onChange={(ev) => setE({ tracking: ev.target.value })} maxLength={200} />
-                    <Button size="sm" disabled={busy === c.id || !edits[c.id]} onClick={() => void save(c.id)}>{busy === c.id ? "Saving…" : "Save"}</Button>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="text-xs text-muted-foreground">
+                      Status
+                      <select className="mt-1 h-10 w-full rounded border border-border bg-background px-2 text-sm text-foreground" value={e!.status} onChange={(ev) => setE({ status: ev.target.value as ClaimStatus })}>
+                        {CLAIM_STATUSES.map((st) => <option key={st} value={st}>{CLAIM_LABEL[st]}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-xs text-muted-foreground">
+                      Tracking number
+                      <Input className="mt-1" placeholder="optional" value={e!.tracking} onChange={(ev) => setE({ tracking: ev.target.value })} maxLength={200} />
+                    </label>
+                    <label className="text-xs text-muted-foreground sm:col-span-2">
+                      Note to the winner
+                      <Input className="mt-1" placeholder="optional" value={e!.note} onChange={(ev) => setE({ note: ev.target.value })} maxLength={1000} />
+                    </label>
                   </div>
+                  <Button size="sm" disabled={busy === c.id || !edits[c.id]} onClick={() => void save(r)}>{busy === c.id ? "Saving…" : "Save"}</Button>
                 </>
               )}
             </li>

@@ -178,10 +178,18 @@ export const adminListIrlClaims = createServerFn({ method: "POST" })
     const { data: claims, error: ce } = list.length ? await db.from("prize_claims").select("*").in("spin_id", list.map((s) => s.id)) : { data: [], error: null };
     const ready = !ce;
     const bySpin = new Map(((claims ?? []) as any[]).map((c) => [c.spin_id, c]));
+    const userIds = [...new Set(list.map((s) => s.user_id))];
     const emails = new Map<string, string>();
-    for (const id of new Set(list.map((s) => s.user_id))) {
-      const { data: u } = await db.auth.admin.getUserById(id);
-      emails.set(id, u?.user?.email ?? id);
+    await Promise.all(
+      userIds.map(async (id) => {
+        const { data: u } = await db.auth.admin.getUserById(id);
+        emails.set(id, u?.user?.email ?? id);
+      }),
+    );
+    const names = new Map<string, string>();
+    if (userIds.length) {
+      const { data: profs } = await db.from("profiles").select("id, display_name").in("id", userIds);
+      for (const p of (profs ?? []) as { id: string; display_name: string | null }[]) if (p.display_name) names.set(p.id, p.display_name);
     }
     return {
       ready,
@@ -189,6 +197,8 @@ export const adminListIrlClaims = createServerFn({ method: "POST" })
         spin_id: s.id,
         won_at: s.fulfilled_at ?? s.created_at,
         player: emails.get(s.user_id) ?? s.user_id,
+        /** The player's username (falls back to their email). */
+        username: names.get(s.user_id) ?? null,
         prize: s.prize_name,
         rarity: s.rarity,
         claim: (bySpin.get(s.id) ?? null) as null | {
