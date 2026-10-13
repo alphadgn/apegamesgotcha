@@ -336,6 +336,13 @@ function ConfigEditor({ row }: { row: { key: string; value: unknown; version: nu
   );
 }
 
+/** Picking a rarity in Prizes & odds fills in its standard weight and points (still editable afterwards). */
+const RARITY_DEFAULTS: Record<"common" | "rare" | "epic" | "legendary", { weight: number; points: number }> = {
+  legendary: { weight: 2, points: 1000 },
+  epic: { weight: 100, points: 400 },
+  rare: { weight: 400, points: 50 },
+  common: { weight: 600, points: 25 },
+};
 type Prize = { id?: string; name: string; rarity: "common" | "rare" | "epic" | "legendary"; weight: number; points: number; inventory: number | null; active: boolean; image_url?: string | null; is_physical?: boolean };
 
 /** Prize images live in a private bucket; `image_url` stores the file path and is shown via a signed link. */
@@ -424,7 +431,7 @@ function PrizesPanel() {
             <Input value={r.name} onChange={(e) => upd(i, { name: e.target.value })} />
             {r.is_physical && <span className="mt-1 inline-block rounded bg-primary/20 px-1.5 text-[10px] uppercase text-primary">IRL physical prize claim</span>}
           </div>
-          <select className="h-9 rounded border border-input bg-background px-2 text-sm" value={r.rarity} onChange={(e) => upd(i, { rarity: e.target.value as Prize["rarity"] })}>
+          <select className="h-9 rounded border border-input bg-background px-2 text-sm" value={r.rarity} onChange={(e) => { const rarity = e.target.value as Prize["rarity"]; upd(i, { rarity, ...RARITY_DEFAULTS[rarity] }); }}>
             {["common", "rare", "epic", "legendary"].map((x) => <option key={x}>{x}</option>)}
           </select>
           <Input type="number" placeholder="0" value={r.weight || ""} onChange={(e) => upd(i, { weight: +e.target.value })} />
@@ -450,8 +457,8 @@ function PrizesPanel() {
         </div>
       ))}
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", weight: 1, points: 0, inventory: null, active: false, image_url: null, is_physical: false }])}>Add prize</Button>
-        <Button variant="outline" size="sm" onClick={() => setRows([...rows, { name: "IRL physical prize claim", rarity: "legendary", weight: 1, points: 0, inventory: 1, active: false, image_url: null, is_physical: true }])}>Add IRL physical prize</Button>
+        <Button variant="outline" size="sm" onClick={() => setRows([...rows, { name: "New prize", rarity: "common", ...RARITY_DEFAULTS.common, inventory: null, active: false, image_url: null, is_physical: false }])}>Add prize</Button>
+        <Button variant="outline" size="sm" onClick={() => setRows([...rows, { name: "IRL physical prize claim", rarity: "legendary", ...RARITY_DEFAULTS.legendary, inventory: 1, active: false, image_url: null, is_physical: true }])}>Add IRL physical prize</Button>
       </div>
     </div>
   );
