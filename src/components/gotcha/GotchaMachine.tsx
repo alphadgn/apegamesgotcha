@@ -19,6 +19,8 @@ export type GotchaPrize = {
   is_physical?: boolean | null;
   /** A gift certificate (dollar value issued by a vendor): the winner chooses in person or the value in APE. */
   cert_value_usd?: string | number | null;
+  /** A stock certificate (NFT holding stock tokens): the winner has it sent to a wallet or gets an email claim link. */
+  is_stock?: boolean;
 };
 
 /** One capsule's state as reported by the server (mirrors the `checkDraw` server function). */

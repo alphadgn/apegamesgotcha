@@ -136,3 +136,32 @@ export async function readWalletLinkCode(code: string) {
 export function walletLinkMessage(l: { userId: string; rand: string; expiresAt: string }) {
   return `ApeGames Gotcha: add this wallet to my account\nAccount: ${l.userId}\nCode: ${l.rand}\nValid until: ${l.expiresAt}\n\nNo transaction, no fees.`;
 }
+
+// ---- Stock certificate claim links (emailed to the winner's account email) ----
+
+/** How long an emailed stock certificate claim link works. */
+export const STOCK_CLAIM_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * A sealed claim link code `certId.exp.rand.mac`. `rand` is also stored on the certificate, so sending a new email
+ * (new rand) switches off older links, and the link stops working once the certificate has been sent.
+ */
+export async function issueStockClaimCode(certId: string, rand: string) {
+  const exp = Date.now() + STOCK_CLAIM_MAX_AGE_MS;
+  const body = `${certId}.${exp}.${rand}`;
+  return { code: `${body}.${await hmac(`stockclaim|${body}`)}`, expiresAt: new Date(exp).toISOString() };
+}
+
+export async function readStockClaimCode(code: string) {
+  const bad = "This claim link isn't valid. Open the latest email from ApeGames Gotcha, or claim it from My Machine.";
+  const parts = code.trim().split(".");
+  if (parts.length !== 4) throw new Error(bad);
+  const [certId, expText, rand, mac] = parts as [string, string, string, string];
+  const body = `${certId}.${expText}.${rand}`;
+  if (!sameString(mac, await hmac(`stockclaim|${body}`))) throw new Error(bad);
+  if (!/^[0-9a-f-]{36}$/i.test(certId) || !/^[0-9a-f]{16,64}$/.test(rand)) throw new Error(bad);
+  const exp = Number(expText);
+  if (!Number.isFinite(exp) || Date.now() > exp)
+    throw new Error("This claim link expired. Sign in to ApeGames Gotcha and claim the certificate from My Machine, or ask for a new email there.");
+  return { certId, rand };
+}

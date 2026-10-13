@@ -32,17 +32,19 @@ const MULTICALL_CHAINS = new Set([8453, 84532, 33139]);
 /** Chains whose native coin is APE (everything else here pays gas in ETH). */
 const APE_CHAINS = new Set([33139, 33111]);
 
-function privateRpc(chainId: number) {
-  const env = APE_CHAINS.has(chainId)
-    ? process.env["APECHAIN_RPC_URL"]
-    : process.env["VRF_RPC_URL"];
+/** Which secret holds a private RPC (another chain, e.g. the stock certificates' chain, names its own). */
+export type RpcOptions = { privateEnv?: string };
+
+function privateRpc(chainId: number, opts?: RpcOptions) {
+  const name = opts?.privateEnv ?? (APE_CHAINS.has(chainId) ? "APECHAIN_RPC_URL" : "VRF_RPC_URL");
+  const env = process.env[name];
   return env && /^https?:\/\//.test(env) ? env : undefined;
 }
 
 /** The RPC list for a chain, best first, without duplicates. */
-export function rpcUrls(chainId: number, configured?: string | null) {
+export function rpcUrls(chainId: number, configured?: string | null, opts?: RpcOptions) {
   const urls = [
-    privateRpc(chainId),
+    privateRpc(chainId, opts),
     configured || undefined,
     ...(PUBLIC_RPCS[chainId] ?? []),
   ].filter((u): u is string => !!u);
@@ -50,8 +52,8 @@ export function rpcUrls(chainId: number, configured?: string | null) {
 }
 
 /** One transport that batches requests, retries busy RPCs with back-off and falls over to the next RPC. */
-export function resilientTransport(chainId: number, configured?: string | null): Transport {
-  const urls = rpcUrls(chainId, configured);
+export function resilientTransport(chainId: number, configured?: string | null, opts?: RpcOptions): Transport {
+  const urls = rpcUrls(chainId, configured, opts);
   const one = (url: string, first: boolean) =>
     http(url, {
       batch: { wait: 16 }, // calls made together go out as one HTTP request
@@ -72,6 +74,7 @@ export function chainDef(
   chainId: number,
   name: string | undefined,
   configured?: string | null,
+  opts?: RpcOptions,
 ): Chain {
   const ape = APE_CHAINS.has(chainId);
   return defineChain({
@@ -80,7 +83,7 @@ export function chainDef(
     nativeCurrency: ape
       ? { name: "ApeCoin", symbol: "APE", decimals: 18 }
       : { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: { default: { http: rpcUrls(chainId, configured) } },
+    rpcUrls: { default: { http: rpcUrls(chainId, configured, opts) } },
     ...(MULTICALL_CHAINS.has(chainId)
       ? { contracts: { multicall3: { address: MULTICALL3 } } }
       : {}),

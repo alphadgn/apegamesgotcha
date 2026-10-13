@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as ClaimStockRouteImport } from './routes/claim-stock'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as LinkWalletRouteImport } from './routes/link-wallet'
 import { Route as SoundTestRouteImport } from './routes/sound-test'
@@ -40,6 +41,11 @@ const AboutRoute = AboutRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClaimStockRoute = ClaimStockRouteImport.update({
+  id: '/claim-stock',
+  path: '/claim-stock',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LeaderboardRoute = LeaderboardRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/claim-stock': typeof ClaimStockRoute
   '/leaderboard': typeof LeaderboardRoute
   '/link-wallet': typeof LinkWalletRoute
   '/sound-test': typeof SoundTestRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/claim-stock': typeof ClaimStockRoute
   '/leaderboard': typeof LeaderboardRoute
   '/link-wallet': typeof LinkWalletRoute
   '/sound-test': typeof SoundTestRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
+  '/claim-stock': typeof ClaimStockRoute
   '/leaderboard': typeof LeaderboardRoute
   '/link-wallet': typeof LinkWalletRoute
   '/sound-test': typeof SoundTestRoute
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/claim-stock'
     | '/leaderboard'
     | '/link-wallet'
     | '/sound-test'
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/auth'
+    | '/claim-stock'
     | '/leaderboard'
     | '/link-wallet'
     | '/sound-test'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/about'
     | '/auth'
+    | '/claim-stock'
     | '/leaderboard'
     | '/link-wallet'
     | '/sound-test'
@@ -184,6 +196,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   AuthRoute: typeof AuthRoute
+  ClaimStockRoute: typeof ClaimStockRoute
   LeaderboardRoute: typeof LeaderboardRoute
   LinkWalletRoute: typeof LinkWalletRoute
   SoundTestRoute: typeof SoundTestRoute
@@ -219,6 +232,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/claim-stock': {
+      id: '/claim-stock'
+      path: '/claim-stock'
+      fullPath: '/claim-stock'
+      preLoaderRoute: typeof ClaimStockRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/leaderboard': {
@@ -309,6 +329,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   AuthRoute: AuthRoute,
+  ClaimStockRoute: ClaimStockRoute,
   LeaderboardRoute: LeaderboardRoute,
   LinkWalletRoute: LinkWalletRoute,
   SoundTestRoute: SoundTestRoute,

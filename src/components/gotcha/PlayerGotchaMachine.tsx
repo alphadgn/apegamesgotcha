@@ -13,6 +13,7 @@ import { DemoGotchaMachine } from "./DemoGotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 import { ClaimForm, IRL_QUERY_KEY, useMyIrlPrizes } from "@/components/IrlPrizes";
 import { CERT_QUERY_KEY, CertificateChoice, useMyCertificates } from "@/components/GiftCertificates";
+import { STOCK_QUERY_KEY, StockChoice, useMyStockCertificates } from "@/components/StockCertificates";
 import type { IrlWin } from "@/lib/claims.functions";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RESTOCK_MESSAGE } from "@/lib/prize-pool";
@@ -67,7 +68,7 @@ export function PlayerGotchaMachine({
         credits: balance.real,
         demoGrants: balance.demo,
         nextFreeAt: balance.nextFreeAt,
-        prizes: ((prizes.data ?? []) as GotchaPrize[]).map((p) => ({
+        prizes: ((prizes.data ?? []) as (GotchaPrize & { stock_token_ids?: string[] | null })[]).map((p) => ({
           id: p.id,
           name: p.name,
           rarity: p.rarity,
@@ -77,6 +78,7 @@ export function PlayerGotchaMachine({
           image_url: p.image_url ?? null,
           is_physical: !!p.is_physical,
           cert_value_usd: p.cert_value_usd ?? null,
+          is_stock: Array.isArray(p.stock_token_ids) && p.stock_token_ids.length > 0,
         })),
         pendingIds: ((pending.data ?? []) as { id: string }[]).map((s) => s.id),
         lastFive: ((recent.data ?? []) as ShareSpin[]).filter((s) => s.prize_name).reverse(),
@@ -175,6 +177,33 @@ export function PlayerGotchaMachine({
     if (certSpin) toCert.current = toCert.current.filter((id) => id !== certSpin);
     setCertSpin(null);
     void qc.invalidateQueries({ queryKey: CERT_QUERY_KEY });
+    // A stock certificate won in the same session asks next.
+    if (!inPlay && toStock.current[0]) setStockSpin((open) => open ?? toStock.current[0]!);
+  };
+
+  // ---- Stock certificates won in a live draw: sent to a wallet, or an email claim link ----
+  const [stockSpin, setStockSpin] = useState<string | null>(null);
+  const toStock = useRef<string[]>([]);
+  const isStock = useCallback(
+    (r: GotchaResult) => {
+      const prize = data?.prizes.find((p) => (r.prize_id && p.id === r.prize_id) || p.name === r.prize_name);
+      return !!prize?.is_stock && !prize?.is_physical;
+    },
+    [data?.prizes],
+  );
+  const { data: stocks, refetch: refetchStocks } = useMyStockCertificates(!!stockSpin);
+  const openStock = stockSpin ? stocks?.rows.find((c) => c.spinId === stockSpin) : undefined;
+  useEffect(() => {
+    if (stockSpin && stocks && !openStock) {
+      const t = window.setTimeout(() => void refetchStocks(), 1500);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [stockSpin, stocks, openStock, refetchStocks]);
+  const closeStock = () => {
+    if (stockSpin) toStock.current = toStock.current.filter((id) => id !== stockSpin);
+    setStockSpin(null);
+    void qc.invalidateQueries({ queryKey: STOCK_QUERY_KEY });
   };
 
   const credits = data?.credits ?? 0;
@@ -255,11 +284,14 @@ export function PlayerGotchaMachine({
           if (next) setClaimWin((open) => open ?? next);
           // …and the choice for a gift certificate won in it.
           else if (!busy && toCert.current[0]) setCertSpin((open) => open ?? toCert.current[0]!);
+          // …and how to receive a stock certificate won in it.
+          else if (!busy && toStock.current[0]) setStockSpin((open) => open ?? toStock.current[0]!);
         }}
         onReveal={(r) => {
           const win = winFor(r);
           if (win && !toClaim.current.some((w) => w.spin_id === win.spin_id)) toClaim.current.push(win);
           if (isCert(r) && !toCert.current.includes(r.id)) toCert.current.push(r.id);
+          if (isStock(r) && !toStock.current.includes(r.id)) toStock.current.push(r.id);
         }}
         revealAction={(r) => {
           const win = winFor(r);
@@ -267,6 +299,12 @@ export function PlayerGotchaMachine({
             return (
               <button type="button" className="gm-claim-btn" onClick={() => setClaimWin(win)}>
                 🎁 Claim your IRL prize
+              </button>
+            );
+          if (isStock(r))
+            return (
+              <button type="button" className="gm-claim-btn" onClick={() => setStockSpin(r.id)}>
+                📈 Claim your stock certificate
               </button>
             );
           return isCert(r) ? (
@@ -302,6 +340,22 @@ export function PlayerGotchaMachine({
           </DialogHeader>
           {openCert && <CertificateChoice cert={openCert} />}
           <button type="button" className="text-sm underline text-muted-foreground" onClick={closeCert}>
+            Later
+          </button>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!stockSpin && !claimWin && !certSpin} onOpenChange={(open) => !open && closeStock()}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>📈 You won a stock certificate{openStock ? `: ${openStock.prize}` : ""}!</DialogTitle>
+            <DialogDescription>
+              {openStock
+                ? `It's an NFT on ${openStock.chain} holding stock tokens in its own vault: whoever owns it controls them. Have it sent to your wallet now, or get a claim link by email. You can also decide later in Your stock certificates on My Machine.`
+                : "Getting your certificate ready…"}
+            </DialogDescription>
+          </DialogHeader>
+          {openStock && stocks && <StockChoice cert={openStock} wallets={stocks.wallets} email={stocks.email} />}
+          <button type="button" className="text-sm underline text-muted-foreground" onClick={closeStock}>
             Later
           </button>
         </DialogContent>

@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import { template as contactNotification } from './contact-notification.tsx'
 import { template as prizeClaimNotification } from './prize-claim-notification.tsx'
+import { template as stockCertificateClaim } from './stock-certificate-claim.tsx'
 
 export interface TemplateEntry {
   component: ComponentType<any>
@@ -22,6 +23,7 @@ export interface TemplateEntry {
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'contact-notification': contactNotification,
   'prize-claim-notification': prizeClaimNotification,
+  'stock-certificate-claim': stockCertificateClaim,
   // Add templates here as they are created, e.g.:
   // 'welcome': welcomeTemplate,
 }

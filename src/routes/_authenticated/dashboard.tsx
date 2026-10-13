@@ -17,6 +17,7 @@ import { SafeSection } from "@/components/SafeSection";
 import { MAX_WALLETS } from "@/lib/wallet-limits";
 import { IrlPrizes } from "@/components/IrlPrizes";
 import { GiftCertificates } from "@/components/GiftCertificates";
+import { StockCertificates } from "@/components/StockCertificates";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -212,6 +213,13 @@ function Dashboard() {
       <div className="mt-6">
         <SafeSection label="gift certificates">
           <GiftCertificates />
+        </SafeSection>
+      </div>
+
+      {/* Stock certificates: sent to a wallet, or claimed from an email link */}
+      <div className="mt-6">
+        <SafeSection label="stock certificates">
+          <StockCertificates />
         </SafeSection>
       </div>
 

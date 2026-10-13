@@ -21,6 +21,7 @@ import { sortPrizes } from "@/lib/prize-order";
 import { ConfirmHost, confirmAction } from "@/components/ConfirmAction";
 import { PagePending } from "@/components/PagePending";
 import { GiftCertificatesPanel, VendorsPanel } from "@/components/admin/CertificatePanels";
+import { StockCertificatesPanel } from "@/components/admin/StockPanel";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -53,6 +54,7 @@ function Admin() {
           <TabsTrigger value="setup">Setup checklist</TabsTrigger>
           <TabsTrigger value="claims">IRL claims</TabsTrigger>
           <TabsTrigger value="certs">Gift certificates</TabsTrigger>
+          <TabsTrigger value="stock">Stock certificates</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="config">Configuration</TabsTrigger>}
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>}
@@ -65,6 +67,7 @@ function Admin() {
         <TabsContent value="setup"><SetupPanel /></TabsContent>
         <TabsContent value="claims"><IrlClaimsPanel /></TabsContent>
         <TabsContent value="certs"><GiftCertificatesPanel /></TabsContent>
+        <TabsContent value="stock"><StockCertificatesPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="config"><ConfigPanel /></TabsContent>}
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="vrf"><VrfPanel /></TabsContent>}
