@@ -148,6 +148,13 @@
       "when": 1791820000000,
       "tag": "0020_stock_certificates",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791830000000,
+      "tag": "0021_irl_shipping",
+      "breakpoints": true
     }
   ]
 }

@@ -22,6 +22,7 @@ import { ConfirmHost, confirmAction } from "@/components/ConfirmAction";
 import { PagePending } from "@/components/PagePending";
 import { GiftCertificatesPanel, VendorsPanel } from "@/components/admin/CertificatePanels";
 import { StockCertificatesPanel } from "@/components/admin/StockPanel";
+import { ShippingSetup } from "@/components/admin/ShippingSetup";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -1134,7 +1135,8 @@ function IrlClaimsPanel() {
     const e = edits[c.id];
     if (!e) return;
     const who = r.username ?? c.full_name;
-    if (!(await confirmAction({ title: `Mark ${r.prize} for ${who} as "${CLAIM_LABEL[e.status]}"?`, description: "The winner sees the new status, note and tracking number.", confirmLabel: "Save" }))) return;
+    const unpaid = c.delivery === "ship" && c.ship_usd != null && !c.ship_paid_at && (e.status === "shipped" || e.status === "delivered");
+    if (!(await confirmAction({ title: `Mark ${r.prize} for ${who} as "${CLAIM_LABEL[e.status]}"?`, description: `${unpaid ? "Careful: the winner hasn't paid the shipping yet. " : ""}The winner sees the new status, note and tracking number.`, confirmLabel: "Save", destructive: unpaid }))) return;
     setBusy(c.id);
     try {
       await update({ data: { claimId: c.id, status: e.status, adminNote: e.note, tracking: e.tracking } });
@@ -1174,6 +1176,7 @@ function IrlClaimsPanel() {
         <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Loading…" : "Refresh"}</Button>
       </div>
       {data && !data.ready && <p className="text-sm text-destructive">Claims turn on after the database update.</p>}
+      <ShippingSetup />
       {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4" role="group" aria-label="Claim groups">
@@ -1235,6 +1238,28 @@ function IrlClaimsPanel() {
                       )}
                     </div>
                     {c.notes && <p className="sm:col-span-2"><span className="text-xs uppercase text-muted-foreground">Winner's note: </span>{c.notes}</p>}
+                    {c.delivery === "ship" && (
+                      <p className="sm:col-span-2">
+                        <span className="text-xs uppercase text-muted-foreground">Shipping (paid by the winner): </span>
+                        {c.ship_usd == null ? (
+                          <span className="text-muted-foreground">no rate chosen (claim sent before shipping prices)</span>
+                        ) : (
+                          <>
+                            {c.ship_carrier} {c.ship_service}
+                            {c.ship_days ? ` · ~${c.ship_days} days` : ""} · <b>${Number(c.ship_usd).toFixed(2)}</b>{" "}
+                            {c.ship_paid_at ? (
+                              <span className="font-bold text-primary">
+                                Paid ✓{r.shipTxUrl && <> (<a className="underline" href={r.shipTxUrl} target="_blank" rel="noreferrer">tx</a>)</>}
+                              </span>
+                            ) : c.ship_pending_tx ? (
+                              <span className="font-bold text-amber-300">Payment confirming</span>
+                            ) : (
+                              <span className="font-bold text-destructive">Not paid yet</span>
+                            )}
+                          </>
+                        )}
+                      </p>
+                    )}
                     {c.delivery === "ship" && addr && (
                       <div className="sm:col-span-2">
                         <Button size="sm" variant="outline" onClick={() => void copy(label, "Shipping label")}>Copy shipping label</Button>

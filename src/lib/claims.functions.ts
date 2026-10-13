@@ -35,6 +35,13 @@ export type IrlWin = {
     admin_note: string | null;
     tracking: string | null;
     updated_at: string;
+    /** Shipping the winner chose and pays (ship only). */
+    ship_carrier: string | null;
+    ship_service: string | null;
+    ship_days: number | null;
+    ship_usd: string | null;
+    ship_paid_at: string | null;
+    ship_pending_tx: string | null;
   };
 };
 
@@ -71,13 +78,17 @@ export const getMyIrlPrizes = createServerFn({ method: "POST" })
         rarity: r.rarity,
         image_path: images.get(r.prize_id) ?? null,
         claim: c
-          ? { id: c.id, status: c.status, delivery: c.delivery, full_name: c.full_name, email: c.email, phone: c.phone, address: c.address, notes: c.notes, admin_note: c.admin_note, tracking: c.tracking, updated_at: c.updated_at }
+          ? {
+              id: c.id, status: c.status, delivery: c.delivery, full_name: c.full_name, email: c.email, phone: c.phone, address: c.address, notes: c.notes, admin_note: c.admin_note, tracking: c.tracking, updated_at: c.updated_at,
+              ship_carrier: c.ship_carrier ?? null, ship_service: c.ship_service ?? null, ship_days: c.ship_days ?? null,
+              ship_usd: c.ship_usd == null ? null : Number(c.ship_usd).toFixed(2), ship_paid_at: c.ship_paid_at ?? null, ship_pending_tx: c.ship_pending_tx ?? null,
+            }
           : null,
       };
     });
   });
 
-const addressSchema = z.object({
+export const addressSchema = z.object({
   line1: z.string().trim().min(3).max(200),
   line2: z.string().trim().max(200).optional().default(""),
   city: z.string().trim().min(2).max(100),
@@ -95,6 +106,9 @@ export const claimSchema = z
     delivery: z.enum(["pickup", "ship"]),
     address: addressSchema.optional(),
     notes: z.string().trim().max(1000).optional().default(""),
+    /** The shipping rate the winner picked (from `getShippingRates`); needed to ship unless already paid. */
+    shipQuoteId: z.string().uuid().optional(),
+    shipRateId: z.string().max(100).optional(),
   })
   .refine((d) => d.delivery === "pickup" || !!d.address, { message: "Enter the shipping address", path: ["address"] });
 
@@ -112,8 +126,22 @@ export const submitPrizeClaim = createServerFn({ method: "POST" })
     if (!spin || spin.user_id !== context.userId || spin.status !== "fulfilled") throw new Error("That prize isn't yours to claim");
     const { data: prize } = await db.from("prizes").select("is_physical").eq("id", spin.prize_id).maybeSingle();
     if (!prize?.is_physical) throw new Error("That prize doesn't need a claim");
-    const { data: existing } = await db.from("prize_claims").select("id, status").eq("spin_id", data.spinId).maybeSingle();
+    const { data: existing } = await db.from("prize_claims").select("*").eq("spin_id", data.spinId).maybeSingle();
     if (existing && existing.status !== "submitted") throw new Error("This claim is already being handled. Use the guide's Contact form for changes.");
+    // Shipping: the winner pays it. Once paid (or on its way), delivery and address stay as they are.
+    let shipping: Record<string, unknown> = {};
+    const paid = !!(existing?.ship_paid_at || existing?.ship_pending_tx);
+    if (paid) {
+      const { sameAddress } = await import("./shipping.functions");
+      if (data.delivery !== "ship" || !sameAddress(existing.address, data.address))
+        throw new Error("Shipping to this address is already paid, so the delivery and address can't change here. Use the guide's Contact form.");
+    } else if (data.delivery === "ship") {
+      if (!data.shipQuoteId || !data.shipRateId) throw new Error("Calculate the shipping and pick a rate first.");
+      const { pickedRate } = await import("./shipping.functions");
+      shipping = await pickedRate(context.userId, data.spinId, data.address!, data.shipQuoteId, data.shipRateId);
+    } else if (existing?.ship_usd != null) {
+      shipping = { ship_quote_id: null, ship_rate_id: null, ship_carrier: null, ship_service: null, ship_days: null, ship_usd: null, ship_ape_wei: null, ship_ape_rate: null, ship_quoted_at: null };
+    }
     const row = {
       spin_id: data.spinId,
       user_id: context.userId,
@@ -125,6 +153,7 @@ export const submitPrizeClaim = createServerFn({ method: "POST" })
       delivery: data.delivery,
       address: data.delivery === "ship" ? data.address : null,
       notes: data.notes || null,
+      ...shipping,
       updated_at: new Date().toISOString(),
     };
     const { data: saved, error } = existing
@@ -144,7 +173,12 @@ export const submitPrizeClaim = createServerFn({ method: "POST" })
         fullName: data.fullName,
         email: data.email,
         phone: data.phone,
-        delivery: data.delivery === "pickup" ? "Pick up at ApeFest Charleston" : "Ship it",
+        delivery:
+          data.delivery === "pickup"
+            ? "Pick up at ApeFest Charleston"
+            : paid
+              ? `Ship it — shipping already paid (${existing.ship_carrier ?? ""} ${existing.ship_service ?? ""}, $${Number(existing.ship_usd).toFixed(2)})`
+              : `Ship it — ${shipping["ship_carrier"]} ${shipping["ship_service"]}, $${shipping["ship_usd"]} paid by the winner in APE (payment pending; see Admin → IRL claims)`,
         address: a ? [a.line1, a.line2, `${a.city}${a.region ? `, ${a.region}` : ""} ${a.postal}`, a.country].filter(Boolean).join("\n") : "",
         notes: data.notes,
       },
@@ -153,7 +187,12 @@ export const submitPrizeClaim = createServerFn({ method: "POST" })
       auditPrefix: "prize_claim",
       details: { claim_id: saved.id },
     });
-    return { claimId: saved.id as string, updated: !!existing };
+    const ship = data.delivery === "ship" ? (paid ? existing : shipping) : null;
+    return {
+      claimId: saved.id as string,
+      updated: !!existing,
+      shipping: ship ? { usd: Number(ship["ship_usd"]).toFixed(2), carrier: String(ship["ship_carrier"] ?? ""), service: String(ship["ship_service"] ?? ""), paid } : null,
+    };
   });
 
 /** Admin: every IRL prize won in a real draw, with its claim (or "not claimed yet"). */
@@ -191,9 +230,12 @@ export const adminListIrlClaims = createServerFn({ method: "POST" })
       const { data: profs } = await db.from("profiles").select("id, display_name").in("id", userIds);
       for (const p of (profs ?? []) as { id: string; display_name: string | null }[]) if (p.display_name) names.set(p.id, p.display_name);
     }
+    const { data: pcfg } = await db.from("app_config").select("value").eq("key", "purchase").maybeSingle();
+    const explorer = String((pcfg?.value as { explorer_url?: string } | null)?.explorer_url ?? "https://apescan.io").replace(/\/$/, "");
     return {
       ready,
       rows: list.map((s) => ({
+        shipTxUrl: bySpin.get(s.id)?.ship_pay_tx ? `${explorer}/tx/${bySpin.get(s.id).ship_pay_tx}` : null,
         spin_id: s.id,
         won_at: s.fulfilled_at ?? s.created_at,
         player: emails.get(s.user_id) ?? s.user_id,
@@ -204,6 +246,7 @@ export const adminListIrlClaims = createServerFn({ method: "POST" })
         claim: (bySpin.get(s.id) ?? null) as null | {
           id: string; status: ClaimStatus; full_name: string; email: string; phone: string | null; delivery: "pickup" | "ship";
           address: Record<string, string> | null; notes: string | null; admin_note: string | null; tracking: string | null; created_at: string; updated_at: string;
+          ship_carrier?: string | null; ship_service?: string | null; ship_days?: number | null; ship_usd?: string | number | null; ship_paid_at?: string | null; ship_pending_tx?: string | null;
         },
       })),
     };

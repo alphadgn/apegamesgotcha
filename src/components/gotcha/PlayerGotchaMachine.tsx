@@ -322,7 +322,7 @@ export function PlayerGotchaMachine({
             <DialogTitle>🎉 You won {claimWin?.prize_name}!</DialogTitle>
             <DialogDescription>
               It's a real-world prize. Tell us how you'd like to receive it: pick it up at ApeFest Charleston or have it shipped to
-              your address. You can also claim it later from Your IRL prizes on My Machine.
+              your address (you pay the shipping, priced live for your address). You can also claim it later from Your IRL prizes on My Machine.
             </DialogDescription>
           </DialogHeader>
           {claimWin && <ClaimForm win={claimWin} onDone={closeClaim} cancelLabel="Later" />}
