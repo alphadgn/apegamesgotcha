@@ -35,6 +35,7 @@ import {
   getWalletUi,
   openRefill,
   openSignIn,
+  registerGlyphSender,
   registerPrivyLogout,
   useWalletUi,
 } from "./walletUi";
@@ -231,6 +232,16 @@ function GlyphBridge() {
     return () => registerPrivyLogout(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Pages outside this layer (e.g. a vendor paying a gift certificate) send APE from the Glyph wallet through this.
+  useEffect(() => {
+    registerGlyphSender({
+      address: glyph.address?.toLowerCase() ?? null,
+      send: ({ to, value, chainId }) => glyph.sendTransaction({ to, value, chainId }),
+    });
+    return () => registerGlyphSender(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [glyph.address, glyph.sendTransaction]);
 
   // Signed out of the app but a Glyph session is still saved in this browser (e.g. an older sign-out):
   // clear it before offering sign-in, so signing in always goes through Glyph again — never a one-tap

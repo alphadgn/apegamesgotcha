@@ -20,6 +20,7 @@ import { Avatar } from "@/components/Avatar";
 import { sortPrizes } from "@/lib/prize-order";
 import { ConfirmHost, confirmAction } from "@/components/ConfirmAction";
 import { PagePending } from "@/components/PagePending";
+import { GiftCertificatesPanel, VendorsPanel } from "@/components/admin/CertificatePanels";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -51,22 +52,26 @@ function Admin() {
         <TabsList className="admin-tabs h-auto flex-wrap justify-center gap-2 p-1">
           <TabsTrigger value="setup">Setup checklist</TabsTrigger>
           <TabsTrigger value="claims">IRL claims</TabsTrigger>
+          <TabsTrigger value="certs">Gift certificates</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="config">Configuration</TabsTrigger>}
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>}
           <TabsTrigger value="grants">Grants & levels</TabsTrigger>
           <TabsTrigger value="board">Leaderboard & prizes</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="admins">Admins</TabsTrigger>}
+          {isSuperAdmin && <TabsTrigger value="vendors">Vendors</TabsTrigger>}
           {isSuperAdmin && <TabsTrigger value="audit">Audit log</TabsTrigger>}
         </TabsList>
         <TabsContent value="setup"><SetupPanel /></TabsContent>
         <TabsContent value="claims"><IrlClaimsPanel /></TabsContent>
+        <TabsContent value="certs"><GiftCertificatesPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="config"><ConfigPanel /></TabsContent>}
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="vrf"><VrfPanel /></TabsContent>}
         <TabsContent value="grants"><GrantsPanel /></TabsContent>
         <TabsContent value="board"><BoardPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="admins"><AccountsPanel /></TabsContent>}
+        {isSuperAdmin && <TabsContent value="vendors"><VendorsPanel /></TabsContent>}
         {isSuperAdmin && <TabsContent value="audit"><AuditPanel /></TabsContent>}
       </Tabs>
     </main>

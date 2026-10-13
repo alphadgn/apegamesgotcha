@@ -109,3 +109,37 @@ export function getPrivyLogout(ms = 4000): Promise<(() => Promise<void>) | null>
     logoutWaiters.add(done);
   });
 }
+
+// ---- Glyph payments from any page (e.g. a vendor paying a gift certificate): the Glyph layer registers a sender ----
+export type GlyphSender = {
+  /** The connected Glyph wallet (lowercase), or null when Glyph isn't connected in this browser. */
+  address: string | null;
+  send: (tx: { to: string; value: bigint; chainId: number }) => Promise<`0x${string}`>;
+};
+let glyphSender: GlyphSender | null = null;
+const senderWaiters = new Set<() => void>();
+
+/** Called by the Glyph layer whenever its wallet changes (null when it goes away). */
+export function registerGlyphSender(s: GlyphSender | null) {
+  glyphSender = s;
+  if (s) senderWaiters.forEach((w) => w());
+}
+
+/** The Glyph sender, loading the Glyph layer first if needed (gives up after `ms`). */
+export function getGlyphSender(ms = 8000): Promise<GlyphSender | null> {
+  if (glyphSender?.address) return Promise.resolve(glyphSender);
+  activateWallet();
+  return new Promise((resolve) => {
+    const done = () => {
+      if (glyphSender && !glyphSender.address) return; // layer up, wallet still connecting: keep waiting
+      senderWaiters.delete(done);
+      clearTimeout(t);
+      resolve(glyphSender);
+    };
+    const t = setTimeout(() => {
+      senderWaiters.delete(done);
+      resolve(glyphSender);
+    }, ms);
+    senderWaiters.add(done);
+  });
+}

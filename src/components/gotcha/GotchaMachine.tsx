@@ -17,6 +17,8 @@ export type GotchaPrize = {
   image_url?: string | null;
   /** A real-world prize: winning it in a live draw asks for delivery details right away. */
   is_physical?: boolean | null;
+  /** A gift certificate (dollar value issued by a vendor): the winner chooses in person or the value in APE. */
+  cert_value_usd?: string | number | null;
 };
 
 /** One capsule's state as reported by the server (mirrors the `checkDraw` server function). */

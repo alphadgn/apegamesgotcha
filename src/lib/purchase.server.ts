@@ -85,3 +85,45 @@ export async function checkPayment(cfg: PurchaseConfig, txHash: Hex, purchaseId:
   if (head - receipt.blockNumber + 1n < BigInt(cfg.min_confirmations ?? 1)) return { state: "pending" };
   return { state: "ok", payer: tx.from };
 }
+
+/**
+ * A dollar amount in APE wei at the live Coinbase APE-USD spot price (rounded up so the receiver gets at least
+ * the dollar value). Never falls back to a fixed price.
+ */
+export async function quoteUsdInApe(usd: string) {
+  const response = await fetch("https://api.coinbase.com/v2/prices/APE-USD/spot", { signal: AbortSignal.timeout(10_000), cache: "no-store" });
+  if (!response.ok) throw new Error("Live APE pricing is unavailable. Please try again.");
+  const body = await response.json() as { data?: { amount?: string; base?: string; currency?: string } };
+  const rate = body.data;
+  if (rate?.base !== "APE" || rate.currency !== "USD" || !/^\d+(\.\d{1,18})?$/.test(rate.amount ?? "")) throw new Error("Live APE pricing is unavailable. Please try again.");
+  const usdRate = parseEther(rate.amount ?? "0");
+  const usdValue = parseEther(usd);
+  if (usdRate <= 0n || usdValue <= 0n) throw new Error("Invalid APE/USD price.");
+  return { wei: (usdValue * 10n ** 18n + usdRate - 1n) / usdRate, rate: rate.amount as string, quotedAt: new Date().toISOString() };
+}
+
+/** A plain APE transfer `from` → `to` of at least `minWei` (gift certificate payouts). */
+export async function checkApeTransfer(
+  cfg: Pick<PurchaseConfig, "chain_id" | "rpc_url" | "min_confirmations">,
+  txHash: Hex,
+  expect: { from?: string | null; to: string; minWei: bigint },
+): Promise<PaymentCheck> {
+  const pub = createPublicClient({ chain: chainDef(cfg.chain_id, "ApeChain", cfg.rpc_url), transport: resilientTransport(cfg.chain_id, cfg.rpc_url) });
+  let tx;
+  try {
+    tx = await pub.getTransaction({ hash: txHash });
+  } catch {
+    return { state: "pending" };
+  }
+  if (tx.chainId != null && tx.chainId !== cfg.chain_id) return { state: "invalid", reason: "That transaction is on a different network." };
+  if (!tx.to || tx.to.toLowerCase() !== expect.to.toLowerCase()) return { state: "invalid", reason: "That transaction wasn't sent to the winner's wallet." };
+  if (expect.from && tx.from.toLowerCase() !== expect.from.toLowerCase()) return { state: "invalid", reason: "That transaction wasn't sent from the certificate's issuer wallet." };
+  if (tx.value < expect.minWei) return { state: "invalid", reason: `Payment was ${formatEther(tx.value)} APE; ${formatEther(expect.minWei)} APE is required.` };
+  if (tx.blockNumber == null) return { state: "pending" };
+  const receipt = await pub.getTransactionReceipt({ hash: txHash }).catch(() => null);
+  if (!receipt) return { state: "pending" };
+  if (receipt.status !== "success") return { state: "invalid", reason: "That transaction failed on-chain." };
+  const head = await pub.getBlockNumber();
+  if (head - receipt.blockNumber + 1n < BigInt(cfg.min_confirmations ?? 1)) return { state: "pending" };
+  return { state: "ok", payer: tx.from };
+}

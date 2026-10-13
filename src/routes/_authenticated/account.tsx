@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { checkUsername, getAvatarUploadUrl, getMyProfile, setMyAvatar, updateMyProfile, USERNAME_TAKEN, usernameSchema } from "@/lib/users.functions";
 import { Avatar } from "@/components/Avatar";
+import { VendorArea } from "@/components/VendorArea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -213,6 +214,8 @@ function AccountPage() {
             Wallets, NFTs and spins are on My Machine
           </Link>
         </p>
+
+        <VendorArea />
       </div>
     </main>
   );

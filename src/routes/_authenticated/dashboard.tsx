@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { SafeSection } from "@/components/SafeSection";
 import { MAX_WALLETS } from "@/lib/wallet-limits";
 import { IrlPrizes } from "@/components/IrlPrizes";
+import { GiftCertificates } from "@/components/GiftCertificates";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -204,6 +205,13 @@ function Dashboard() {
       <div className="mt-6">
         <SafeSection label="IRL prizes">
           <IrlPrizes />
+        </SafeSection>
+      </div>
+
+      {/* Gift certificates: redeem in person or claim the value in APE */}
+      <div className="mt-6">
+        <SafeSection label="gift certificates">
+          <GiftCertificates />
         </SafeSection>
       </div>
 

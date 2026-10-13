@@ -12,6 +12,7 @@ import { useRefillGuide } from "./useRefillGuide";
 import { DemoGotchaMachine } from "./DemoGotchaMachine";
 import { ShareSpinsButton, type ShareSpin } from "./ShareSpins";
 import { ClaimForm, IRL_QUERY_KEY, useMyIrlPrizes } from "@/components/IrlPrizes";
+import { CERT_QUERY_KEY, CertificateChoice, useMyCertificates } from "@/components/GiftCertificates";
 import type { IrlWin } from "@/lib/claims.functions";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RESTOCK_MESSAGE } from "@/lib/prize-pool";
@@ -75,6 +76,7 @@ export function PlayerGotchaMachine({
           inventory: p.inventory ?? null,
           image_url: p.image_url ?? null,
           is_physical: !!p.is_physical,
+          cert_value_usd: p.cert_value_usd ?? null,
         })),
         pendingIds: ((pending.data ?? []) as { id: string }[]).map((s) => s.id),
         lastFive: ((recent.data ?? []) as ShareSpin[]).filter((s) => s.prize_name).reverse(),
@@ -147,6 +149,32 @@ export function PlayerGotchaMachine({
     if (claimWin) toClaim.current = toClaim.current.filter((w) => w.spin_id !== claimWin.spin_id);
     setClaimWin(null);
     void qc.invalidateQueries({ queryKey: IRL_QUERY_KEY });
+  };
+
+  // ---- Gift certificates won in a live draw: the winner chooses in person or the value in APE ----
+  const [certSpin, setCertSpin] = useState<string | null>(null);
+  const toCert = useRef<string[]>([]);
+  const isCert = useCallback(
+    (r: GotchaResult) => {
+      const prize = data?.prizes.find((p) => (r.prize_id && p.id === r.prize_id) || p.name === r.prize_name);
+      return prize?.cert_value_usd != null && !prize?.is_physical;
+    },
+    [data?.prizes],
+  );
+  const { data: certs, refetch: refetchCerts } = useMyCertificates(!!certSpin);
+  const openCert = certSpin ? certs?.find((c) => c.spinId === certSpin) : undefined;
+  useEffect(() => {
+    // The record is made when the win is first listed: look again until it's there.
+    if (certSpin && certs && !openCert) {
+      const t = window.setTimeout(() => void refetchCerts(), 1500);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [certSpin, certs, openCert, refetchCerts]);
+  const closeCert = () => {
+    if (certSpin) toCert.current = toCert.current.filter((id) => id !== certSpin);
+    setCertSpin(null);
+    void qc.invalidateQueries({ queryKey: CERT_QUERY_KEY });
   };
 
   const credits = data?.credits ?? 0;
@@ -225,16 +253,25 @@ export function PlayerGotchaMachine({
           // Session over: open the claim form for a real-world prize won in it (unless already claimed).
           const next = !busy ? toClaim.current.find((w) => !claimed(w.spin_id)) : undefined;
           if (next) setClaimWin((open) => open ?? next);
+          // …and the choice for a gift certificate won in it.
+          else if (!busy && toCert.current[0]) setCertSpin((open) => open ?? toCert.current[0]!);
         }}
         onReveal={(r) => {
           const win = winFor(r);
           if (win && !toClaim.current.some((w) => w.spin_id === win.spin_id)) toClaim.current.push(win);
+          if (isCert(r) && !toCert.current.includes(r.id)) toCert.current.push(r.id);
         }}
         revealAction={(r) => {
           const win = winFor(r);
-          return win && !claimed(win.spin_id) ? (
-            <button type="button" className="gm-claim-btn" onClick={() => setClaimWin(win)}>
-              🎁 Claim your IRL prize
+          if (win && !claimed(win.spin_id))
+            return (
+              <button type="button" className="gm-claim-btn" onClick={() => setClaimWin(win)}>
+                🎁 Claim your IRL prize
+              </button>
+            );
+          return isCert(r) ? (
+            <button type="button" className="gm-claim-btn" onClick={() => setCertSpin(r.id)}>
+              🎟️ Use your gift certificate
             </button>
           ) : null;
         }}
@@ -251,6 +288,22 @@ export function PlayerGotchaMachine({
             </DialogDescription>
           </DialogHeader>
           {claimWin && <ClaimForm win={claimWin} onDone={closeClaim} cancelLabel="Later" />}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!certSpin && !claimWin} onOpenChange={(open) => !open && closeCert()}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>🎟️ You won a gift certificate{openCert ? `: ${openCert.prize}` : ""}!</DialogTitle>
+            <DialogDescription>
+              {openCert
+                ? `Worth $${openCert.valueUsd} at ${openCert.vendor}. Redeem it in person, or claim the value in APE. You can also decide later in Your gift certificates on My Machine.`
+                : "Getting your certificate ready…"}
+            </DialogDescription>
+          </DialogHeader>
+          {openCert && <CertificateChoice cert={openCert} />}
+          <button type="button" className="text-sm underline text-muted-foreground" onClick={closeCert}>
+            Later
+          </button>
         </DialogContent>
       </Dialog>
     </div>

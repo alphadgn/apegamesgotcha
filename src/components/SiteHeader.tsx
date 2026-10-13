@@ -1,4 +1,5 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
+import { Badge, useMyVendor } from "@/components/VendorArea";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { openSignIn } from "@/components/wallet/walletUi";
@@ -51,6 +52,7 @@ function BackButton() {
 
 export function SiteHeader() {
   const { user, isAdmin, isSuperAdmin } = useAuth();
+  const { data: vendor } = useMyVendor(!!user); // vendors: value requests waiting (badge)
   const link = "min-h-11 cursor-pointer text-sm uppercase text-muted-foreground";
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
@@ -72,6 +74,9 @@ export function SiteHeader() {
               title="Navigation menu"
             >
               <Menu aria-hidden="true" />
+              {(vendor?.waiting ?? 0) > 0 && (
+                <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-destructive" aria-label="Requests waiting on My account" />
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={8} className="w-52" aria-label="Navigation">
@@ -99,6 +104,7 @@ export function SiteHeader() {
                   <Link to="/account" activeProps={{ className: "text-primary" }}>
                     <UserRound aria-hidden="true" />
                     My account
+                    <Badge count={vendor?.waiting ?? 0} />
                   </Link>
                 </DropdownMenuItem>
               </>
