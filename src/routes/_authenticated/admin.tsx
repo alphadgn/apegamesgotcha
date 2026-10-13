@@ -1021,7 +1021,10 @@ function BoardPanel() {
             <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "Loading…" : "Refresh"}</Button>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">Real prizes drawn by Chainlink. Mark each one delivered once you've handed it over.</p>
+        <p className="text-sm text-muted-foreground">
+          Real prizes drawn by Chainlink. Only physical (IRL) prizes, which are picked up or shipped, are marked delivered
+          once you've handed them over (also on the IRL claims tab). Points and digital prizes need nothing.
+        </p>
         {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
         {winners && !winners.length && <p className="text-sm text-muted-foreground">No winners yet.</p>}
         <ul className="divide-y divide-border text-sm">
@@ -1034,7 +1037,9 @@ function BoardPanel() {
                   {w.tx && <> · <a className="underline" href={w.tx} target="_blank" rel="noreferrer">draw ↗</a></>}
                 </span>
               </span>
-              {w.trackable ? (
+              {!w.physical ? (
+                <span className="text-xs text-muted-foreground">Points / digital prize: nothing to deliver</span>
+              ) : w.trackable ? (
                 <Button
                   size="sm"
                   variant={w.delivered_at ? "outline" : "default"}

@@ -694,8 +694,16 @@ export const adminListWinners = createServerFn({ method: "POST" })
       const { data: u } = await db.auth.admin.getUserById(id);
       emails.set(id, u?.user?.email ?? id);
     }
-    type W = { id: string; user_id: string; created_at: string; fulfilled_at?: string | null; prize_name: string; rarity: string; points: number; delivered_at?: string | null; request_tx?: string | null };
+    type W = { id: string; user_id: string; created_at: string; fulfilled_at?: string | null; prize_id?: string | null; prize_name: string; rarity: string; points: number; delivered_at?: string | null; request_tx?: string | null };
+    // Only physical (IRL) prizes are handed over — those are the ones an admin marks delivered.
+    const prizeIds = [...new Set(((rows ?? []) as W[]).map((r) => r.prize_id).filter((x): x is string => !!x))];
+    const physical = new Set<string>();
+    if (prizeIds.length) {
+      const { data: pz } = await db.from("prizes").select("id, is_physical").in("id", prizeIds);
+      for (const p of (pz ?? []) as { id: string; is_physical?: boolean | null }[]) if (p.is_physical) physical.add(p.id);
+    }
     return ((rows ?? []) as W[]).map((r) => ({
+      physical: !!r.prize_id && physical.has(r.prize_id),
       id: r.id as string,
       at: r.fulfilled_at ?? r.created_at,
       player: emails.get(r.user_id) ?? r.user_id,
@@ -714,6 +722,12 @@ export const adminMarkDelivered = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const db = await admin();
+    // Delivery is only tracked for physical (IRL) prizes; points and digital prizes need no hand-over.
+    const { data: spin } = await db.from("spins").select("prize_id").eq("id", data.spinId).maybeSingle();
+    const { data: prize } = spin?.prize_id
+      ? await db.from("prizes").select("is_physical").eq("id", spin.prize_id).maybeSingle()
+      : { data: null };
+    if (!prize?.is_physical) throw new Error("Only physical (IRL) prizes are marked delivered. This prize needs no hand-over.");
     const { error } = await db
       .from("spins")
       .update(data.delivered ? { delivered_at: new Date().toISOString(), delivered_by: context.userId } : { delivered_at: null, delivered_by: null })
