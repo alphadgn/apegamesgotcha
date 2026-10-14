@@ -6,7 +6,7 @@ Companion to `Hashlock-Certified-Audit-ApeGames-Gotcha.pdf`. Apply these before 
 
 1. **Redeploy GotchaVRF on Base** from `contracts/src/GotchaVRF.sol` after AG-01 / AG-03.
    - AG-01: short `randomWords` cancel leftover Pending spins and emit `RequestCancelled`.
-   - AG-03: `setPool` reverts when `remaining != 0 && weight == 0`.
+   - AG-03: `setPool` reverts when `remaining != 0 && weight == 0`. The app's `poolArrays` (`src/lib/vrf.server.ts`) already sends `remaining = 0` for inactive or zero weight prizes, so pool syncs keep working on the new contract.
    - Update the app VRF contract address / env to the new deployment.
    - Recreate the Chainlink VRF subscription consumer + fund LINK / native as before.
 

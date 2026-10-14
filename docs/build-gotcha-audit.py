@@ -183,7 +183,9 @@ def build() -> str:
     p.body(
         "setPool allowed weight 0 with remaining > 0, leaving unreachable inventory in a "
         "pool slot. Fix: revert BadPool when remaining != 0 && weight == 0. Pinned by "
-        "test_RejectsZeroWeightWithInventory."
+        "test_RejectsZeroWeightWithInventory. The app's poolArrays (src/lib/vrf.server.ts) "
+        "now publishes remaining 0 for every inactive or zero weight prize so a pool sync "
+        "never trips the new check."
     )
     p.finding("AG-04", "MEDIUM", "Single hot operator key for requestSpins and setPool", "ACCEPTED with mitigation")
     p.body(

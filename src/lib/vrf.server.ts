@@ -147,7 +147,9 @@ export function poolArrays(prizes: PrizeRow[]) {
   for (const p of indexed) {
     const i = p.onchain_index!;
     weights[i] = p.active ? Math.max(0, Math.min(p.weight, UNLIMITED)) : 0;
-    remaining[i] = p.inventory == null ? UNLIMITED : Math.max(0, Math.min(p.inventory, UNLIMITED - 1));
+    // setPool rejects weight 0 with stock left; a zero-weight prize can never be drawn anyway.
+    remaining[i] =
+      weights[i] === 0 ? 0 : p.inventory == null ? UNLIMITED : Math.max(0, Math.min(p.inventory, UNLIMITED - 1));
   }
   return { weights, remaining };
 }
