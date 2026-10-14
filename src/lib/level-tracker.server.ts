@@ -24,12 +24,12 @@ export function operatorAccount() {
   return privateKeyToAccount((raw.startsWith("0x") ? raw : `0x${raw}`) as Hex);
 }
 function reader() {
-  return createPublicClient({ chain: chainDef(CHAIN), transport: resilientTransport(CHAIN, undefined, RPC) });
+  return createPublicClient({ chain: chainDef(CHAIN, "ApeChain", undefined, RPC), transport: resilientTransport(CHAIN, undefined, RPC) });
 }
 function writer() {
   const account = operatorAccount();
   if (!account) throw new Error("The operator wallet key isn't set.");
-  return createWalletClient({ account, chain: chainDef(CHAIN), transport: resilientTransport(CHAIN, undefined, RPC) });
+  return createWalletClient({ account, chain: chainDef(CHAIN, "ApeChain", undefined, RPC), transport: resilientTransport(CHAIN, undefined, RPC) });
 }
 
 export async function trackerStatus(address: string | null | undefined) {
