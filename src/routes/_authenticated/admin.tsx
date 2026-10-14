@@ -6,9 +6,10 @@ import { SwipeToDelete } from "@/components/SwipeToDelete";
 import { toast } from "sonner";
 import { usePrizeImageUrl } from "@/components/PrizeImage";
 import { supabase } from "@/integrations/supabase/client";
-import { adminUpdateConfig, adminUpsertPrize, adminDeletePrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages, adminPoolStatus } from "@/lib/app.functions";
+import { adminUpdateConfig, adminUpsertPrize, adminDeletePrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages, adminPoolStatus, adminLevelTrackerStatus, adminDeployLevelTracker } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -71,7 +72,7 @@ function Admin() {
         <TabsContent value="stock"><StockCertificatesPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="config"><ConfigPanel /></TabsContent>}
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
-        {isSuperAdmin && <TabsContent value="vrf"><VrfPanel /></TabsContent>}
+        {isSuperAdmin && <TabsContent value="vrf"><VrfPanel /><LevelTrackerCard /></TabsContent>}
         <TabsContent value="grants"><GrantsPanel /></TabsContent>
         <TabsContent value="board"><BoardPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="admins"><AccountsPanel /></TabsContent>}
@@ -462,6 +463,36 @@ function PrizesPanel() {
         <Button variant="outline" size="sm" onClick={() => setRows([...rows, { name: "IRL physical prize claim", rarity: "legendary", ...RARITY_DEFAULTS.legendary, inventory: 1, active: false, image_url: null, is_physical: true }])}>Add IRL physical prize</Button>
       </div>
     </div>
+  );
+}
+
+function LevelTrackerCard() {
+  const status = useServerFn(adminLevelTrackerStatus);
+  const deploy = useServerFn(adminDeployLevelTracker);
+  const { data, error, refetch, isFetching } = useQuery({ queryKey: ["level-tracker"], queryFn: () => status() });
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    if (!(await confirmAction({ title: "Deploy the level tracker?", description: "Puts the level contract on ApeChain using the operator wallet. This spends a small amount of APE.", confirmLabel: "Deploy" }))) return;
+    setBusy(true);
+    try { const r = await deploy(); toast.success(`Level tracker at ${r.address}`); await refetch(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Deploy failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Card className="mt-4">
+      <CardHeader><CardTitle className="title-font">Level tracker (ApeChain)</CardTitle></CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {error && <p className="text-destructive">{String((error as Error).message)}</p>}
+        {data && (<>
+          <p>Operator wallet: <span className="font-mono break-all">{data.operator ?? "not set"}</span></p>
+          <p>APE balance: {data.apeBalance ?? "—"}</p>
+          {data.contract
+            ? <><p>Contract: <a className="font-mono break-all underline" href={`https://apescan.io/address/${data.contract}`} target="_blank" rel="noreferrer">{data.contract}</a></p><p>Burns recorded on-chain: {data.totalBurns}</p></>
+            : <Button onClick={run} disabled={busy || isFetching || !data.operator || Number(data.apeBalance ?? 0) <= 0}>{busy ? "Deploying…" : "Deploy level tracker"}</Button>}
+          {!data.contract && Number(data.apeBalance ?? 0) <= 0 && <p className="text-muted-foreground">Send a little APE on ApeChain to the operator wallet first.</p>}
+        </>)}
+      </CardContent>
+    </Card>
   );
 }
 

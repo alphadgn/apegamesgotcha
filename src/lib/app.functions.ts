@@ -318,7 +318,12 @@ export const claimBurn = createServerFn({ method: "POST" })
       throw new Error(`Burn verified, but the free spin couldn't be added (${creditError.message}). Try again.`);
     }
     await db.from("nft_holdings").upsert({ token_id: data.tokenId, owner_address: cfg.burn_address.toLowerCase(), user_id: context.userId, level, burned: true });
-    await audit(context.userId, "nft.burned", { ...data, level });
+    let onchainTx: string | null = null;
+    if (cfg.level_contract) {
+      const { trackerRecordBurn } = await import("./level-tracker.server");
+      onchainTx = await trackerRecordBurn(cfg.level_contract, BigInt(data.tokenId), wallets[0].address, level).catch((e) => { console.error("level tracker recordBurn", e); return null; });
+    }
+    await audit(context.userId, "nft.burned", { ...data, level, onchainTx });
     return { status: "credited" };
   });
 
@@ -756,8 +761,37 @@ export const adminSetLevel = createServerFn({ method: "POST" })
     const { data: ex } = await db.from("nft_holdings").select("token_id").eq("token_id", data.tokenId).maybeSingle();
     if (!ex) throw new Error("Token not synced yet");
     await db.from("nft_holdings").update({ level_override: data.level }).eq("token_id", data.tokenId);
-    await audit(context.userId, "nft.level_override", data);
-    return { ok: true };
+    let onchainTx: string | null = null;
+    const lc = (await getConfig("nft"))?.level_contract;
+    if (lc && data.level != null) {
+      const { trackerSetLevel } = await import("./level-tracker.server");
+      onchainTx = await trackerSetLevel(lc, BigInt(data.tokenId), data.level).catch((e) => { console.error("level tracker setLevel", e); return null; });
+    }
+    await audit(context.userId, "nft.level_override", { ...data, onchainTx });
+    return { ok: true, onchainTx };
+  });
+
+// ---------- Admin: on-chain level tracker (ApeChain) ----------
+export const adminLevelTrackerStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertSuperAdmin(context);
+    const { trackerStatus } = await import("./level-tracker.server");
+    return trackerStatus((await getConfig("nft"))?.level_contract ?? null);
+  });
+
+export const adminDeployLevelTracker = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertSuperAdmin(context);
+    const cfg = (await getConfig("nft")) ?? {};
+    if (cfg.level_contract) return { address: cfg.level_contract as string, tx: null };
+    const { deployTracker } = await import("./level-tracker.server");
+    const res = await deployTracker(cfg.contract);
+    const db = await admin();
+    await db.from("app_config").update({ value: { ...cfg, level_contract: res.address }, updated_by: context.userId }).eq("key", "nft");
+    await audit(context.userId, "nft.level_tracker_deployed", res);
+    return res;
   });
 
 // ---------- Admin: Chainlink VRF ----------

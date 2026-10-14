@@ -11,6 +11,8 @@ export type NftConfig = {
   level_trait: string;
   burn_min_level: number;
   burn_address: string;
+  /** ApeGamesLevels tracker on ApeChain (burn counter + level upgrades), once deployed. */
+  level_contract?: string | null;
 };
 
 const abi = parseAbi([
@@ -37,6 +39,12 @@ function resolveUri(uri: string) {
 }
 
 export async function fetchLevel(cfg: NftConfig, tokenId: bigint): Promise<number | null> {
+  // The game's level tracker (when deployed) holds upgrades and falls back to the collection itself.
+  if (cfg.level_contract) {
+    const { trackerLevel } = await import("./level-tracker.server");
+    const t = await trackerLevel(cfg.level_contract, tokenId);
+    if (t != null) return t;
+  }
   const client = nftClient(cfg);
   // The contract keeps each NFT's level on-chain (levelOf); metadata can be hidden before reveal.
   try {
