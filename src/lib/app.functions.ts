@@ -787,7 +787,7 @@ export const adminDeployLevelTracker = createServerFn({ method: "POST" })
     const cfg = (await getConfig("nft")) ?? {};
     if (cfg.level_contract) return { address: cfg.level_contract as string, tx: null };
     const { deployTracker } = await import("./level-tracker.server");
-    const res = await deployTracker(cfg.contract);
+    const res = await deployTracker(cfg.contract as string | undefined, cfg.burn_address as string | undefined);
     const db = await admin();
     await db.from("app_config").update({ value: { ...cfg, level_contract: res.address }, updated_by: context.userId }).eq("key", "nft");
     await audit(context.userId, "nft.level_tracker_deployed", res);

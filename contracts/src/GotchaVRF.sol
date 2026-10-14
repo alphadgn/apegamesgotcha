@@ -127,23 +127,32 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
     }
 
     /// @dev Chainlink callback. Must never revert.
+    ///      If fewer words arrive than spins requested (defensive; mock / misconfig), leftover
+    ///      Pending spins are Cancelled so the pool unlocks and the app can refund them.
     function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
         bytes32[] storage ids = _requestSpins[requestId];
         uint256 n = ids.length;
         if (n == 0) return; // cancelled or unknown
         --pendingRequests;
-        for (uint256 i; i < n && i < randomWords.length; ++i) {
+        uint256 words = randomWords.length;
+        for (uint256 i; i < n; ++i) {
             bytes32 id = ids[i];
             Spin storage s = _spins[id];
             if (s.status != Status.Pending) continue;
-            uint256 word = randomWords[i];
-            uint8 idx = _draw(word);
-            s.status = Status.Fulfilled;
-            s.randomWord = word;
-            s.prizeIndex = idx;
-            emit SpinFulfilled(id, requestId, word, idx);
+            if (i < words) {
+                uint256 word = randomWords[i];
+                uint8 idx = _draw(word);
+                s.status = Status.Fulfilled;
+                s.randomWord = word;
+                s.prizeIndex = idx;
+                emit SpinFulfilled(id, requestId, word, idx);
+            } else {
+                // Short word array: cannot cancelRequest after delete of _requestSpins.
+                s.status = Status.Cancelled;
+            }
         }
         delete _requestSpins[requestId];
+        if (words < n) emit RequestCancelled(requestId);
     }
 
     /// @dev Weighted pick over prizes that still have inventory. Decrements capped inventory.
@@ -171,11 +180,16 @@ contract GotchaVRF is VRFConsumerBaseV2Plus {
     // ---------------------------------------------------------------- admin
 
     /// @notice Publish the prize pool. Index i must match `prizes.onchain_index = i` in the app DB.
+    /// @dev A prize with remaining inventory must have nonzero weight (weight 0 + remaining > 0
+    ///      is unreachable inventory that still consumes a pool slot).
     function setPool(uint32[] calldata weights, uint32[] calldata remaining) external {
         if (msg.sender != operator && msg.sender != owner()) revert NotOwnerOrOperator();
         if (pendingRequests != 0) revert PoolLocked();
         uint256 n = weights.length;
         if (n == 0 || n > MAX_PRIZES || n != remaining.length) revert BadPool();
+        for (uint256 i; i < n; ++i) {
+            if (remaining[i] != 0 && weights[i] == 0) revert BadPool();
+        }
         delete _pool;
         for (uint256 i; i < n; ++i) _pool.push(Prize({weight: weights[i], remaining: remaining[i]}));
         emit PoolUpdated(++poolVersion, weights, remaining);

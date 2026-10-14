@@ -234,4 +234,40 @@ contract GotchaVRFTest is Test {
         if (epicLeft == 0) assertTrue(idx != 2);
         if (legLeft == 0) assertTrue(idx != 3);
     }
+
+    /// AG-01: short randomWords must Cancel leftover Pending spins and unlock the pool.
+    /// The Chainlink mock rejects length mismatches; call rawFulfill as the coordinator.
+    function test_ShortRandomWordsCancelsLeftoverSpins() public {
+        bytes32[] memory ids = _ids(3, 20);
+        uint256 req = _request(ids);
+        vm.prank(address(coord));
+        gotcha.rawFulfillRandomWords(req, _one(42));
+        assertEq(uint8(gotcha.getSpin(ids[0]).status), uint8(GotchaVRF.Status.Fulfilled));
+        assertEq(uint8(gotcha.getSpin(ids[1]).status), uint8(GotchaVRF.Status.Cancelled));
+        assertEq(uint8(gotcha.getSpin(ids[2]).status), uint8(GotchaVRF.Status.Cancelled));
+        assertEq(gotcha.pendingRequests(), 0);
+        // Pool unlocked for a new publish.
+        uint32[] memory w = new uint32[](1);
+        uint32[] memory r = new uint32[](1);
+        (w[0], r[0]) = (1, U);
+        vm.prank(operator);
+        gotcha.setPool(w, r);
+        assertEq(gotcha.poolVersion(), 2);
+    }
+
+    /// AG-03: weight 0 with remaining > 0 is rejected.
+    function test_RejectsZeroWeightWithInventory() public {
+        uint32[] memory w = new uint32[](2);
+        uint32[] memory r = new uint32[](2);
+        (w[0], w[1]) = (100, 0);
+        (r[0], r[1]) = (U, 5);
+        vm.prank(operator);
+        vm.expectRevert(GotchaVRF.BadPool.selector);
+        gotcha.setPool(w, r);
+        // Zero weight + zero remaining is fine (retired slot).
+        r[1] = 0;
+        vm.prank(operator);
+        gotcha.setPool(w, r);
+        assertEq(gotcha.poolVersion(), 2);
+    }
 }
