@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { adminUpdateConfig, adminUpsertPrize, adminDeletePrize, adminGrant, adminListGrants, adminDeleteGrant, adminSetLeaderboardMode, adminListWinners, adminMarkDelivered, adminSetLevel, adminVrfStatus, adminVrfSetup, adminVrfTopUp, adminVrfSwitch, adminVrfSubscription, adminPurchaseSwitch, adminListPurchases, adminPublishPool, adminSettleDraws, adminSetupStatus, adminRefreshEventInfo, adminEventInfoPages, adminPoolStatus, adminLevelTrackerStatus, adminDeployLevelTracker } from "@/lib/app.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
