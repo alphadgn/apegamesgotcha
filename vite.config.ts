@@ -10,10 +10,10 @@ const privyServerStub = new URL("./src/lib/privy-server-stub.ts", import.meta.ur
 
 // Public (publishable) backend values. .gitignore excludes .env, so the published build may not see it;
 // these fallbacks keep the browser client working. They are not secrets.
-const PUBLIC_SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://smlrgasritolkfkgrjnw.supabase.co";
+const PUBLIC_SUPABASE_URL = process.env['VITE_SUPABASE_URL'] || "https://smlrgasritolkfkgrjnw.supabase.co";
 const PUBLIC_SUPABASE_KEY =
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_JtzNoKHDPnzSX-B6X3OWkw_VWoRVi54";
-const PUBLIC_SUPABASE_PROJECT_ID = process.env.VITE_SUPABASE_PROJECT_ID || "smlrgasritolkfkgrjnw";
+  process.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || "sb_publishable_JtzNoKHDPnzSX-B6X3OWkw_VWoRVi54";
+const PUBLIC_SUPABASE_PROJECT_ID = process.env['VITE_SUPABASE_PROJECT_ID'] || "smlrgasritolkfkgrjnw";
 
 export default defineConfig({
   vite: {
