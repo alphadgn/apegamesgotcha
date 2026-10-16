@@ -24,6 +24,7 @@ import { PagePending } from "@/components/PagePending";
 import { GiftCertificatesPanel, VendorsPanel } from "@/components/admin/CertificatePanels";
 import { StockCertificatesPanel } from "@/components/admin/StockPanel";
 import { ShippingSetup } from "@/components/admin/ShippingSetup";
+import { TreasuryPanel } from "@/components/admin/TreasuryPanel";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -60,6 +61,7 @@ function Admin() {
           {isSuperAdmin && <TabsTrigger value="config">Configuration</TabsTrigger>}
           <TabsTrigger value="prizes">Prizes & odds</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="vrf">Chainlink VRF</TabsTrigger>}
+          {isSuperAdmin && <TabsTrigger value="treasury">Treasury</TabsTrigger>}
           <TabsTrigger value="grants">Grants & levels</TabsTrigger>
           <TabsTrigger value="board">Leaderboard & prizes</TabsTrigger>
           {isSuperAdmin && <TabsTrigger value="admins">Admins</TabsTrigger>}
@@ -73,6 +75,7 @@ function Admin() {
         {isSuperAdmin && <TabsContent value="config"><ConfigPanel /></TabsContent>}
         <TabsContent value="prizes"><PrizesPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="vrf"><VrfPanel /><LevelTrackerCard /></TabsContent>}
+        {isSuperAdmin && <TabsContent value="treasury"><TreasuryPanel /></TabsContent>}
         <TabsContent value="grants"><GrantsPanel /></TabsContent>
         <TabsContent value="board"><BoardPanel /></TabsContent>
         {isSuperAdmin && <TabsContent value="admins"><AccountsPanel /></TabsContent>}
