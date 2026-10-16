@@ -22,6 +22,7 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedGuideRouteImport } from './routes/_authenticated/guide'
 import { Route as ApiGuideChatRouteImport } from './routes/api/guide-chat'
+import { Route as ApiTreasuryKeeperRouteImport } from './routes/api/treasury-keeper'
 import { Route as LovableEmailTransactionalPreviewRouteImport } from './routes/lovable/email/transactional/preview'
 
 const IndexRoute = IndexRouteImport.update({
@@ -88,6 +89,11 @@ const ApiGuideChatRoute = ApiGuideChatRouteImport.update({
   path: '/api/guide-chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiTreasuryKeeperRoute = ApiTreasuryKeeperRouteImport.update({
+  id: '/api/treasury-keeper',
+  path: '/api/treasury-keeper',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LovableEmailTransactionalPreviewRoute =
   LovableEmailTransactionalPreviewRouteImport.update({
     id: '/lovable/email/transactional/preview',
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/guide': typeof AuthenticatedGuideRoute
   '/api/guide-chat': typeof ApiGuideChatRoute
+  '/api/treasury-keeper': typeof ApiTreasuryKeeperRoute
   '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
 }
 export interface FileRoutesByTo {
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/guide': typeof AuthenticatedGuideRoute
   '/api/guide-chat': typeof ApiGuideChatRoute
+  '/api/treasury-keeper': typeof ApiTreasuryKeeperRoute
   '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
 }
 export interface FileRoutesById {
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/guide': typeof AuthenticatedGuideRoute
   '/api/guide-chat': typeof ApiGuideChatRoute
+  '/api/treasury-keeper': typeof ApiTreasuryKeeperRoute
   '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
 }
 export interface FileRouteTypes {
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/guide'
     | '/api/guide-chat'
+    | '/api/treasury-keeper'
     | '/lovable/email/transactional/preview'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/guide'
     | '/api/guide-chat'
+    | '/api/treasury-keeper'
     | '/lovable/email/transactional/preview'
   id:
     | '__root__'
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/guide'
     | '/api/guide-chat'
+    | '/api/treasury-keeper'
     | '/lovable/email/transactional/preview'
   fileRoutesById: FileRoutesById
 }
@@ -201,6 +213,7 @@ export interface RootRouteChildren {
   LinkWalletRoute: typeof LinkWalletRoute
   SoundTestRoute: typeof SoundTestRoute
   ApiGuideChatRoute: typeof ApiGuideChatRoute
+  ApiTreasuryKeeperRoute: typeof ApiTreasuryKeeperRoute
   LovableEmailTransactionalPreviewRoute: typeof LovableEmailTransactionalPreviewRoute
 }
 
@@ -297,6 +310,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGuideChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/treasury-keeper': {
+      id: '/api/treasury-keeper'
+      path: '/api/treasury-keeper'
+      fullPath: '/api/treasury-keeper'
+      preLoaderRoute: typeof ApiTreasuryKeeperRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lovable/email/transactional/preview': {
       id: '/lovable/email/transactional/preview'
       path: '/lovable/email/transactional/preview'
@@ -334,6 +354,7 @@ const rootRouteChildren: RootRouteChildren = {
   LinkWalletRoute: LinkWalletRoute,
   SoundTestRoute: SoundTestRoute,
   ApiGuideChatRoute: ApiGuideChatRoute,
+  ApiTreasuryKeeperRoute: ApiTreasuryKeeperRoute,
   LovableEmailTransactionalPreviewRoute: LovableEmailTransactionalPreviewRoute,
 }
 export const routeTree = rootRouteImport

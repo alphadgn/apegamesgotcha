@@ -20,7 +20,8 @@ export const COMPILER = {
 } as const;
 
 /** SHA-256 of the creation bytecode (hex text, no 0x) that solc 0.8.24 produces for the source in this folder. */
-export const EXPECTED_BYTECODE_SHA256 = "5ace9db773881b487f1fa1dabb6753a718e748664fe628fd756d26b4856a3c21";
+export const EXPECTED_BYTECODE_SHA256 =
+  "5ace9db773881b487f1fa1dabb6753a718e748664fe628fd756d26b4856a3c21";
 
 /** The compiler's standard JSON input (also what ApeScan's "Standard-Json-Input" verification takes). */
 export function standardJsonInput(source: string) {
@@ -50,8 +51,23 @@ export const BUCKETS = [
 ] as const;
 
 export type SplitterChainId = 33139 | 33111;
-export const SPLITTER_CHAINS: Record<SplitterChainId, { id: SplitterChainId; name: string; rpc: string; explorer: string; testnet: boolean }> = {
-  33111: { id: 33111, name: "ApeChain Curtis (testnet)", rpc: "https://rpc.curtis.apechain.com", explorer: "https://curtis.apescan.io", testnet: true },
-  33139: { id: 33139, name: "ApeChain", rpc: "https://rpc.apechain.com/http", explorer: "https://apescan.io", testnet: false },
+export const SPLITTER_CHAINS: Record<
+  SplitterChainId,
+  { id: SplitterChainId; name: string; rpc: string; explorer: string; testnet: boolean }
+> = {
+  33111: {
+    id: 33111,
+    name: "ApeChain Curtis (testnet)",
+    rpc: "https://rpc.curtis.apechain.com",
+    explorer: "https://curtis.apescan.io",
+    testnet: true,
+  },
+  33139: {
+    id: 33139,
+    name: "ApeChain",
+    rpc: "https://rpc.apechain.com/http",
+    explorer: "https://apescan.io",
+    testnet: false,
+  },
 };
 export const isSplitterChain = (id: number): id is SplitterChainId => id === 33139 || id === 33111;

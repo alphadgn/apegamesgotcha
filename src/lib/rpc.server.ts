@@ -10,6 +10,7 @@ const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const; // sam
 
 /** Public RPCs per chain id, tried after the configured one. */
 const PUBLIC_RPCS: Record<number, string[]> = {
+  1: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://1rpc.io/eth", "https://eth.drpc.org"],
   8453: [
     "https://mainnet.base.org",
     "https://base-rpc.publicnode.com",
@@ -27,7 +28,7 @@ const PUBLIC_RPCS: Record<number, string[]> = {
 };
 
 /** Chains with Multicall3 deployed at MULTICALL3 (lets several reads go out as one call). */
-const MULTICALL_CHAINS = new Set([8453, 84532, 33139]);
+const MULTICALL_CHAINS = new Set([1, 8453, 84532, 33139]);
 
 /** Chains whose native coin is APE (everything else here pays gas in ETH). */
 const APE_CHAINS = new Set([33139, 33111]);
@@ -36,7 +37,7 @@ const APE_CHAINS = new Set([33139, 33111]);
 export type RpcOptions = { privateEnv?: string };
 
 function privateRpc(chainId: number, opts?: RpcOptions) {
-  const name = opts?.privateEnv ?? (APE_CHAINS.has(chainId) ? "APECHAIN_RPC_URL" : "VRF_RPC_URL");
+  const name = opts?.privateEnv ?? (APE_CHAINS.has(chainId) ? "APECHAIN_RPC_URL" : chainId === 1 ? "ETH_RPC_URL" : "VRF_RPC_URL");
   const env = process.env[name];
   return env && /^https?:\/\//.test(env) ? env : undefined;
 }

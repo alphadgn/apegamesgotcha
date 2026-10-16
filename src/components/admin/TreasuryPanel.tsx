@@ -7,7 +7,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { createWalletClient, custom, defineChain, encodeAbiParameters, isAddress, zeroAddress, type Hex } from "viem";
+import {
+  createWalletClient,
+  custom,
+  defineChain,
+  encodeAbiParameters,
+  isAddress,
+  zeroAddress,
+  type Hex,
+} from "viem";
 import SOURCE from "@/contracts/GotchaFeeSplitter.sol?raw";
 import {
   BUCKETS,
@@ -21,14 +29,21 @@ import {
   standardJsonInput,
   type SplitterChainId,
 } from "@/contracts/splitter";
-import { adminListSplitters, adminRecordSplitter, adminSetActiveSplitter, type SplitterRow } from "@/lib/treasury.functions";
+import {
+  adminListSplitters,
+  adminRecordSplitter,
+  adminSetActiveSplitter,
+  type SplitterRow,
+} from "@/lib/treasury.functions";
 import { confirmAction } from "@/components/ConfirmAction";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TreasuryDashboard, TreasuryKeeper, TreasurySettingsForm } from "./TreasuryDashboard";
 
 type Eip1193 = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
 const short = (a?: string | null) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—");
-const validAddr = (a: string) => isAddress(a.trim(), { strict: false }) && a.trim().toLowerCase() !== zeroAddress;
+const validAddr = (a: string) =>
+  isAddress(a.trim(), { strict: false }) && a.trim().toLowerCase() !== zeroAddress;
 
 function viemChain(id: SplitterChainId) {
   const c = SPLITTER_CHAINS[id];
@@ -47,7 +62,17 @@ async function sha256Hex(text: string) {
   return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-type Compiled = { version: string; bytecode: Hex; size: number; matches: boolean; warnings: string[] };
+type SolcOutput = {
+  errors?: { severity: string; formattedMessage: string; message: string }[];
+  contracts?: Record<string, Record<string, { evm?: { bytecode?: { object?: string } } }>>;
+};
+type Compiled = {
+  version: string;
+  bytecode: Hex;
+  size: number;
+  matches: boolean;
+  warnings: string[];
+};
 let compiledOnce: Promise<Compiled> | null = null;
 
 /** Compiles the splitter in a Web Worker (once per page load). */
@@ -58,19 +83,23 @@ function compileSplitter(): Promise<Compiled> {
       w.terminate();
       reject(new Error("The compiler took too long to load. Check your connection and try again."));
     }, 120_000);
-    w.onmessage = async (e: MessageEvent<{ version?: string; output?: any; error?: string }>) => {
+    w.onmessage = async (
+      e: MessageEvent<{ version?: string; output?: SolcOutput; error?: string }>,
+    ) => {
       window.clearTimeout(t);
       w.terminate();
       try {
         if (e.data.error) throw new Error(e.data.error);
-        const out = e.data.output;
-        const errors = ((out.errors ?? []) as { severity: string; formattedMessage: string; message: string }[]);
+        const out = e.data.output ?? {};
+        const errors = out.errors ?? [];
         const fatal = errors.filter((x) => x.severity === "error");
         if (fatal.length) throw new Error(fatal.map((x) => x.formattedMessage).join("\n"));
-        const obj = out.contracts?.[SPLITTER_FILE]?.[SPLITTER_NAME]?.evm?.bytecode?.object as string | undefined;
+        const obj = out.contracts?.[SPLITTER_FILE]?.[SPLITTER_NAME]?.evm?.bytecode?.object as
+          string | undefined;
         if (!obj) throw new Error("The compiler returned no bytecode.");
         const version = String(e.data.version ?? "");
-        if (!version.startsWith(COMPILER.version)) throw new Error(`Wrong compiler loaded (${version}); expected ${COMPILER.version}.`);
+        if (!version.startsWith(COMPILER.version))
+          throw new Error(`Wrong compiler loaded (${version}); expected ${COMPILER.version}.`);
         resolve({
           version,
           bytecode: `0x${obj}`,
@@ -107,18 +136,51 @@ async function copy(text: string, what: string) {
 export function TreasuryPanel() {
   const list = useServerFn(adminListSplitters);
   const { data, refetch } = useQuery({ queryKey: ["treasury-splitters"], queryFn: () => list() });
+  const [tab, setTab] = useState<"dashboard" | "keeper" | "settings" | "deploy">("dashboard");
+  const tabs: [typeof tab, string][] = [
+    ["dashboard", "Dashboard"],
+    ["keeper", "Keeper bot"],
+    ["settings", "Settings"],
+    ["deploy", "Deploy"],
+  ];
   return (
-    <div className="mt-4 space-y-6 text-left">
+    <div className="mt-4 space-y-4 text-left">
       <section className="rounded border bg-card p-4">
         <h2 className="text-xl font-bold">Gotcha Treasury</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          The GotchaFeeSplitter splits every Gotcha fee into 8 buckets: Team and Operations are paid out directly; the others build up until
-          they can buy their prize. Phase 1: deploy it (start on the Curtis testnet).
+          The GotchaFeeSplitter splits every Gotcha fee into 8 buckets: Team and Operations are paid
+          out directly; the others build up until they reach their floor target, then the keeper bot
+          releases them, bridges with Relay and buys the prize.
         </p>
-        {data && !data.ready && <p className="mt-2 text-sm text-destructive">The treasury turns on after the database update (0022).</p>}
+        {data && !data.ready && (
+          <p className="mt-2 text-sm text-destructive">
+            The treasury turns on after the database updates (0022, 0023).
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap gap-2" role="tablist">
+          {tabs.map(([k, label]) => (
+            <Button
+              key={k}
+              size="sm"
+              role="tab"
+              aria-selected={tab === k}
+              variant={tab === k ? "default" : "outline"}
+              onClick={() => setTab(k)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
       </section>
-      <DeployCard onSaved={() => void refetch()} />
-      <DeploymentsCard rows={data?.rows ?? []} onChanged={() => void refetch()} />
+      {tab === "dashboard" && <TreasuryDashboard />}
+      {tab === "keeper" && <TreasuryKeeper />}
+      {tab === "settings" && <TreasurySettingsForm />}
+      {tab === "deploy" && (
+        <div className="space-y-6">
+          <DeployCard onSaved={() => void refetch()} />
+          <DeploymentsCard rows={data?.rows ?? []} onChanged={() => void refetch()} />
+        </div>
+      )}
     </div>
   );
 }
@@ -134,7 +196,10 @@ function DeployCard({ onSaved }: { onSaved: () => void }) {
   const [compileError, setCompileError] = useState<string | null>(null);
   const [step, setStep] = useState<null | string>(null);
   const [lastTx, setLastTx] = useState<string | null>(null);
-  const provider = typeof window !== "undefined" ? ((window as unknown as { ethereum?: Eip1193 }).ethereum ?? null) : null;
+  const provider =
+    typeof window !== "undefined"
+      ? ((window as unknown as { ethereum?: Eip1193 }).ethereum ?? null)
+      : null;
 
   const runCompile = () => {
     setCompileError(null);
@@ -148,13 +213,28 @@ function DeployCard({ onSaved }: { onSaved: () => void }) {
   const argsHex = formOk
     ? encodeAbiParameters(
         [{ type: "address" }, { type: "address" }, { type: "address[8]" }],
-        [owner.trim() as Hex, keeper.trim() as Hex, recipients.map((r) => r.trim() as Hex) as unknown as readonly [Hex, Hex, Hex, Hex, Hex, Hex, Hex, Hex]],
+        [
+          owner.trim() as Hex,
+          keeper.trim() as Hex,
+          recipients.map((r) => r.trim() as Hex) as unknown as readonly [
+            Hex,
+            Hex,
+            Hex,
+            Hex,
+            Hex,
+            Hex,
+            Hex,
+            Hex,
+          ],
+        ],
       )
     : null;
 
   const connect = async () => {
     if (!provider) {
-      toast.error("No wallet in this browser. Use MetaMask or Rabby on a computer, or open this page inside your wallet app.");
+      toast.error(
+        "No wallet in this browser. Use MetaMask or Rabby on a computer, or open this page inside your wallet app.",
+      );
       return;
     }
     try {
@@ -228,11 +308,23 @@ function DeployCard({ onSaved }: { onSaved: () => void }) {
     }
   };
 
-  const addrInput = (label: string, value: string, set: (v: string) => void, i: number, hint?: string) => (
+  const addrInput = (
+    label: string,
+    value: string,
+    set: (v: string) => void,
+    i: number,
+    hint?: string,
+  ) => (
     <label className="block text-sm">
       {label}
       {hint && <span className="ml-1 text-xs text-muted-foreground">{hint}</span>}
-      <Input className="mt-1 font-mono" placeholder="0x…" value={value} spellCheck={false} onChange={(e) => set(e.target.value)} />
+      <Input
+        className="mt-1 font-mono"
+        placeholder="0x…"
+        value={value}
+        spellCheck={false}
+        onChange={(e) => set(e.target.value)}
+      />
       {value && bad[i] && <span className="text-xs text-destructive">Not a valid address</span>}
     </label>
   );
@@ -245,8 +337,11 @@ function DeployCard({ onSaved }: { onSaved: () => void }) {
         <p className="font-bold">Compiler</p>
         {compiled ? (
           <p className={compiled.matches ? "text-primary" : "text-destructive"}>
-            solc {compiled.version.replace(".Emscripten.clang", "")} · optimizer {COMPILER.runs} runs · {COMPILER.evmVersion} · {compiled.size.toLocaleString()} bytes ·{" "}
-            {compiled.matches ? "matches the reviewed source ✓" : "does NOT match the reviewed source — deploy blocked"}
+            solc {compiled.version.replace(".Emscripten.clang", "")} · optimizer {COMPILER.runs}{" "}
+            runs · {COMPILER.evmVersion} · {compiled.size.toLocaleString()} bytes ·{" "}
+            {compiled.matches
+              ? "matches the reviewed source ✓"
+              : "does NOT match the reviewed source — deploy blocked"}
           </p>
         ) : compileError ? (
           <p className="text-destructive">
@@ -256,7 +351,9 @@ function DeployCard({ onSaved }: { onSaved: () => void }) {
             </button>
           </p>
         ) : (
-          <p className="text-muted-foreground">Compiling in your browser (the compiler is about 9 MB the first time)…</p>
+          <p className="text-muted-foreground">
+            Compiling in your browser (the compiler is about 9 MB the first time)…
+          </p>
         )}
       </div>
 
@@ -312,8 +409,12 @@ function DeployCard({ onSaved }: { onSaved: () => void }) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button disabled={!!step || !compiled?.matches || !formOk || !account} onClick={() => void deploy()}>
-          {step ?? `Deploy on ${SPLITTER_CHAINS[chainId].testnet ? "Curtis testnet" : "ApeChain MAINNET"}`}
+        <Button
+          disabled={!!step || !compiled?.matches || !formOk || !account}
+          onClick={() => void deploy()}
+        >
+          {step ??
+            `Deploy on ${SPLITTER_CHAINS[chainId].testnet ? "Curtis testnet" : "ApeChain MAINNET"}`}
         </Button>
         {lastTx && !step && (
           <Button variant="outline" onClick={() => void checkLast()}>
@@ -321,7 +422,11 @@ function DeployCard({ onSaved }: { onSaved: () => void }) {
           </Button>
         )}
       </div>
-      {!account && <p className="mt-2 text-xs text-muted-foreground">Connect the wallet that pays for the deployment first.</p>}
+      {!account && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Connect the wallet that pays for the deployment first.
+        </p>
+      )}
       {argsHex && (
         <p className="mt-3 break-all text-xs text-muted-foreground">
           Constructor arguments (ABI-encoded): <span className="font-mono">{argsHex.slice(2)}</span>
@@ -342,7 +447,8 @@ function DeploymentsCard({ rows, onChanged }: { rows: SplitterRow[]; onChanged: 
     if (
       !(await confirmAction({
         title: `Use ${short(r.address)} as the active splitter on ${meta?.name ?? r.chain_id}?`,
-        description: "The treasury dashboard and the keeper bot (next phases) will work with this contract.",
+        description:
+          "The treasury dashboard and the keeper bot (next phases) will work with this contract.",
         confirmLabel: "Make active",
       }))
     )
@@ -356,7 +462,10 @@ function DeploymentsCard({ rows, onChanged }: { rows: SplitterRow[]; onChanged: 
     }
   };
   const stdJson = JSON.stringify(
-    { ...standardJsonInput(SOURCE), settings: { ...standardJsonInput(SOURCE).settings, outputSelection: { "*": { "*": ["*"] } } } },
+    {
+      ...standardJsonInput(SOURCE),
+      settings: { ...standardJsonInput(SOURCE).settings, outputSelection: { "*": { "*": ["*"] } } },
+    },
     null,
     2,
   );
@@ -367,11 +476,17 @@ function DeploymentsCard({ rows, onChanged }: { rows: SplitterRow[]; onChanged: 
         <Button size="sm" variant="outline" onClick={() => void copy(SOURCE, "Source")}>
           Copy source
         </Button>
-        <Button size="sm" variant="outline" onClick={() => void copy(stdJson, "Standard JSON input")}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void copy(stdJson, "Standard JSON input")}
+        >
           Copy standard JSON input
         </Button>
       </div>
-      {!rows.length && <p className="mt-3 text-sm text-muted-foreground">No splitter deployed yet.</p>}
+      {!rows.length && (
+        <p className="mt-3 text-sm text-muted-foreground">No splitter deployed yet.</p>
+      )}
       <ul className="mt-3 space-y-3">
         {rows.map((r) => {
           const meta = SPLITTER_CHAINS[r.chain_id as SplitterChainId];
@@ -381,27 +496,45 @@ function DeploymentsCard({ rows, onChanged }: { rows: SplitterRow[]; onChanged: 
               <div className="flex flex-wrap items-center gap-2">
                 <p className="min-w-0 flex-1">
                   <b className="font-mono">{short(r.address)}</b> on {meta?.name ?? r.chain_id}
-                  <span className="block text-xs text-muted-foreground">Deployed {new Date(r.created_at).toLocaleString()}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Deployed {new Date(r.created_at).toLocaleString()}
+                  </span>
                 </p>
                 {r.is_active ? (
-                  <span className="rounded bg-primary/20 px-2 py-0.5 text-xs font-bold text-primary">Active</span>
+                  <span className="rounded bg-primary/20 px-2 py-0.5 text-xs font-bold text-primary">
+                    Active
+                  </span>
                 ) : (
                   <Button size="sm" variant="outline" onClick={() => void makeActive(r)}>
                     Make active
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setOpen(open === r.id ? null : r.id)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setOpen(open === r.id ? null : r.id)}
+                >
                   {open === r.id ? "Hide" : "Details"}
                 </Button>
               </div>
               {open === r.id && (
                 <div className="mt-3 space-y-2">
                   <p>
-                    <a className="underline" href={`${meta?.explorer}/address/${r.address}#code`} target="_blank" rel="noreferrer">
+                    <a
+                      className="underline"
+                      href={`${meta?.explorer}/address/${r.address}#code`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       Open on ApeScan ↗
                     </a>{" "}
                     ·{" "}
-                    <a className="underline" href={`${meta?.explorer}/tx/${r.tx_hash}`} target="_blank" rel="noreferrer">
+                    <a
+                      className="underline"
+                      href={`${meta?.explorer}/tx/${r.tx_hash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       Deployment tx ↗
                     </a>
                   </p>
@@ -430,7 +563,12 @@ function DeploymentsCard({ rows, onChanged }: { rows: SplitterRow[]; onChanged: 
                   <div>
                     <p className="text-muted-foreground">Constructor arguments (ABI-encoded)</p>
                     <p className="break-all font-mono text-xs">{args}</p>
-                    <Button className="mt-1" size="sm" variant="outline" onClick={() => void copy(args, "Constructor arguments")}>
+                    <Button
+                      className="mt-1"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void copy(args, "Constructor arguments")}
+                    >
                       Copy constructor arguments
                     </Button>
                   </div>

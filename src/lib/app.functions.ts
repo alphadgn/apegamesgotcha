@@ -1041,10 +1041,14 @@ export const createSpinPurchase = createServerFn({ method: "POST" })
     await assertNotRestocking(); // no new purchases while the prize pool is being restocked
     const quote = await p.quoteSpinPrice(cfg);
     const price = BigInt(quote.eachWei) * BigInt(data.quantity);
+    // Gotcha Treasury: when switched on, fees go to the active GotchaFeeSplitter on this chain via deposit().
+    const { feeRecipient } = await import("./treasury-keeper.server");
+    const to = (await feeRecipient(cfg.chain_id)) ?? cfg.treasury.toLowerCase();
+    const viaSplitter = to !== cfg.treasury.toLowerCase();
     const db = await admin();
     const { data: row, error } = await db
       .from("spin_purchases")
-      .insert({ user_id: context.userId, quantity: data.quantity, price_wei: price.toString(), chain_id: cfg.chain_id, treasury: cfg.treasury.toLowerCase() })
+      .insert({ user_id: context.userId, quantity: data.quantity, price_wei: price.toString(), chain_id: cfg.chain_id, treasury: to })
       .select("id")
       .single();
     if (error) throw new Error(error.message);
@@ -1052,9 +1056,9 @@ export const createSpinPurchase = createServerFn({ method: "POST" })
     return {
       purchaseId: row.id as string,
       chainId: cfg.chain_id,
-      to: cfg.treasury,
+      to,
       valueWei: price.toString(),
-      data: p.purchaseData(row.id),
+      data: viaSplitter ? p.splitterPaymentData(row.id) : p.purchaseData(row.id),
       explorerUrl: cfg.explorer_url ?? null,
     };
   });

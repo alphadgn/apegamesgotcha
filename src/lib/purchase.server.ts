@@ -52,6 +52,13 @@ export function purchaseData(purchaseId: string): Hex {
   return `0x${hex}`;
 }
 
+/** Paying the GotchaFeeSplitter: deposit() with the purchase id appended (the contract ignores the extra bytes;
+ *  a plain transfer WITH data would revert there, as it has receive() but no fallback()). */
+export const DEPOSIT_SELECTOR = "0xd0e30db0";
+export function splitterPaymentData(purchaseId: string): Hex {
+  return `${DEPOSIT_SELECTOR}${purchaseData(purchaseId).slice(2)}`;
+}
+
 function client(cfg: PurchaseConfig) {
   return createPublicClient({
     chain: chainDef(cfg.chain_id, "ApeChain", cfg.rpc_url),
@@ -74,7 +81,8 @@ export async function checkPayment(cfg: PurchaseConfig, txHash: Hex, purchaseId:
   }
   if (tx.chainId != null && tx.chainId !== cfg.chain_id) return { state: "invalid", reason: "That transaction is on a different network." };
   if (!tx.to || tx.to.toLowerCase() !== cfg.treasury.toLowerCase()) return { state: "invalid", reason: "That transaction wasn't sent to the ApeGames treasury." };
-  if ((tx.input ?? "0x").toLowerCase() !== purchaseData(purchaseId)) return { state: "invalid", reason: "That transaction belongs to a different purchase." };
+  const input = (tx.input ?? "0x").toLowerCase();
+  if (input !== purchaseData(purchaseId) && input !== splitterPaymentData(purchaseId)) return { state: "invalid", reason: "That transaction belongs to a different purchase." };
   if (tx.value < priceWei) return { state: "invalid", reason: `Payment was ${formatEther(tx.value)} APE; ${formatEther(priceWei)} APE is required.` };
   if (tx.blockNumber == null) return { state: "pending" };
 

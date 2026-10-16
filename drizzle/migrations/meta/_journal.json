@@ -162,6 +162,13 @@
       "when": 1791840000000,
       "tag": "0022_treasury_splitters",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791850000000,
+      "tag": "0023_treasury_keeper",
+      "breakpoints": true
     }
   ]
 }
