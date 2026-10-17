@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { prizeArt } from "./icons";
 
 export type ShareSpin = { prize_name: string; rarity: string; points: number };
@@ -12,7 +13,10 @@ const RARITY: Record<string, { label: string; color: string }> = {
 
 function shareText(spins: ShareSpin[], demo: boolean) {
   const total = spins.reduce((s, x) => s + x.points, 0);
-  const lines = spins.map((s, i) => `${i + 1}. ${s.prize_name} (${RARITY[s.rarity]?.label ?? s.rarity})${demo ? "" : ` +${s.points}`}`);
+  const lines = spins.map(
+    (s, i) =>
+      `${i + 1}. ${s.prize_name} (${RARITY[s.rarity]?.label ?? s.rarity})${demo ? "" : ` +${s.points}`}`,
+  );
   return [
     `My last ${spins.length === 1 ? "" : `${spins.length} `}ApeGames Gotcha ${demo ? "demo " : ""}pull${spins.length === 1 ? "" : "s"} 🎰`,
     ...lines,
@@ -27,7 +31,8 @@ function shareText(spins: ShareSpin[], demo: boolean) {
  * The share card's lettering (Oswald) is loaded only when someone shares, so the stylesheet doesn't hold up the
  * first paint of every page.
  */
-const SHARE_FONTS = "https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Chakra+Petch:wght@600&display=swap";
+const SHARE_FONTS =
+  "https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Chakra+Petch:wght@600&display=swap";
 async function loadShareFonts() {
   try {
     if (!document.querySelector(`link[href="${SHARE_FONTS}"]`)) {
@@ -50,8 +55,13 @@ async function loadShareFonts() {
 }
 
 /** Draw a 1080×1350 card (Instagram portrait) of the spins, using the same prize art as the machine. */
-async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElement): Promise<Blob | null> {
-  const W = 1080, H = 1350;
+async function renderCard(
+  spins: ShareSpin[],
+  demo: boolean,
+  artHost: HTMLElement,
+): Promise<Blob | null> {
+  const W = 1080,
+    H = 1350;
   const c = document.createElement("canvas");
   c.width = W;
   c.height = H;
@@ -78,11 +88,17 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
   g.fillStyle = "#fff6e3";
   g.font = `700 64px ${display}`;
   const n = spins.length;
-  const what = n === 1 ? (demo ? "MY LAST DEMO PULL" : "MY LAST PULL") : `MY LAST ${n} ${demo ? "DEMO " : ""}PULLS`;
+  const what =
+    n === 1
+      ? demo
+        ? "MY LAST DEMO PULL"
+        : "MY LAST PULL"
+      : `MY LAST ${n} ${demo ? "DEMO " : ""}PULLS`;
   g.fillText(what, W / 2, 176);
 
   const arts = Array.from(artHost.querySelectorAll("svg"));
-  const rowH = 168, top = 228;
+  const rowH = 168,
+    top = 228;
   for (let i = 0; i < spins.length; i++) {
     const s = spins[i]!;
     const r = RARITY[s.rarity] ?? RARITY["common"]!;
@@ -107,7 +123,9 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
     // prize art
     const svg = arts[i];
     if (svg) {
-      const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+      const src =
+        "data:image/svg+xml;charset=utf-8," +
+        encodeURIComponent(new XMLSerializer().serializeToString(svg));
       const img = new Image();
       img.src = src;
       await img.decode().catch(() => {});
@@ -144,10 +162,20 @@ async function renderCard(spins: ShareSpin[], demo: boolean, artHost: HTMLElemen
  * Share the player's previous five spins. Uses the device's share sheet (Instagram, TikTok, Facebook,
  * Messages… whatever the phone offers) with an image card; falls back to links on desktop.
  */
-export function ShareSpinsButton({ spins, demo = false, className = "" }: { spins: ShareSpin[]; demo?: boolean; className?: string }) {
+export function ShareSpinsButton({
+  spins,
+  demo = false,
+  className = "",
+}: {
+  spins: ShareSpin[];
+  demo?: boolean;
+  className?: string;
+}) {
   const last5 = spins.slice(-5);
   const artHost = useRef<HTMLDivElement>(null);
-  const [menu, setMenu] = useState<{ text: string; url: string; image: string | null } | null>(null);
+  const [menu, setMenu] = useState<{ text: string; url: string; image: string | null } | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
@@ -156,13 +184,28 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
 
   useEffect(() => () => void (menu?.image && URL.revokeObjectURL(menu.image)), [menu]);
 
+  // While the menu is open: Escape closes it and the page behind doesn't scroll.
+  const open = !!menu;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(null);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   // Pre-draw the image as soon as the button appears: iPhones only open the share sheet right after a tap.
   useEffect(() => {
     card.current = null;
     if (!key) return;
     let live = true;
     const t = window.setTimeout(() => {
-      if (artHost.current) void renderCard(last5, demo, artHost.current).then((b) => live && (card.current = b));
+      if (artHost.current)
+        void renderCard(last5, demo, artHost.current).then((b) => live && (card.current = b));
     }, 50);
     return () => {
       live = false;
@@ -180,7 +223,8 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
     const url = window.location.origin;
     const text = shareText(last5, demo);
     try {
-      const blob = card.current ?? (artHost.current ? await renderCard(last5, demo, artHost.current) : null);
+      const blob =
+        card.current ?? (artHost.current ? await renderCard(last5, demo, artHost.current) : null);
       card.current = blob;
       setHint(null);
       setMenu({ text, url, image: blob ? URL.createObjectURL(blob) : null });
@@ -189,8 +233,12 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
     }
   };
 
-  const nav = (typeof navigator !== "undefined" ? navigator : undefined) as (Navigator & { canShare?: (d: ShareData) => boolean }) | undefined;
-  const cardFile = () => (card.current ? new File([card.current], "apegames-gotcha-pulls.png", { type: "image/png" }) : null);
+  const nav = (typeof navigator !== "undefined" ? navigator : undefined) as
+    (Navigator & { canShare?: (d: ShareData) => boolean }) | undefined;
+  const cardFile = () =>
+    card.current
+      ? new File([card.current], "apegames-gotcha-pulls.png", { type: "image/png" })
+      : null;
   const canShareImage = () => {
     const f = cardFile();
     return !!(f && nav?.share && nav.canShare?.({ files: [f] }));
@@ -201,7 +249,12 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
     if (!menu || !nav?.share) return false;
     const file = withImage ? cardFile() : null;
     try {
-      if (file && nav.canShare?.({ files: [file] })) await nav.share({ files: [file], title: "ApeGames Gotcha", text: `${menu.text}\n${menu.url}` });
+      if (file && nav.canShare?.({ files: [file] }))
+        await nav.share({
+          files: [file],
+          title: "ApeGames Gotcha",
+          text: `${menu.text}\n${menu.url}`,
+        });
       else await nav.share({ title: "ApeGames Gotcha", text: menu.text, url: menu.url });
       return true;
     } catch (e) {
@@ -216,13 +269,22 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
   const shareToApp = async (app: "facebook" | "instagram") => {
     if (!menu) return;
     const caption = `${menu.text}\n${menu.url}`;
-    void navigator.clipboard?.writeText(caption).then(() => setCopied(true)).catch(() => {});
+    void navigator.clipboard
+      ?.writeText(caption)
+      .then(() => setCopied(true))
+      .catch(() => {});
     if (canShareImage()) {
-      setHint(`Caption copied. Pick ${app === "facebook" ? "Facebook" : "Instagram"} in the share sheet and paste it.`);
+      setHint(
+        `Caption copied. Pick ${app === "facebook" ? "Facebook" : "Instagram"} in the share sheet and paste it.`,
+      );
       if (await deviceShare(true)) return;
     }
     if (app === "facebook") {
-      window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(menu.url)}`, "_blank", "noopener");
+      window.open(
+        `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(menu.url)}`,
+        "_blank",
+        "noopener",
+      );
       return;
     }
     // Instagram has no web share link: save the card so it can be posted from the Instagram app.
@@ -232,77 +294,142 @@ export function ShareSpinsButton({ spins, demo = false, className = "" }: { spin
       a.download = "apegames-gotcha-pulls.png";
       a.click();
     }
-    setHint("Image saved and caption copied. Open Instagram, add the image to a post or story, and paste the caption.");
+    setHint(
+      "Image saved and caption copied. Open Instagram, add the image to a post or story, and paste the caption.",
+    );
     window.open("https://www.instagram.com/", "_blank", "noopener");
   };
 
   const enc = encodeURIComponent;
   return (
     <>
-      <button type="button" className={`gm-share-btn ${className}`} onClick={() => void share()} disabled={busy}>
+      <button
+        type="button"
+        className={`gm-share-btn ${className}`}
+        onClick={() => void share()}
+        disabled={busy}
+      >
         {busy ? "Preparing…" : "Share my pulls"}
       </button>
       {/* hidden prize art, drawn into the share image */}
-      <div ref={artHost} aria-hidden style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}>
+      <div
+        ref={artHost}
+        aria-hidden
+        style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+      >
         {last5.map((s, i) => {
           const Art = prizeArt(s.prize_name, s.rarity);
           return <Art key={i} width={128} height={128} />;
         })}
       </div>
-      {menu && (
-        <div className="gm-rf-overlay" onMouseDown={(e) => e.target === e.currentTarget && setMenu(null)}>
-          <div className="gm-rf-panel" role="dialog" aria-modal="true" aria-label="Share your pulls">
-            <div className="gm-rf-head">
-              <h2>Share your pulls</h2>
-              <button type="button" className="gm-rf-close" aria-label="Close" onClick={() => setMenu(null)}>
-                ×
-              </button>
-            </div>
-            {menu.image && <img src={menu.image} alt="Your last five pulls" className="gm-share-preview" />}
-            <div className="gm-share-grid gm-share-main">
-              {/* Links to x.com and sms: open the X and Messages apps on phones (universal link / native handler). */}
-              <a href={`https://x.com/intent/post?text=${enc(menu.text)}&url=${enc(menu.url)}`} target="_blank" rel="noreferrer">
-                X (Twitter)
-              </a>
-              <button type="button" onClick={() => void shareToApp("facebook")}>
-                Facebook
-              </button>
-              <button type="button" onClick={() => void shareToApp("instagram")}>
-                Instagram
-              </button>
-              <a href={`sms:?&body=${enc(`${menu.text}\n${menu.url}`)}`}>Text message</a>
-            </div>
-            {hint && <p className="gm-share-hint" role="status">{hint}</p>}
-            <details className="gm-share-more">
-              <summary>More ways to share</summary>
-              <div className="gm-share-grid">
-                {nav?.share && (
-                  <button type="button" onClick={() => void deviceShare(true)}>
-                    Share sheet…
-                  </button>
-                )}
-                <a href={`https://wa.me/?text=${enc(`${menu.text}\n${menu.url}`)}`} target="_blank" rel="noreferrer">WhatsApp</a>
-                <a href={`https://t.me/share/url?url=${enc(menu.url)}&text=${enc(menu.text)}`} target="_blank" rel="noreferrer">Telegram</a>
-                <a href={`https://www.reddit.com/submit?url=${enc(menu.url)}&title=${enc(menu.text.split("\n")[0] ?? "")}`} target="_blank" rel="noreferrer">Reddit</a>
-                <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(menu.url)}`} target="_blank" rel="noreferrer">LinkedIn</a>
+      {/* Rendered at the end of <body>: inside the page, an animated (transformed) parent made the fixed overlay
+          center the menu on the whole page, far below the screen (only the dimmed backdrop showed). */}
+      {menu &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="gm-rf-overlay"
+            onMouseDown={(e) => e.target === e.currentTarget && setMenu(null)}
+          >
+            <div
+              className="gm-rf-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Share your pulls"
+            >
+              <div className="gm-rf-head">
+                <h2>Share your pulls</h2>
                 <button
                   type="button"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(`${menu.text}\n${menu.url}`).then(() => setCopied(true));
-                  }}
+                  className="gm-rf-close"
+                  aria-label="Close"
+                  onClick={() => setMenu(null)}
                 >
-                  {copied ? "Copied!" : "Copy text"}
+                  ×
                 </button>
-                {menu.image && (
-                  <a href={menu.image} download="apegames-gotcha-pulls.png">
-                    Save image
-                  </a>
-                )}
               </div>
-            </details>
-          </div>
-        </div>
-      )}
+              {menu.image && (
+                <img src={menu.image} alt="Your last five pulls" className="gm-share-preview" />
+              )}
+              <div className="gm-share-grid gm-share-main">
+                {/* Links to x.com and sms: open the X and Messages apps on phones (universal link / native handler). */}
+                <a
+                  href={`https://x.com/intent/post?text=${enc(menu.text)}&url=${enc(menu.url)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  X (Twitter)
+                </a>
+                <button type="button" onClick={() => void shareToApp("facebook")}>
+                  Facebook
+                </button>
+                <button type="button" onClick={() => void shareToApp("instagram")}>
+                  Instagram
+                </button>
+                <a href={`sms:?&body=${enc(`${menu.text}\n${menu.url}`)}`}>Text message</a>
+              </div>
+              {hint && (
+                <p className="gm-share-hint" role="status">
+                  {hint}
+                </p>
+              )}
+              <details className="gm-share-more">
+                <summary>More ways to share</summary>
+                <div className="gm-share-grid">
+                  {nav?.share && (
+                    <button type="button" onClick={() => void deviceShare(true)}>
+                      Share sheet…
+                    </button>
+                  )}
+                  <a
+                    href={`https://wa.me/?text=${enc(`${menu.text}\n${menu.url}`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    WhatsApp
+                  </a>
+                  <a
+                    href={`https://t.me/share/url?url=${enc(menu.url)}&text=${enc(menu.text)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Telegram
+                  </a>
+                  <a
+                    href={`https://www.reddit.com/submit?url=${enc(menu.url)}&title=${enc(menu.text.split("\n")[0] ?? "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Reddit
+                  </a>
+                  <a
+                    href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(menu.url)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    LinkedIn
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard
+                        ?.writeText(`${menu.text}\n${menu.url}`)
+                        .then(() => setCopied(true));
+                    }}
+                  >
+                    {copied ? "Copied!" : "Copy text"}
+                  </button>
+                  {menu.image && (
+                    <a href={menu.image} download="apegames-gotcha-pulls.png">
+                      Save image
+                    </a>
+                  )}
+                </div>
+              </details>
+            </div>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
