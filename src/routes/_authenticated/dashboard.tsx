@@ -18,6 +18,7 @@ import { MAX_WALLETS } from "@/lib/wallet-limits";
 import { IrlPrizes } from "@/components/IrlPrizes";
 import { GiftCertificates } from "@/components/GiftCertificates";
 import { StockCertificates } from "@/components/StockCertificates";
+import { RedeemCode } from "@/components/RedeemCode";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -200,6 +201,13 @@ function Dashboard() {
             : {})}
         />
         <Stat label="NFTs synced" value={String(data.holdings.filter((h) => !h.burned).length)} />
+      </div>
+
+      {/* Free-spin codes */}
+      <div className="mt-6">
+        <SafeSection label="free-spin code">
+          <RedeemCode />
+        </SafeSection>
       </div>
 
       {/* IRL prizes waiting to be claimed */}

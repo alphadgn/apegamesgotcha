@@ -25,6 +25,7 @@ import { GiftCertificatesPanel, VendorsPanel } from "@/components/admin/Certific
 import { StockCertificatesPanel } from "@/components/admin/StockPanel";
 import { ShippingSetup } from "@/components/admin/ShippingSetup";
 import { TreasuryPanel } from "@/components/admin/TreasuryPanel";
+import { SpinCodesCard } from "@/components/admin/SpinCodesCard";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
@@ -819,6 +820,7 @@ function GrantsPanel() {
   });
   return (
     <div className="mt-4 space-y-4">
+      <SpinCodesCard />
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-3 rounded border border-border bg-card p-4">
           <h3 className="font-bold">Grant spins / adjust points</h3>

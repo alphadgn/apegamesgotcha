@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getPurchaseSettings } from "@/lib/app.functions";
 import type { PurchaseSettings } from "./CheckoutPanel";
+import { RedeemCode } from "@/components/RedeemCode";
 
 const PrivyCheckout = lazy(() => import("./PrivyCheckout"));
 const InjectedCheckout = lazy(() => import("./InjectedCheckout"));
@@ -106,6 +107,7 @@ export function RefillDialog({
           </button>
         </div>
         {body}
+        <RedeemCode compact />
       </div>
     </div>
   );

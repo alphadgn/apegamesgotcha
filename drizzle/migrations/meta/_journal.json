@@ -169,6 +169,13 @@
       "when": 1791850000000,
       "tag": "0023_treasury_keeper",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791860000000,
+      "tag": "0024_spin_codes",
+      "breakpoints": true
     }
   ]
 }
