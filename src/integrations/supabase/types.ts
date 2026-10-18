@@ -208,6 +208,99 @@ export type Database = {
         }
         Relationships: []
       }
+      gift_certificates: {
+        Row: {
+          ape_usd_rate: string | null
+          ape_wei: string | null
+          created_at: string
+          forwarded_at: string | null
+          forwarded_by: string | null
+          id: string
+          issuer_wallet: string | null
+          paid_at: string | null
+          pay_tx: string | null
+          payout_wallet: string | null
+          pending_tx: string | null
+          prize_id: string | null
+          prize_name: string
+          quoted_at: string | null
+          redeem_code: string | null
+          redeemed_at: string | null
+          requested_at: string | null
+          spin_id: string
+          status: string
+          updated_at: string
+          user_id: string
+          value_usd: number
+          vendor_id: string | null
+        }
+        Insert: {
+          ape_usd_rate?: string | null
+          ape_wei?: string | null
+          created_at?: string
+          forwarded_at?: string | null
+          forwarded_by?: string | null
+          id?: string
+          issuer_wallet?: string | null
+          paid_at?: string | null
+          pay_tx?: string | null
+          payout_wallet?: string | null
+          pending_tx?: string | null
+          prize_id?: string | null
+          prize_name: string
+          quoted_at?: string | null
+          redeem_code?: string | null
+          redeemed_at?: string | null
+          requested_at?: string | null
+          spin_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          value_usd: number
+          vendor_id?: string | null
+        }
+        Update: {
+          ape_usd_rate?: string | null
+          ape_wei?: string | null
+          created_at?: string
+          forwarded_at?: string | null
+          forwarded_by?: string | null
+          id?: string
+          issuer_wallet?: string | null
+          paid_at?: string | null
+          pay_tx?: string | null
+          payout_wallet?: string | null
+          pending_tx?: string | null
+          prize_id?: string | null
+          prize_name?: string
+          quoted_at?: string | null
+          redeem_code?: string | null
+          redeemed_at?: string | null
+          requested_at?: string | null
+          spin_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          value_usd?: number
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gift_certificates_prize_id_fkey"
+            columns: ["prize_id"]
+            isOneToOne: false
+            referencedRelation: "prizes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gift_certificates_spin_id_fkey"
+            columns: ["spin_id"]
+            isOneToOne: true
+            referencedRelation: "spins"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guide_messages: {
         Row: {
           created_at: string
@@ -323,6 +416,19 @@ export type Database = {
           phone: string | null
           prize_id: string | null
           prize_name: string
+          ship_ape_rate: string | null
+          ship_ape_wei: string | null
+          ship_carrier: string | null
+          ship_days: number | null
+          ship_paid_at: string | null
+          ship_pay_tx: string | null
+          ship_payer: string | null
+          ship_pending_tx: string | null
+          ship_quote_id: string | null
+          ship_quoted_at: string | null
+          ship_rate_id: string | null
+          ship_service: string | null
+          ship_usd: number | null
           spin_id: string
           status: string
           tracking: string | null
@@ -341,6 +447,19 @@ export type Database = {
           phone?: string | null
           prize_id?: string | null
           prize_name: string
+          ship_ape_rate?: string | null
+          ship_ape_wei?: string | null
+          ship_carrier?: string | null
+          ship_days?: number | null
+          ship_paid_at?: string | null
+          ship_pay_tx?: string | null
+          ship_payer?: string | null
+          ship_pending_tx?: string | null
+          ship_quote_id?: string | null
+          ship_quoted_at?: string | null
+          ship_rate_id?: string | null
+          ship_service?: string | null
+          ship_usd?: number | null
           spin_id: string
           status?: string
           tracking?: string | null
@@ -359,6 +478,19 @@ export type Database = {
           phone?: string | null
           prize_id?: string | null
           prize_name?: string
+          ship_ape_rate?: string | null
+          ship_ape_wei?: string | null
+          ship_carrier?: string | null
+          ship_days?: number | null
+          ship_paid_at?: string | null
+          ship_pay_tx?: string | null
+          ship_payer?: string | null
+          ship_pending_tx?: string | null
+          ship_quote_id?: string | null
+          ship_quoted_at?: string | null
+          ship_rate_id?: string | null
+          ship_service?: string | null
+          ship_usd?: number | null
           spin_id?: string
           status?: string
           tracking?: string | null
@@ -385,6 +517,9 @@ export type Database = {
       prizes: {
         Row: {
           active: boolean
+          cert_issuer_wallet: string | null
+          cert_value_usd: number | null
+          cert_vendor_id: string | null
           created_at: string
           id: string
           image_url: string | null
@@ -394,11 +529,19 @@ export type Database = {
           onchain_index: number | null
           points: number
           rarity: string
+          ship_height_in: number | null
+          ship_length_in: number | null
+          ship_weight_oz: number | null
+          ship_width_in: number | null
+          stock_token_ids: string[] | null
           stocked: number | null
           weight: number
         }
         Insert: {
           active?: boolean
+          cert_issuer_wallet?: string | null
+          cert_value_usd?: number | null
+          cert_vendor_id?: string | null
           created_at?: string
           id?: string
           image_url?: string | null
@@ -408,11 +551,19 @@ export type Database = {
           onchain_index?: number | null
           points?: number
           rarity?: string
+          ship_height_in?: number | null
+          ship_length_in?: number | null
+          ship_weight_oz?: number | null
+          ship_width_in?: number | null
+          stock_token_ids?: string[] | null
           stocked?: number | null
           weight?: number
         }
         Update: {
           active?: boolean
+          cert_issuer_wallet?: string | null
+          cert_value_usd?: number | null
+          cert_vendor_id?: string | null
           created_at?: string
           id?: string
           image_url?: string | null
@@ -422,6 +573,11 @@ export type Database = {
           onchain_index?: number | null
           points?: number
           rarity?: string
+          ship_height_in?: number | null
+          ship_length_in?: number | null
+          ship_weight_oz?: number | null
+          ship_width_in?: number | null
+          stock_token_ids?: string[] | null
           stocked?: number | null
           weight?: number
         }
@@ -448,6 +604,115 @@ export type Database = {
           display_name?: string | null
           id?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      shipping_quotes: {
+        Row: {
+          address: Json
+          created_at: string
+          id: string
+          rates: Json
+          spin_id: string
+          user_id: string
+        }
+        Insert: {
+          address: Json
+          created_at?: string
+          id?: string
+          rates: Json
+          spin_id: string
+          user_id: string
+        }
+        Update: {
+          address?: Json
+          created_at?: string
+          id?: string
+          rates?: Json
+          spin_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipping_quotes_spin_id_fkey"
+            columns: ["spin_id"]
+            isOneToOne: false
+            referencedRelation: "spins"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spin_code_redemptions: {
+        Row: {
+          code_id: string
+          created_at: string
+          grant_id: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          code_id: string
+          created_at?: string
+          grant_id?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          code_id?: string
+          created_at?: string
+          grant_id?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spin_code_redemptions_code_id_fkey"
+            columns: ["code_id"]
+            isOneToOne: false
+            referencedRelation: "spin_codes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spin_codes: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          disabled: boolean
+          expires_at: string
+          id: string
+          kind: string
+          max_redemptions: number | null
+          note: string
+          spins: number
+          starts_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          disabled?: boolean
+          expires_at: string
+          id?: string
+          kind?: string
+          max_redemptions?: number | null
+          note?: string
+          spins?: number
+          starts_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          disabled?: boolean
+          expires_at?: string
+          id?: string
+          kind?: string
+          max_redemptions?: number | null
+          note?: string
+          spins?: number
+          starts_at?: string
         }
         Relationships: []
       }
@@ -644,6 +909,90 @@ export type Database = {
           },
         ]
       }
+      stock_certificates: {
+        Row: {
+          chain_id: number | null
+          claim_rand: string | null
+          contract: string | null
+          created_at: string
+          delivery: string | null
+          email: string | null
+          emailed_at: string | null
+          error: string | null
+          id: string
+          prize_id: string | null
+          prize_name: string
+          send_started_at: string | null
+          sent_at: string | null
+          spin_id: string
+          status: string
+          to_wallet: string | null
+          token_id: string | null
+          tx_hash: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          chain_id?: number | null
+          claim_rand?: string | null
+          contract?: string | null
+          created_at?: string
+          delivery?: string | null
+          email?: string | null
+          emailed_at?: string | null
+          error?: string | null
+          id?: string
+          prize_id?: string | null
+          prize_name: string
+          send_started_at?: string | null
+          sent_at?: string | null
+          spin_id: string
+          status?: string
+          to_wallet?: string | null
+          token_id?: string | null
+          tx_hash?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          chain_id?: number | null
+          claim_rand?: string | null
+          contract?: string | null
+          created_at?: string
+          delivery?: string | null
+          email?: string | null
+          emailed_at?: string | null
+          error?: string | null
+          id?: string
+          prize_id?: string | null
+          prize_name?: string
+          send_started_at?: string | null
+          sent_at?: string | null
+          spin_id?: string
+          status?: string
+          to_wallet?: string | null
+          token_id?: string | null
+          tx_hash?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_certificates_prize_id_fkey"
+            columns: ["prize_id"]
+            isOneToOne: false
+            referencedRelation: "prizes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_certificates_spin_id_fkey"
+            columns: ["spin_id"]
+            isOneToOne: true
+            referencedRelation: "spins"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       super_admins: {
         Row: {
           created_at: string
@@ -656,6 +1005,258 @@ export type Database = {
         Update: {
           created_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      treasury_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          created_at: string
+          id: string
+          job_id: string | null
+          level: string
+          message: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          created_at?: string
+          id?: string
+          job_id?: string | null
+          level?: string
+          message: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          created_at?: string
+          id?: string
+          job_id?: string | null
+          level?: string
+          message?: string
+        }
+        Relationships: []
+      }
+      treasury_events: {
+        Row: {
+          address: string | null
+          amount_wei: string | null
+          block_number: number
+          block_time: string | null
+          bucket: number | null
+          chain_id: number
+          id: number
+          log_index: number
+          name: string
+          splitter: string
+          target_wei: string | null
+          tx_hash: string
+        }
+        Insert: {
+          address?: string | null
+          amount_wei?: string | null
+          block_number: number
+          block_time?: string | null
+          bucket?: number | null
+          chain_id: number
+          id?: number
+          log_index: number
+          name: string
+          splitter: string
+          target_wei?: string | null
+          tx_hash: string
+        }
+        Update: {
+          address?: string | null
+          amount_wei?: string | null
+          block_number?: number
+          block_time?: string | null
+          bucket?: number | null
+          chain_id?: number
+          id?: number
+          log_index?: number
+          name?: string
+          splitter?: string
+          target_wei?: string | null
+          tx_hash?: string
+        }
+        Relationships: []
+      }
+      treasury_jobs: {
+        Row: {
+          attempts: number
+          bridge_expected_wei: string | null
+          bridge_tx: string | null
+          bucket: number
+          buy_tx: string | null
+          chain_id: number
+          created_at: string
+          deliver_tx: string | null
+          dest_chain_id: number | null
+          error: string | null
+          id: string
+          last_ok_status: string | null
+          listing_hash: string | null
+          manual: boolean
+          nft_contract: string | null
+          note: string | null
+          price_wei: string | null
+          relay_request_id: string | null
+          release_from_block: number | null
+          release_tx: string | null
+          released_ape_wei: string | null
+          splitter: string
+          status: string
+          token_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          bridge_expected_wei?: string | null
+          bridge_tx?: string | null
+          bucket: number
+          buy_tx?: string | null
+          chain_id: number
+          created_at?: string
+          deliver_tx?: string | null
+          dest_chain_id?: number | null
+          error?: string | null
+          id?: string
+          last_ok_status?: string | null
+          listing_hash?: string | null
+          manual?: boolean
+          nft_contract?: string | null
+          note?: string | null
+          price_wei?: string | null
+          relay_request_id?: string | null
+          release_from_block?: number | null
+          release_tx?: string | null
+          released_ape_wei?: string | null
+          splitter: string
+          status: string
+          token_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          bridge_expected_wei?: string | null
+          bridge_tx?: string | null
+          bucket?: number
+          buy_tx?: string | null
+          chain_id?: number
+          created_at?: string
+          deliver_tx?: string | null
+          dest_chain_id?: number | null
+          error?: string | null
+          id?: string
+          last_ok_status?: string | null
+          listing_hash?: string | null
+          manual?: boolean
+          nft_contract?: string | null
+          note?: string | null
+          price_wei?: string | null
+          relay_request_id?: string | null
+          release_from_block?: number | null
+          release_tx?: string | null
+          released_ape_wei?: string | null
+          splitter?: string
+          status?: string
+          token_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      treasury_lock: {
+        Row: {
+          id: number
+          last_run_at: string | null
+          locked_until: string | null
+        }
+        Insert: {
+          id: number
+          last_run_at?: string | null
+          locked_until?: string | null
+        }
+        Update: {
+          id?: number
+          last_run_at?: string | null
+          locked_until?: string | null
+        }
+        Relationships: []
+      }
+      treasury_runs: {
+        Row: {
+          dry_run: boolean
+          finished_at: string | null
+          id: string
+          log: Json
+          ok: boolean | null
+          started_at: string
+          trigger: string
+        }
+        Insert: {
+          dry_run?: boolean
+          finished_at?: string | null
+          id?: string
+          log?: Json
+          ok?: boolean | null
+          started_at?: string
+          trigger?: string
+        }
+        Update: {
+          dry_run?: boolean
+          finished_at?: string | null
+          id?: string
+          log?: Json
+          ok?: boolean | null
+          started_at?: string
+          trigger?: string
+        }
+        Relationships: []
+      }
+      treasury_splitters: {
+        Row: {
+          address: string
+          block_number: number | null
+          chain_id: number
+          constructor_args: string
+          created_at: string
+          deployed_by: string | null
+          id: string
+          is_active: boolean
+          keeper: string
+          owner: string
+          recipients: Json
+          scanned_block: number | null
+          tx_hash: string
+        }
+        Insert: {
+          address: string
+          block_number?: number | null
+          chain_id: number
+          constructor_args: string
+          created_at?: string
+          deployed_by?: string | null
+          id?: string
+          is_active?: boolean
+          keeper: string
+          owner: string
+          recipients: Json
+          scanned_block?: number | null
+          tx_hash: string
+        }
+        Update: {
+          address?: string
+          block_number?: number | null
+          chain_id?: number
+          constructor_args?: string
+          created_at?: string
+          deployed_by?: string | null
+          id?: string
+          is_active?: boolean
+          keeper?: string
+          owner?: string
+          recipients?: Json
+          scanned_block?: number | null
+          tx_hash?: string
         }
         Relationships: []
       }
@@ -674,6 +1275,36 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      vendors: {
+        Row: {
+          business_name: string
+          created_at: string
+          created_by: string | null
+          location: string | null
+          updated_at: string
+          user_id: string
+          wallet: string | null
+        }
+        Insert: {
+          business_name: string
+          created_at?: string
+          created_by?: string | null
+          location?: string | null
+          updated_at?: string
+          user_id: string
+          wallet?: string | null
+        }
+        Update: {
+          business_name?: string
+          created_at?: string
+          created_by?: string | null
+          location?: string | null
+          updated_at?: string
+          user_id?: string
+          wallet?: string | null
         }
         Relationships: []
       }
@@ -821,7 +1452,20 @@ export type Database = {
       }
       is_super_admin: { Args: { _user_id: string }; Returns: boolean }
       leaderboard_mode: { Args: never; Returns: string }
+      redeem_spin_code: {
+        Args: { _code: string; _user_id: string }
+        Returns: Json
+      }
       refund_spins: { Args: { _ids: string[] }; Returns: number }
+      treasury_try_lock: {
+        Args: {
+          _force: boolean
+          _hold_seconds: number
+          _min_gap_seconds: number
+        }
+        Returns: boolean
+      }
+      treasury_unlock: { Args: never; Returns: undefined }
       use_demo_spins: {
         Args: { _count: number; _user_id: string }
         Returns: number
