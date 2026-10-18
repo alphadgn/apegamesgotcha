@@ -176,6 +176,13 @@
       "when": 1791860000000,
       "tag": "0024_spin_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792343650901,
+      "tag": "0025_0024_spin_codes",
+      "breakpoints": true
     }
   ]
 }
