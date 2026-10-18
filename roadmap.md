@@ -1,4 +1,5 @@
 # Current tasks
+- [ ] Route spin payments through treasury splitter wallets: blocked because no deployed splitter or recipient-wallet configuration is saved; need an existing ApeChain splitter address or deployment wallet details before activation.
 - [x] Repair touch-responsive grant deletion; confirmed touch deletion, cancellation, account preservation and spent-credit preservation.
 - [x] Restore visible VRF setup, publish and settle controls; Settle now verified signed in, optional Node socket dependency removed.
 - [ ] Verify the live-only draw error after publishing the updated site; blocked on a new publication.
