@@ -22,6 +22,7 @@ import { FloatingGuide } from "@/components/guide/GuideButton";
 import { WalletHost } from "@/components/wallet/WalletHost";
 import { RestockPopup } from "@/components/RestockPopup";
 import { InactivityGuard } from "@/components/InactivityGuard";
+import { usePrizesRealtime } from "@/hooks/usePrizesRealtime";
 
 function NotFoundComponent() {
   return (
