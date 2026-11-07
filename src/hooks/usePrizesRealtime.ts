@@ -16,6 +16,7 @@ export function usePrizesRealtime() {
         void qc.invalidateQueries({ queryKey: ["public-prizes"] });
         void qc.invalidateQueries({ queryKey: ["machine"] });
         void qc.invalidateQueries({ queryKey: ["prizes-admin"] });
+        void qc.invalidateQueries({ queryKey: ["admin-pool-status"] });
       })
       .subscribe();
     return () => {
