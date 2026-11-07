@@ -172,6 +172,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <PrizesLiveSync />
       <SiteHeader />
       <PageFade>
         <Outlet />
