@@ -22,6 +22,7 @@ import { FloatingGuide } from "@/components/guide/GuideButton";
 import { WalletHost } from "@/components/wallet/WalletHost";
 import { RestockPopup } from "@/components/RestockPopup";
 import { InactivityGuard } from "@/components/InactivityGuard";
+import { usePrizesRealtime } from "@/hooks/usePrizesRealtime";
 
 function NotFoundComponent() {
   return (
@@ -140,6 +141,12 @@ function PageFade({ children }: { children: ReactNode }) {
   );
 }
 
+/** Listens for prize changes and refreshes every prize list app-wide. Mounted inside the QueryClientProvider tree. */
+function PrizesLiveSync() {
+  usePrizesRealtime();
+  return null;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
@@ -165,6 +172,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <PrizesLiveSync />
       <SiteHeader />
       <PageFade>
         <Outlet />
