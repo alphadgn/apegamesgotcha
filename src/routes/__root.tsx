@@ -141,6 +141,12 @@ function PageFade({ children }: { children: ReactNode }) {
   );
 }
 
+/** Listens for prize changes and refreshes every prize list app-wide. Mounted inside the QueryClientProvider tree. */
+function PrizesLiveSync() {
+  usePrizesRealtime();
+  return null;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
